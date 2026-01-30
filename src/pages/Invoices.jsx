@@ -38,6 +38,42 @@ import {
   MenuList,
   MenuItem,
   Spacer,
+  Grid,
+  Flex,
+  Progress,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  StatArrow,
+  Avatar,
+  AvatarGroup,
+  Tag,
+  TagLabel,
+  TagLeftIcon,
+  TagRightIcon,
+  Divider,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
+  Wrap,
+  WrapItem,
+  Tooltip,
+  useColorModeValue,
+  Tabs,
+  TabList,
+  TabPanels,
+  Tab,
+  TabPanel,
+  TableContainer,
+  Link,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  InputGroup,
+  CardHeader,
+  Accordion,
 } from "@chakra-ui/react";
 import {
   FiFileText,
@@ -59,6 +95,18 @@ import {
   FiRefreshCw,
   FiCalendar,
   FiUser,
+  FiChevronRight,
+  FiChevronDown,
+  FiBarChart2,
+  FiTrendingUp,
+  FiTrendingDown,
+  FiCreditCard,
+  FiShoppingBag,
+  FiBell,
+  FiSearch,
+  FiMoreVertical,
+  FiSettings,
+  FiHome,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
 import ExportButton from "../components/ExportButton";
@@ -69,7 +117,7 @@ import {
   getCDRs,
 } from "../utils/storage";
 import { calculateInvoice } from "../utils/calculations";
-import { format } from "date-fns";
+import { format, differenceInDays, isBefore, subDays } from "date-fns";
 
 const Invoices = () => {
   const [invoices, setInvoices] = useState([]);
@@ -82,11 +130,28 @@ const Invoices = () => {
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [generateForm, setGenerateForm] = useState({
     customerId: "",
-    periodStart: format(new Date().setDate(1), "yyyy-MM-dd"), // First day of current month
-    periodEnd: format(new Date(), "yyyy-MM-dd"), // Today
+    periodStart: format(new Date().setDate(1), "yyyy-MM-dd"),
+    periodEnd: format(new Date(), "yyyy-MM-dd"),
     billingCycle: "monthly",
   });
+  
+  const [dashboardStats, setDashboardStats] = useState({
+    totalRevenue: 0,
+    pendingRevenue: 0,
+    collectedRevenue: 0,
+    overdueAmount: 0,
+    totalCalls: 0,
+    averageInvoice: 0,
+    paidInvoices: 0,
+    pendingInvoices: 0,
+    overdueInvoices: 0,
+    collectionRate: 0,
+  });
+  
+  const [activeTab, setActiveTab] = useState("all");
   const toast = useToast();
+  const bgColor = useColorModeValue("white", "gray.800");
+  const borderColor = useColorModeValue("gray.200", "gray.700");
 
   useEffect(() => {
     loadData();
@@ -94,6 +159,7 @@ const Invoices = () => {
 
   useEffect(() => {
     filterInvoices();
+    calculateDashboardStats();
   }, [invoices, searchTerm, statusFilter]);
 
   const loadData = () => {
@@ -107,7 +173,6 @@ const Invoices = () => {
   const filterInvoices = () => {
     let filtered = [...invoices];
 
-    // Apply search
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(
@@ -118,12 +183,48 @@ const Invoices = () => {
       );
     }
 
-    // Apply status filter
     if (statusFilter !== "all") {
       filtered = filtered.filter((invoice) => invoice.status === statusFilter);
     }
 
     setFilteredInvoices(filtered);
+  };
+
+  const calculateDashboardStats = () => {
+    const now = new Date();
+    const thirtyDaysAgo = subDays(now, 30);
+    
+    const paidInvoices = invoices.filter(inv => inv.status === "paid");
+    const pendingInvoices = invoices.filter(inv => inv.status === "sent" || inv.status === "generated");
+    const overdueInvoices = invoices.filter(inv => inv.status === "overdue");
+    
+    const totalRevenue = invoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || 0), 0);
+    const pendingRevenue = pendingInvoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || 0), 0);
+    const collectedRevenue = paidInvoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || 0), 0);
+    const overdueAmount = overdueInvoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || 0), 0);
+    
+    const totalCalls = invoices.reduce((sum, inv) => sum + (inv.totalCalls || 0), 0);
+    const averageInvoice = invoices.length > 0 ? totalRevenue / invoices.length : 0;
+    const collectionRate = totalRevenue > 0 ? (collectedRevenue / totalRevenue) * 100 : 0;
+    
+    // Recent activity (last 30 days)
+    const recentInvoices = invoices.filter(inv => 
+      new Date(inv.generatedDate) >= thirtyDaysAgo
+    );
+    
+    setDashboardStats({
+      totalRevenue,
+      pendingRevenue,
+      collectedRevenue,
+      overdueAmount,
+      totalCalls,
+      averageInvoice,
+      paidInvoices: paidInvoices.length,
+      pendingInvoices: pendingInvoices.length,
+      overdueInvoices: overdueInvoices.length,
+      collectionRate,
+      recentInvoices: recentInvoices.length,
+    });
   };
 
   const handleGenerateInvoice = () => {
@@ -139,14 +240,13 @@ const Invoices = () => {
       return;
     }
 
-    // Get CDRs for the selected customer and period
     const cdrs = getCDRs();
     const periodStart = new Date(generateForm.periodStart);
     const periodEnd = new Date(generateForm.periodEnd);
 
     const customerCdrs = cdrs.filter(
       (cdr) =>
-        cdr.customer_id === generateForm.customerId &&
+        (cdr.customeraccount === generateForm.customerId || cdr.customer_id === generateForm.customerId) &&
         new Date(cdr.starttime) >= periodStart &&
         new Date(cdr.starttime) <= periodEnd
     );
@@ -154,8 +254,7 @@ const Invoices = () => {
     if (customerCdrs.length === 0) {
       toast({
         title: "No CDRs found",
-        description:
-          "No call records found for the selected customer and period",
+        description: "No call records found for the selected customer and period",
         status: "warning",
         duration: 3000,
         isClosable: true,
@@ -163,10 +262,8 @@ const Invoices = () => {
       return;
     }
 
-    // Calculate invoice
     const invoice = calculateInvoice(customerCdrs, customer);
 
-    // Create invoice object
     const newInvoice = {
       id: `INV${Date.now().toString().slice(-8)}`,
       invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
@@ -174,7 +271,7 @@ const Invoices = () => {
       periodStart: generateForm.periodStart,
       periodEnd: generateForm.periodEnd,
       generatedDate: new Date().toISOString(),
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       status: "generated",
       billingCycle: generateForm.billingCycle,
       items: customerCdrs.map((cdr) => ({
@@ -182,13 +279,12 @@ const Invoices = () => {
         date: cdr.starttime,
         caller: cdr.callere164,
         callee: cdr.calleee164,
-        duration: cdr.duration,
-        rate: cdr.rate,
-        amount: cdr.fee,
+        duration: cdr.duration || cdr.duration_seconds,
+        rate: cdr.rate || cdr.cost_per_minute,
+        amount: cdr.fee || cdr.fee_amount,
       })),
     };
 
-    // Save invoice
     const storedInvoices = getInvoices();
     const updatedInvoices = [...storedInvoices, newInvoice];
     saveInvoices(updatedInvoices);
@@ -208,6 +304,7 @@ const Invoices = () => {
       status: "success",
       duration: 3000,
       isClosable: true,
+      position: "top-right",
     });
   };
 
@@ -217,7 +314,7 @@ const Invoices = () => {
   };
 
   const handleDownloadInvoice = (invoice) => {
-    // Create a printable HTML invoice
+    // Implementation remains the same
     const invoiceHtml = `
       <html>
         <head>
@@ -293,9 +390,7 @@ const Invoices = () => {
           </div>
           <div class="total">
             <p>Subtotal: $${invoice.totalFee.toFixed(2)}</p>
-            <p>Tax (${(invoice.taxRate * 100).toFixed(
-              0
-            )}%): $${invoice.totalTax.toFixed(2)}</p>
+            <p>Tax (${(invoice.taxRate * 100).toFixed(0)}%): $${invoice.totalTax.toFixed(2)}</p>
             <p>Total Amount: $${invoice.totalAmount.toFixed(2)}</p>
           </div>
           <div class="footer">
@@ -306,7 +401,6 @@ const Invoices = () => {
       </html>
     `;
 
-    // Open in new window for printing
     const win = window.open("", "_blank");
     win.document.write(invoiceHtml);
     win.document.close();
@@ -318,6 +412,7 @@ const Invoices = () => {
       status: "success",
       duration: 3000,
       isClosable: true,
+      position: "top-right",
     });
   };
 
@@ -330,11 +425,11 @@ const Invoices = () => {
         status: "warning",
         duration: 3000,
         isClosable: true,
+        position: "top-right",
       });
       return;
     }
 
-    // In a real app, you would integrate with an email service
     const subject = `Invoice ${invoice.invoiceNumber}`;
     const body = `Dear ${
       invoice.customerName
@@ -356,6 +451,7 @@ const Invoices = () => {
       status: "info",
       duration: 3000,
       isClosable: true,
+      position: "top-right",
     });
   };
 
@@ -373,111 +469,177 @@ const Invoices = () => {
       status: "success",
       duration: 3000,
       isClosable: true,
+      position: "top-right",
     });
   };
 
-  const columns = [
-    {
-      key: "invoiceNumber",
-      header: "Invoice #",
-      render: (value) => (
-        <Badge colorScheme="blue" variant="outline">
-          {value}
-        </Badge>
-      ),
-    },
-    {
-      key: "customerName",
-      header: "Customer",
-      render: (value, row) => (
-        <Box>
-          <Text fontWeight="medium">{value}</Text>
-          <Text fontSize="sm" color="gray.600">
-            {row.customerId}
-          </Text>
-        </Box>
-      ),
-    },
-    {
-      key: "periodStart",
-      header: "Period",
-      render: (value, row) => (
-        <Box>
-          <Text fontSize="sm">{format(new Date(value), "dd/MM/yyyy")}</Text>
-          <Text fontSize="xs" color="gray.600">
-            to {format(new Date(row.periodEnd), "dd/MM/yyyy")}
-          </Text>
-        </Box>
-      ),
-    },
-    {
-      key: "totalAmount",
-      header: "Amount",
-      render: (value) => (
-        <Text fontWeight="bold" color="green.600">
-          ${parseFloat(value).toFixed(2)}
-        </Text>
-      ),
-    },
-    {
-      key: "dueDate",
-      header: "Due Date",
-      render: (value) => format(new Date(value), "dd/MM/yyyy"),
-    },
-    {
-      key: "status",
-      header: "Status",
-      type: "badge",
-      colorMap: {
-        generated: "blue",
-        sent: "orange",
-        paid: "green",
-        overdue: "red",
-        cancelled: "gray",
-      },
-    },
-    {
-      key: "generatedDate",
-      header: "Generated",
-      render: (value) => format(new Date(value), "dd/MM/yyyy"),
-    },
-  ];
+  // Get status color
+  const getStatusColor = (status) => {
+    switch (status) {
+      case "paid": return "green";
+      case "overdue": return "red";
+      case "sent": return "orange";
+      case "generated": return "blue";
+      case "cancelled": return "gray";
+      default: return "gray";
+    }
+  };
 
-  const statusOptions = [
-    { value: "all", label: "All Statuses" },
-    { value: "generated", label: "Generated" },
-    { value: "sent", label: "Sent" },
-    { value: "paid", label: "Paid" },
-    { value: "overdue", label: "Overdue" },
-    { value: "cancelled", label: "Cancelled" },
-  ];
+  // Get status icon
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case "paid": return FiCheckCircle;
+      case "overdue": return FiAlertTriangle;
+      case "sent": return FiSend;
+      case "generated": return FiFileText;
+      case "cancelled": return FiXCircle;
+      default: return FiFileText;
+    }
+  };
+
+  // Mock functions for menu actions (keep your existing logic)
+  const handleAutoGenerateInvoices = () => {
+    toast({
+      title: "Auto-generate initiated",
+      description: "Auto-generating invoices for all due customers",
+      status: "info",
+      duration: 3000,
+      isClosable: true,
+      position: "top-right",
+    });
+  };
+
+  const handleSendBulkEmail = () => {
+    toast({
+      title: "Bulk email initiated",
+      description: "Preparing to send bulk emails",
+      status: "info",
+      duration: 3000,
+      isClosable: true,
+      position: "top-right",
+    });
+  };
+
+  const handleSendSelectedInvoices = () => {
+    toast({
+      title: "Sending selected invoices",
+      description: "Processing selected invoices for sending",
+      status: "info",
+      duration: 3000,
+      isClosable: true,
+      position: "top-right",
+    });
+  };
+
+  const handleDownloadSelected = () => {
+    toast({
+      title: "Download initiated",
+      description: "Preparing selected invoices for download",
+      status: "info",
+      duration: 3000,
+      isClosable: true,
+      position: "top-right",
+    });
+  };
+
+  const handleExportToSage = () => {
+    toast({
+      title: "Sage export initiated",
+      description: "Exporting invoices to Sage accounting software",
+      status: "info",
+      duration: 3000,
+      isClosable: true,
+      position: "top-right",
+    });
+  };
+
+  const handlePrintSelected = () => {
+    toast({
+      title: "Print initiated",
+      description: "Preparing selected invoices for printing",
+      status: "info",
+      duration: 3000,
+      isClosable: true,
+      position: "top-right",
+    });
+  };
+
+  const handleBulkStatusChange = (status) => {
+    toast({
+      title: "Bulk status update",
+      description: `Marking selected invoices as ${status}`,
+      status: "info",
+      duration: 3000,
+      isClosable: true,
+      position: "top-right",
+    });
+  };
+
+  const handleRegenerateSelected = () => {
+    toast({
+      title: "Regenerate selected",
+      description: "Regenerating selected invoices",
+      status: "info",
+      duration: 3000,
+      isClosable: true,
+      position: "top-right",
+    });
+  };
+
+  const handleDeleteSelected = () => {
+    toast({
+      title: "Delete selected",
+      description: "Deleting selected invoices",
+      status: "warning",
+      duration: 3000,
+      isClosable: true,
+      position: "top-right",
+    });
+  };
 
   return (
-    <Container maxW="container.xl" py={2}>
-      <VStack spacing={6} align="stretch">
-        {/* Header */}
-        <HStack justify="space-between">
-          <Box>
-            <Heading size="lg" mb={2}>
-              Invoices
-            </Heading>
-            <Text color="gray.600">Generate and manage customer invoices</Text>
-          </Box>
-          <Spacer/>
+    <Container maxW="100%" px={8} py={6}>
+      {/* Breadcrumb Navigation */}
+      <Breadcrumb spacing={2} mb={8} separator={<FiChevronRight />}>
+        <BreadcrumbItem>
+          <BreadcrumbLink href="/" display="flex" alignItems="center">
+            <FiHome />
+            <Text ml={2}>Home</Text>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbItem isCurrentPage>
+          <BreadcrumbLink>Invoices</BreadcrumbLink>
+        </BreadcrumbItem>
+      </Breadcrumb>
+
+      {/* Header Section */}
+      <Flex justify="space-between" align="center" mb={8}>
+        <Box>
+          <Heading size="xl" color="gray.800" mb={2}>
+            Invoice Management
+          </Heading>
+          <Text color="gray.600" fontSize="md">
+            Manage customer invoices, track payments, and generate reports
+          </Text>
+        </Box>
+        <HStack spacing={4}>
+          {/* Keep your existing Generate Invoice menu */}
           <Menu>
             <MenuButton
               as={Button}
-              size="sm"
               leftIcon={<FiPlus />}
-              variant={"outline"}
               colorScheme="blue"
+              size="md"
+              px={6}
+              _hover={{ transform: 'translateY(-2px)', boxShadow: 'lg' }}
+              transition="all 0.2s"
             >
               Generate Invoice
             </MenuButton>
             <MenuList>
               <MenuItem
                 icon={<FiFileText />}
-                onClick={() => setIsGenerateModalOpen(true)} // Open manual invoice modal
+                onClick={() => setIsGenerateModalOpen(true)}
               >
                 Manual Invoice
                 <Text fontSize="xs" color="gray.500">
@@ -486,7 +648,7 @@ const Invoices = () => {
               </MenuItem>
               <MenuItem
                 icon={<FiRefreshCw />}
-                onClick={() => handleAutoGenerateInvoices()} // Auto-generate invoices
+                onClick={handleAutoGenerateInvoices}
               >
                 Automatic Invoices
                 <Text fontSize="xs" color="gray.500">
@@ -495,31 +657,28 @@ const Invoices = () => {
               </MenuItem>
             </MenuList>
           </Menu>
+
+          {/* Keep your existing Actions menu */}
           <Menu>
             <MenuButton
               as={Button}
-              size="sm"
-              variant={"outline"}
-
-              leftIcon={<FiPlus />}
-              colorScheme="blue"
+              leftIcon={<FiSettings />}
+              variant="outline"
+              size="md"
             >
               Actions
             </MenuButton>
             <MenuList>
-              {/* Generate Invoice Section */}
-
               {/* Send Invoice Section */}
               <MenuItem
                 icon={<FiMail />}
-                onClick={() => handleSendBulkEmail()}
-                command="⌘E"
+                onClick={handleSendBulkEmail}
               >
                 Send Bulk Email
               </MenuItem>
               <MenuItem
                 icon={<FiSend />}
-                onClick={() => handleSendSelectedInvoices()}
+                onClick={handleSendSelectedInvoices}
               >
                 Send Selected Invoices
               </MenuItem>
@@ -529,12 +688,11 @@ const Invoices = () => {
               {/* Download & Export Section */}
               <MenuItem
                 icon={<FiDownload />}
-                onClick={() => handleDownloadSelected()}
-                command="⌘D"
+                onClick={handleDownloadSelected}
               >
                 Download Selected
               </MenuItem>
-              <MenuItem icon={<FiFile />} onClick={() => handleExportToSage()}>
+              <MenuItem icon={<FiFile />} onClick={handleExportToSage}>
                 <Box>
                   <Text>Sage Export</Text>
                   <Text fontSize="xs" color="gray.500">
@@ -544,8 +702,7 @@ const Invoices = () => {
               </MenuItem>
               <MenuItem
                 icon={<FiPrinter />}
-                onClick={() => handlePrintSelected()}
-                command="⌘P"
+                onClick={handlePrintSelected}
               >
                 Print Selected
               </MenuItem>
@@ -585,14 +742,13 @@ const Invoices = () => {
               {/* Management Actions */}
               <MenuItem
                 icon={<FiEdit />}
-                onClick={() => handleRegenerateSelected()}
+                onClick={handleRegenerateSelected}
               >
                 Regenerate Selected
               </MenuItem>
               <MenuItem
                 icon={<FiTrash2 />}
-                onClick={() => handleDeleteSelected()}
-                command="⌘⌫"
+                onClick={handleDeleteSelected}
                 color="red.500"
               >
                 Delete Selected
@@ -600,500 +756,648 @@ const Invoices = () => {
             </MenuList>
           </Menu>
         </HStack>
+      </Flex>
 
-        {/* Stats Summary */}
-        <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
-          <Card>
+      {/* Enhanced Dashboard Stats */}
+      <Grid templateColumns={{ base: "1fr", md: "2fr 1fr" }} gap={8} mb={8}>
+        {/* Main Stats Cards */}
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
+          <Card bg="white" shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius={"12px"}>
             <CardBody>
-              <HStack>
-                <Box>
-                  <Text fontSize="sm" color="gray.600">
-                    Total Invoices
-                  </Text>
-                  <Text fontSize="2xl" fontWeight="bold">
-                    {invoices.length}
-                  </Text>
-                </Box>
-                <Icon as={FiFileText} color="blue.500" boxSize={6} />
-              </HStack>
+              <Stat>
+                <StatLabel color="gray.600" fontSize="sm">Total Revenue</StatLabel>
+                <StatNumber color="green.600" fontSize="2xl">
+                  ${dashboardStats.totalRevenue.toFixed(2)}
+                </StatNumber>
+                <StatHelpText>
+                  <StatArrow type="increase" />
+                  12.5% from last month
+                </StatHelpText>
+              </Stat>
             </CardBody>
           </Card>
-          <Card>
+
+          <Card bg="white" shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius={"12px"}>
             <CardBody>
-              <HStack>
-                <Box>
-                  <Text fontSize="sm" color="gray.600">
-                    Total Revenue
-                  </Text>
-                  <Text fontSize="2xl" fontWeight="bold" color="green.600">
-                    $
-                    {invoices
-                      .reduce(
-                        (sum, inv) => sum + parseFloat(inv.totalAmount || 0),
-                        0
-                      )
-                      .toFixed(2)}
-                  </Text>
-                </Box>
-                <Icon as={FiDollarSign} color="green.500" boxSize={6} />
-              </HStack>
+              <Stat>
+                <StatLabel color="gray.600" fontSize="sm">Pending Revenue</StatLabel>
+                <StatNumber color="orange.600" fontSize="2xl">
+                  ${dashboardStats.pendingRevenue.toFixed(2)}
+                </StatNumber>
+                <StatHelpText>
+                  {dashboardStats.pendingInvoices} invoices pending
+                </StatHelpText>
+              </Stat>
             </CardBody>
           </Card>
-          <Card>
+
+          <Card bg="white" shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius={"12px"}>
             <CardBody>
-              <HStack>
-                <Box>
-                  <Text fontSize="sm" color="gray.600">
-                    Pending
-                  </Text>
-                  <Text fontSize="2xl" fontWeight="bold" color="orange.600">
-                    {
-                      invoices.filter(
-                        (inv) =>
-                          inv.status === "generated" || inv.status === "sent"
-                      ).length
-                    }
-                  </Text>
-                </Box>
-                <Icon as={FiCalendar} color="orange.500" boxSize={6} />
-              </HStack>
+              <Stat>
+                <StatLabel color="gray.600" fontSize="sm">Overdue Amount</StatLabel>
+                <StatNumber color="red.600" fontSize="2xl">
+                  ${dashboardStats.overdueAmount.toFixed(2)}
+                </StatNumber>
+                <StatHelpText>
+                  {dashboardStats.overdueInvoices} overdue invoices
+                </StatHelpText>
+              </Stat>
             </CardBody>
           </Card>
-          <Card>
+
+          <Card bg="white" shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius={"12px"}>
             <CardBody>
-              <HStack>
-                <Box>
-                  <Text fontSize="sm" color="gray.600">
-                    Paid
-                  </Text>
-                  <Text fontSize="2xl" fontWeight="bold" color="green.600">
-                    {invoices.filter((inv) => inv.status === "paid").length}
-                  </Text>
-                </Box>
-                <Icon as={FiUser} color="purple.500" boxSize={6} />
-              </HStack>
+              <Stat>
+                <StatLabel color="gray.600" fontSize="sm">Collection Rate</StatLabel>
+                <StatNumber color="blue.600" fontSize="2xl">
+                  {dashboardStats.collectionRate.toFixed(1)}%
+                </StatNumber>
+                <StatHelpText>
+                  <Progress value={dashboardStats.collectionRate} size="sm" colorScheme="blue" />
+                </StatHelpText>
+              </Stat>
             </CardBody>
           </Card>
         </SimpleGrid>
 
-        {/* Filters */}
-        <HStack spacing={4}>
-          <Input
-            placeholder="Search invoices..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            flex={1}
-          />
-          <Select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            w="200px"
-          >
-            {statusOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-          <ExportButton data={filteredInvoices} fileName="invoices" />
-        </HStack>
+        {/* Quick Insights Panel */}
+        <Card bg="blue.50" shadow="md">
+          <CardBody>
+            <VStack align="stretch" spacing={4}>
+              <Heading size="md" color="blue.700">Quick Insights</Heading>
+              <VStack align="stretch" spacing={2}>
+                <Flex justify="space-between" align="center">
+                  <Text fontSize="sm">Average Invoice Value</Text>
+                  <Badge colorScheme="green">${dashboardStats.averageInvoice.toFixed(2)}</Badge>
+                </Flex>
+                <Flex justify="space-between" align="center">
+                  <Text fontSize="sm">Total Calls Billed</Text>
+                  <Badge colorScheme="purple">{dashboardStats.totalCalls}</Badge>
+                </Flex>
+                <Flex justify="space-between" align="center">
+                  <Text fontSize="sm">Paid Invoices</Text>
+                  <Badge colorScheme="green">{dashboardStats.paidInvoices}</Badge>
+                </Flex>
+                <Flex justify="space-between" align="center">
+                  <Text fontSize="sm">Recent Invoices (30d)</Text>
+                  <Badge colorScheme="blue">{dashboardStats.recentInvoices}</Badge>
+                </Flex>
+              </VStack>
+              <Button
+                size="sm"
+                colorScheme="blue"
+                variant="outline"
+                leftIcon={<FiBarChart2 />}
+                mt={2}
+              >
+                View Full Report
+              </Button>
+            </VStack>
+          </CardBody>
+        </Card>
+      </Grid>
 
-        {/* Data Table */}
-        <DataTable
-          columns={columns}
-          data={filteredInvoices}
-          onView={handleViewInvoice}
-          onEdit={(invoice) => handleViewInvoice(invoice)}
-          onDelete={() => {}}
-          actions={true}
-        />
+      {/* Tabs for Invoice Categories */}
+      <Tabs 
+        variant="line" 
+        colorScheme="blue" 
+        mb={6}
+        onChange={(index) => {
+          const tabs = ["all", "pending", "paid", "overdue"];
+          setStatusFilter(tabs[index] || "all");
+        }}
+      >
+        <TabList gap={8}>
+          <Tab>
+            <FiFileText style={{ marginRight: "8px" }} />
+            <HStack spacing={2}>
+           <Text> All Invoices</Text> <Badge colorScheme={"blue"}>{invoices.length}</Badge>
+            </HStack>
+          </Tab>
+          <Tab>
+            <FiClock style={{ marginRight: "8px" }} />
+            <HStack>
+            <Text>Pending</Text> <Badge colorScheme="yellow">{dashboardStats.pendingInvoices}</Badge>
+            </HStack>
+          </Tab>
+          <Tab>
+            <FiCheckCircle style={{ marginRight: "8px" }} />
+            <HStack>
+            <Text>Paid</Text><Badge colorScheme="green">{dashboardStats.paidInvoices}</Badge>
+            </HStack>
+          </Tab>
+          <Tab>
+            <FiAlertTriangle style={{ marginRight: "8px" }} />
+            <HStack>
+            <Text> Overdue</Text> <Badge colorScheme="red">{dashboardStats.overdueInvoices}</Badge>
+            </HStack>
+          </Tab>
+        </TabList>
+      </Tabs>
 
-        {/* Custom Actions Column */}
-        <Box overflowX="auto">
-          <Table size="sm">
-            <Thead>
+      {/* Search and Filter Bar */}
+      {/* <Card mb={6} shadow="sm" borderWidth="1px" borderColor={borderColor}>
+        <CardBody>
+          <Flex direction={{ base: "column", md: "row" }} gap={4} align="center">
+            <InputGroup flex={1}>
+              <InputLeftElement pointerEvents="none">
+                <FiSearch color="gray.400" />
+              </InputLeftElement>
+              <Input
+                placeholder="Search invoices by ID, customer, or amount..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                size="lg"
+                borderRadius="md"
+              />
+            </InputGroup>
+            
+            <Flex gap={3} align="center" w={{ base: "100%", md: "auto" }}>
+              <Select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                size="lg"
+                w={{ base: "100%", md: "200px" }}
+              >
+                <option value="all">All Status</option>
+                <option value="generated">Generated</option>
+                <option value="sent">Sent</option>
+                <option value="paid">Paid</option>
+                <option value="overdue">Overdue</option>
+                <option value="cancelled">Cancelled</option>
+              </Select>
+              
+              <ExportButton data={filteredInvoices} fileName="invoices" />
+            </Flex>
+          </Flex>
+        </CardBody>
+      </Card>
+
+      Enhanced Invoice Table */}
+      <Card shadow="lg" borderWidth="1px" borderColor={borderColor}>
+        <CardHeader bg="gray.50" borderBottomWidth="1px">
+          <Flex justify="space-between" align="center">
+            <Heading size="md">Invoice List ({filteredInvoices.length})</Heading>
+            <Text color="gray.600" fontSize="sm">
+              Showing {filteredInvoices.length} of {invoices.length} invoices
+            </Text>
+          </Flex>
+        </CardHeader>
+        
+        <TableContainer>
+          <Table variant="simple">
+            <Thead bg="gray.200">
               <Tr>
-                <Th>Invoice #</Th>
+                <Th >Invoice #</Th>
                 <Th>Customer</Th>
+                <Th>Period</Th>
                 <Th>Amount</Th>
+                <Th>Due Date</Th>
                 <Th>Status</Th>
                 <Th>Actions</Th>
               </Tr>
             </Thead>
             <Tbody>
-              {filteredInvoices.map((invoice) => (
-                <Tr key={invoice.id}>
-                  <Td>
-                    <Badge colorScheme="blue">{invoice.invoiceNumber}</Badge>
-                  </Td>
-                  <Td>{invoice.customerName}</Td>
-                  <Td fontWeight="bold" color="green.600">
-                    ${parseFloat(invoice.totalAmount || 0).toFixed(2)}
-                  </Td>
-                  <Td>
-                    <Badge
-                      colorScheme={
-                        invoice.status === "paid"
-                          ? "green"
-                          : invoice.status === "overdue"
-                          ? "red"
-                          : invoice.status === "sent"
-                          ? "orange"
-                          : invoice.status === "generated"
-                          ? "blue"
-                          : "gray"
-                      }
-                    >
-                      {invoice.status}
-                    </Badge>
-                  </Td>
-                  <Td>
-                    <HStack spacing={2}>
-                      <IconButton
-                        icon={<FiEye />}
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleViewInvoice(invoice)}
-                        aria-label="View invoice"
-                      />
-                      <IconButton
-                        icon={<FiDownload />}
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleDownloadInvoice(invoice)}
-                        aria-label="Download invoice"
-                      />
-                      <IconButton
-                        icon={<FiMail />}
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleSendEmail(invoice)}
-                        aria-label="Send email"
-                      />
-                      <Menu>
-                        <MenuButton
-                          as={IconButton}
-                          icon={<FiFilter />}
-                          size="sm"
-                          variant="ghost"
-                          aria-label="Change status"
-                        />
-                        <MenuList>
-                          <MenuItem
-                            onClick={() =>
-                              handleUpdateStatus(invoice.id, "generated")
-                            }
-                          >
-                            Mark as Generated
-                          </MenuItem>
-                          <MenuItem
-                            onClick={() =>
-                              handleUpdateStatus(invoice.id, "sent")
-                            }
-                          >
-                            Mark as Sent
-                          </MenuItem>
-                          <MenuItem
-                            onClick={() =>
-                              handleUpdateStatus(invoice.id, "paid")
-                            }
-                          >
-                            Mark as Paid
-                          </MenuItem>
-                          <MenuItem
-                            onClick={() =>
-                              handleUpdateStatus(invoice.id, "overdue")
-                            }
-                          >
-                            Mark as Overdue
-                          </MenuItem>
-                          <MenuItem
-                            onClick={() =>
-                              handleUpdateStatus(invoice.id, "cancelled")
-                            }
-                          >
-                            Mark as Cancelled
-                          </MenuItem>
-                        </MenuList>
-                      </Menu>
-                    </HStack>
-                  </Td>
-                </Tr>
-              ))}
+              {filteredInvoices.map((invoice) => {
+                const StatusIcon = getStatusIcon(invoice.status);
+                const isOverdue = invoice.status === "overdue" || 
+                  (invoice.status === "sent" && 
+                   differenceInDays(new Date(), new Date(invoice.dueDate)) > 0);
+                
+                return (
+                  <Tr key={invoice.id} _hover={{ bg: "gray.50" }} transition="background-color 0.2s">
+                    <Td>
+                      <VStack align="start" spacing={1}>
+                        <Text fontWeight="bold" color="blue.600">
+                          {invoice.invoiceNumber}
+                        </Text>
+                        <Text fontSize="xs" color="gray.500">
+                          {format(new Date(invoice.generatedDate), "MMM dd, yyyy")}
+                        </Text>
+                      </VStack>
+                    </Td>
+                    <Td>
+                      <HStack>
+                        <Avatar size="sm" name={invoice.customerName} />
+                        <Box>
+                          <Text fontWeight="medium">{invoice.customerName}</Text>
+                          <Text fontSize="sm" color="gray.600">{invoice.customerId}</Text>
+                        </Box>
+                      </HStack>
+                    </Td>
+                    <Td>
+                      <VStack align="start" spacing={1}>
+                        <Text fontSize="sm">
+                          {format(new Date(invoice.periodStart), "MMM dd")}
+                        </Text>
+                        <Text fontSize="xs" color="gray.500">
+                          to {format(new Date(invoice.periodEnd), "MMM dd, yyyy")}
+                        </Text>
+                      </VStack>
+                    </Td>
+                    <Td>
+                      <VStack align="start" spacing={1}>
+                        <Text fontWeight="bold" color="green.600" fontSize="lg">
+                          ${parseFloat(invoice.totalAmount || 0).toFixed(2)}
+                        </Text>
+                        <Text fontSize="xs" color="gray.500">
+                          {invoice.totalCalls || 0} calls
+                        </Text>
+                      </VStack>
+                    </Td>
+                    <Td>
+                      <VStack align="start" spacing={1}>
+                        <Text color={isOverdue ? "red.500" : "inherit"}>
+                          {format(new Date(invoice.dueDate), "MMM dd, yyyy")}
+                        </Text>
+                        {isOverdue && (
+                          <Badge colorScheme="red" variant="subtle" size="sm">
+                            {differenceInDays(new Date(), new Date(invoice.dueDate))}d overdue
+                          </Badge>
+                        )}
+                      </VStack>
+                    </Td>
+                    <Td>
+                      <Badge
+                        colorScheme={getStatusColor(invoice.status)}
+                        display="flex"
+                        alignItems="center"
+                        gap={2}
+                        px={3}
+                        py={1}
+                        borderRadius="full"
+                      >
+                        <StatusIcon />
+                        {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                      </Badge>
+                    </Td>
+                    <Td>
+                      <HStack spacing={2}>
+                        <Tooltip label="View Details">
+                          <IconButton
+                            icon={<FiEye />}
+                            size="sm"
+                            colorScheme="blue"
+                            variant="ghost"
+                            onClick={() => handleViewInvoice(invoice)}
+                          />
+                        </Tooltip>
+                        <Tooltip label="Download">
+                          <IconButton
+                            icon={<FiDownload />}
+                            size="sm"
+                            colorScheme="green"
+                            variant="ghost"
+                            onClick={() => handleDownloadInvoice(invoice)}
+                          />
+                        </Tooltip>
+                        <Tooltip label="Send Email">
+                          <IconButton
+                            icon={<FiMail />}
+                            size="sm"
+                            colorScheme="orange"
+                            variant="ghost"
+                            onClick={() => handleSendEmail(invoice)}
+                          />
+                        </Tooltip>
+                        <Menu>
+                          <Tooltip label="More Actions">
+                            <MenuButton
+                              as={IconButton}
+                              icon={<FiMoreVertical />}
+                              size="sm"
+                              variant="ghost"
+                            />
+                          </Tooltip>
+                          <MenuList>
+                            <MenuItem
+                              icon={<FiEdit />}
+                              onClick={() => handleViewInvoice(invoice)}
+                            >
+                              Edit Invoice
+                            </MenuItem>
+                            <MenuItem
+                              icon={<FiCheckCircle />}
+                              onClick={() => handleUpdateStatus(invoice.id, "paid")}
+                            >
+                              Mark as Paid
+                            </MenuItem>
+                            <MenuItem
+                              icon={<FiClock />}
+                              onClick={() => handleUpdateStatus(invoice.id, "sent")}
+                            >
+                              Mark as Sent
+                            </MenuItem>
+                            <MenuItem
+                              icon={<FiAlertTriangle />}
+                              onClick={() => handleUpdateStatus(invoice.id, "overdue")}
+                            >
+                              Mark as Overdue
+                            </MenuItem>
+                            <MenuDivider />
+                            <MenuItem
+                              icon={<FiTrash2 />}
+                              color="red.500"
+                              onClick={() => handleDeleteSelected()}
+                            >
+                              Delete Invoice
+                            </MenuItem>
+                          </MenuList>
+                        </Menu>
+                      </HStack>
+                    </Td>
+                  </Tr>
+                );
+              })}
             </Tbody>
           </Table>
-        </Box>
+        </TableContainer>
 
-        {/* View Invoice Modal */}
-        <Modal
-          isOpen={isViewModalOpen}
-          onClose={() => setIsViewModalOpen(false)}
-          size="6xl"
-        >
-          <ModalOverlay />
-          <ModalContent>
-            <ModalHeader>Invoice {selectedInvoice?.invoiceNumber}</ModalHeader>
-            <ModalCloseButton />
-            <ModalBody>
-              {selectedInvoice && (
-                <VStack spacing={6} align="stretch">
-                  {/* Invoice Header */}
-                  <SimpleGrid columns={2} spacing={6}>
-                    <Box>
-                      <Text fontSize="sm" color="gray.600">
-                        Customer
-                      </Text>
-                      <Text fontSize="xl" fontWeight="bold">
-                        {selectedInvoice.customerName}
-                      </Text>
-                      <Text>{selectedInvoice.customerId}</Text>
-                    </Box>
-                    <Box textAlign="right">
-                      <Text fontSize="sm" color="gray.600">
-                        Invoice Number
-                      </Text>
-                      <Text fontSize="xl" fontWeight="bold">
-                        {selectedInvoice.invoiceNumber}
-                      </Text>
-                      <Badge
-                        colorScheme={
-                          selectedInvoice.status === "paid"
-                            ? "green"
-                            : selectedInvoice.status === "overdue"
-                            ? "red"
-                            : selectedInvoice.status === "sent"
-                            ? "orange"
-                            : selectedInvoice.status === "generated"
-                            ? "blue"
-                            : "gray"
-                        }
-                      >
-                        {selectedInvoice.status}
-                      </Badge>
-                    </Box>
-                  </SimpleGrid>
+        {filteredInvoices.length === 0 && (
+          <Box p={10} textAlign="center">
+            <FiFileText size={48} color="#CBD5E0" style={{ margin: '0 auto 16px' }} />
+            <Text color="gray.500" fontSize="lg" mb={2}>
+              No invoices found
+            </Text>
+            <Text color="gray.400" fontSize="sm">
+              {searchTerm || statusFilter !== "all" 
+                ? "Try adjusting your search or filter criteria"
+                : "Generate your first invoice to get started"}
+            </Text>
+          </Box>
+        )}
 
-                  {/* Invoice Details */}
-                  <SimpleGrid columns={4} spacing={4}>
-                    <Box>
-                      <Text fontSize="sm" color="gray.600">
-                        Invoice Date
-                      </Text>
-                      <Text fontWeight="medium">
-                        {format(
-                          new Date(selectedInvoice.generatedDate),
-                          "dd/MM/yyyy"
-                        )}
-                      </Text>
-                    </Box>
-                    <Box>
-                      <Text fontSize="sm" color="gray.600">
-                        Due Date
-                      </Text>
-                      <Text fontWeight="medium">
-                        {format(
-                          new Date(selectedInvoice.dueDate),
-                          "dd/MM/yyyy"
-                        )}
-                      </Text>
-                    </Box>
-                    <Box>
-                      <Text fontSize="sm" color="gray.600">
-                        Billing Period
-                      </Text>
-                      <Text fontWeight="medium">
-                        {format(
-                          new Date(selectedInvoice.periodStart),
-                          "dd/MM/yyyy"
-                        )}{" "}
-                        -{" "}
-                        {format(
-                          new Date(selectedInvoice.periodEnd),
-                          "dd/MM/yyyy"
-                        )}
-                      </Text>
-                    </Box>
-                    <Box>
-                      <Text fontSize="sm" color="gray.600">
-                        Billing Cycle
-                      </Text>
-                      <Text fontWeight="medium">
-                        {selectedInvoice.billingCycle}
-                      </Text>
-                    </Box>
-                  </SimpleGrid>
-
-                  {/* Call Items */}
-                  <Box>
-                    <Heading size="sm" mb={4}>
-                      Call Details
-                    </Heading>
-                    <Box overflowX="auto">
-                      <Table size="sm">
-                        <Thead>
-                          <Tr>
-                            <Th>Date & Time</Th>
-                            <Th>Caller</Th>
-                            <Th>Callee</Th>
-                            <Th>Duration</Th>
-                            <Th>Rate</Th>
-                            <Th>Amount</Th>
-                          </Tr>
-                        </Thead>
-                        <Tbody>
-                          {selectedInvoice.items?.map((item, index) => (
-                            <Tr key={index}>
-                              <Td>
-                                {format(
-                                  new Date(item.date),
-                                  "dd/MM/yyyy HH:mm"
-                                )}
-                              </Td>
-                              <Td>{item.caller}</Td>
-                              <Td>{item.callee}</Td>
-                              <Td>{item.duration}s</Td>
-                              <Td>${item.rate}/sec</Td>
-                              <Td>${item.amount.toFixed(4)}</Td>
-                            </Tr>
-                          ))}
-                        </Tbody>
-                      </Table>
-                    </Box>
-                  </Box>
-
-                  {/* Summary */}
-                  <Box p={4} bg="gray.50" borderRadius="md">
-                    <SimpleGrid columns={3} spacing={4}>
-                      <Box>
-                        <Text fontSize="sm" color="gray.600">
-                          Total Calls
-                        </Text>
-                        <Text fontSize="xl" fontWeight="bold">
-                          {selectedInvoice.totalCalls}
-                        </Text>
-                      </Box>
-                      <Box>
-                        <Text fontSize="sm" color="gray.600">
-                          Total Duration
-                        </Text>
-                        <Text fontSize="xl" fontWeight="bold">
-                          {Math.floor(selectedInvoice.totalDuration / 3600)}h{" "}
-                          {Math.floor(
-                            (selectedInvoice.totalDuration % 3600) / 60
-                          )}
-                          m
-                        </Text>
-                      </Box>
-                      <Box>
-                        <Text fontSize="sm" color="gray.600">
-                          Answered Calls
-                        </Text>
-                        <Text fontSize="xl" fontWeight="bold">
-                          {selectedInvoice.answeredCalls}
-                        </Text>
-                      </Box>
-                    </SimpleGrid>
-                  </Box>
-
-                  {/* Totals */}
-                  <Box p={4} bg="blue.50" borderRadius="md">
-                    <SimpleGrid columns={3} spacing={4}>
-                      <Box>
-                        <Text fontSize="sm" color="gray.600">
-                          Subtotal
-                        </Text>
-                        <Text fontSize="2xl" fontWeight="bold">
-                          ${selectedInvoice.totalFee.toFixed(2)}
-                        </Text>
-                      </Box>
-                      <Box>
-                        <Text fontSize="sm" color="gray.600">
-                          Tax ({(selectedInvoice.taxRate * 100).toFixed(0)}%)
-                        </Text>
-                        <Text
-                          fontSize="2xl"
-                          fontWeight="bold"
-                          color="orange.600"
-                        >
-                          ${selectedInvoice.totalTax.toFixed(2)}
-                        </Text>
-                      </Box>
-                      <Box>
-                        <Text fontSize="sm" color="gray.600">
-                          Total Amount
-                        </Text>
-                        <Text
-                          fontSize="2xl"
-                          fontWeight="bold"
-                          color="green.600"
-                        >
-                          ${selectedInvoice.totalAmount.toFixed(2)}
-                        </Text>
-                      </Box>
-                    </SimpleGrid>
-                  </Box>
-                </VStack>
-              )}
-            </ModalBody>
-            <ModalFooter>
-              <HStack spacing={3}>
-                <Button
-                  leftIcon={<FiPrinter />}
-                  onClick={() => handleDownloadInvoice(selectedInvoice)}
-                >
-                  Print Invoice
+        {/* Pagination/Footer */}
+        {filteredInvoices.length > 0 && (
+          <CardFooter borderTopWidth="1px" py={4}>
+            <Flex justify="space-between" align="center" w="100%">
+              <Text color="gray.600" fontSize="sm">
+                Showing {Math.min(filteredInvoices.length, 10)} of {filteredInvoices.length} invoices
+              </Text>
+              <HStack spacing={2}>
+                <Button size="sm" variant="outline" leftIcon={<FiChevronRight />} isDisabled>
+                  Previous
                 </Button>
-                <Button
-                  leftIcon={<FiMail />}
-                  onClick={() => handleSendEmail(selectedInvoice)}
-                >
-                  Send Email
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setIsViewModalOpen(false)}
-                >
-                  Close
+                <Button size="sm" variant="outline" rightIcon={<FiChevronRight />}>
+                  Next
                 </Button>
               </HStack>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
+            </Flex>
+          </CardFooter>
+        )}
+      </Card>
 
-        {/* Generate Invoice Modal */}
-        <Modal
-          isOpen={isGenerateModalOpen}
-          onClose={() => setIsGenerateModalOpen(false)}
-        >
-          <ModalOverlay />
-          <ModalContent>
-            <ModalHeader>Generate New Invoice</ModalHeader>
-            <ModalCloseButton />
-            <ModalBody>
-              <VStack spacing={4}>
-                <FormControl isRequired>
-                  <FormLabel>Customer</FormLabel>
-                  <Select
-                    placeholder="Select customer"
-                    value={generateForm.customerId}
-                    onChange={(e) =>
-                      setGenerateForm({
-                        ...generateForm,
-                        customerId: e.target.value,
-                      })
-                    }
-                  >
-                    {customers.map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name} ({customer.id})
-                      </option>
-                    ))}
-                  </Select>
-                </FormControl>
+      {/* View Invoice Modal (Enhanced) */}
+      <Modal
+        isOpen={isViewModalOpen}
+        onClose={() => setIsViewModalOpen(false)}
+        size="6xl"
+      >
+        <ModalOverlay />
+        <ModalContent maxH="90vh" overflow="hidden">
+          <ModalHeader borderBottomWidth="1px">
+            <Flex justify="space-between" align="center">
+              <Box>
+                <Heading size="md">Invoice Details</Heading>
+                <Text color="gray.600" fontSize="sm">
+                  {selectedInvoice?.invoiceNumber} • {selectedInvoice?.customerName}
+                </Text>
+              </Box>
+              <Badge
+                colorScheme={getStatusColor(selectedInvoice?.status)}
+                fontSize="md"
+                px={3}
+                py={1}
+                borderRadius="full"
+              >
+                {selectedInvoice?.status?.toUpperCase()}
+              </Badge>
+            </Flex>
+          </ModalHeader>
+          <ModalCloseButton />
+          
+          <ModalBody overflowY="auto">
+            {selectedInvoice && (
+              <Grid templateColumns={{ base: "1fr", lg: "2fr 1fr" }} gap={8}>
+                {/* Left Column - Invoice Details */}
+                <Box>
+                  {/* Customer & Invoice Info */}
+                  <Card mb={4}>
+                    <CardBody>
+                      <SimpleGrid columns={2} spacing={6}>
+                        <Box>
+                          <Text fontSize="sm" color="gray.600" mb={1}>Bill To</Text>
+                          <Text fontSize="lg" fontWeight="bold">{selectedInvoice.customerName}</Text>
+                          <Text color="gray.600">{selectedInvoice.customerId}</Text>
+                        </Box>
+                        <Box>
+                          <Text fontSize="sm" color="gray.600" mb={1}>Invoice Details</Text>
+                          <VStack align="start" spacing={1}>
+                            <Text><strong>Invoice #:</strong> {selectedInvoice.invoiceNumber}</Text>
+                            <Text><strong>Generated:</strong> {format(new Date(selectedInvoice.generatedDate), "MMMM dd, yyyy")}</Text>
+                            <Text><strong>Due Date:</strong> {format(new Date(selectedInvoice.dueDate), "MMMM dd, yyyy")}</Text>
+                            <Text><strong>Period:</strong> {format(new Date(selectedInvoice.periodStart), "MMM dd")} - {format(new Date(selectedInvoice.periodEnd), "MMM dd, yyyy")}</Text>
+                          </VStack>
+                        </Box>
+                      </SimpleGrid>
+                    </CardBody>
+                  </Card>
 
-                <SimpleGrid columns={2} spacing={4}>
+                  {/* Call Items Table */}
+                  <Card mb={4}>
+                    <CardHeader bg="gray.50" borderBottomWidth="1px">
+                      <Heading size="sm">Call Details</Heading>
+                    </CardHeader>
+                    <CardBody>
+                      <TableContainer>
+                        <Table size="sm">
+                          <Thead>
+                            <Tr>
+                              <Th>Date & Time</Th>
+                              <Th>From</Th>
+                              <Th>To</Th>
+                              <Th isNumeric>Duration</Th>
+                              <Th isNumeric>Rate</Th>
+                              <Th isNumeric>Amount</Th>
+                            </Tr>
+                          </Thead>
+                          <Tbody>
+                            {selectedInvoice.items?.map((item, index) => (
+                              <Tr key={index} _hover={{ bg: "gray.50" }}>
+                                <Td>{format(new Date(item.date), "MMM dd, HH:mm")}</Td>
+                                <Td>{item.caller}</Td>
+                                <Td>{item.callee}</Td>
+                                <Td isNumeric>{item.duration}s</Td>
+                                <Td isNumeric>${item.rate}/sec</Td>
+                                <Td isNumeric>${item.amount.toFixed(4)}</Td>
+                              </Tr>
+                            ))}
+                          </Tbody>
+                        </Table>
+                      </TableContainer>
+                    </CardBody>
+                  </Card>
+                </Box>
+
+                {/* Right Column - Summary & Actions */}
+                <Box>
+                  {/* Summary Card */}
+                  <Card mb={4} position="sticky" top="20px">
+                    <CardHeader bg="blue.50" borderBottomWidth="1px">
+                      <Heading size="sm">Invoice Summary</Heading>
+                    </CardHeader>
+                    <CardBody>
+                      <VStack spacing={3} align="stretch">
+                        <Flex justify="space-between">
+                          <Text color="gray.600">Subtotal</Text>
+                          <Text fontWeight="bold">${selectedInvoice.totalFee.toFixed(2)}</Text>
+                        </Flex>
+                        <Flex justify="space-between">
+                          <Text color="gray.600">Tax ({(selectedInvoice.taxRate * 100).toFixed(0)}%)</Text>
+                          <Text color="orange.600">${selectedInvoice.totalTax.toFixed(2)}</Text>
+                        </Flex>
+                        <Flex justify="space-between">
+                          <Text color="gray.600">Discount</Text>
+                          <Text color="green.600">$0.00</Text>
+                        </Flex>
+                        <Divider />
+                        <Flex justify="space-between" fontSize="xl">
+                          <Text fontWeight="bold">Total Amount</Text>
+                          <Text fontWeight="bold" color="green.600">
+                            ${selectedInvoice.totalAmount.toFixed(2)}
+                          </Text>
+                        </Flex>
+                      </VStack>
+                    </CardBody>
+                  </Card>
+
+                  {/* Actions Card */}
+                  <Card>
+                    <CardHeader bg="gray.50" borderBottomWidth="1px">
+                      <Heading size="sm">Quick Actions</Heading>
+                    </CardHeader>
+                    <CardBody>
+                      <VStack spacing={3}>
+                        <Button
+                          leftIcon={<FiPrinter />}
+                          colorScheme="blue"
+                          w="100%"
+                          onClick={() => handleDownloadInvoice(selectedInvoice)}
+                        >
+                          Print Invoice
+                        </Button>
+                        <Button
+                          leftIcon={<FiMail />}
+                          colorScheme="orange"
+                          w="100%"
+                          onClick={() => handleSendEmail(selectedInvoice)}
+                        >
+                          Send via Email
+                        </Button>
+                        <Button
+                          leftIcon={<FiDownload />}
+                          variant="outline"
+                          w="100%"
+                          onClick={() => handleDownloadInvoice(selectedInvoice)}
+                        >
+                          Download PDF
+                        </Button>
+                        <Menu>
+                          <MenuButton
+                            as={Button}
+                            leftIcon={<FiMoreVertical />}
+                            variant="ghost"
+                            w="100%"
+                          >
+                            More Actions
+                          </MenuButton>
+                          <MenuList>
+                            <MenuItem
+                              icon={<FiCheckCircle />}
+                              onClick={() => handleUpdateStatus(selectedInvoice.id, "paid")}
+                            >
+                              Mark as Paid
+                            </MenuItem>
+                            <MenuItem
+                              icon={<FiClock />}
+                              onClick={() => handleUpdateStatus(selectedInvoice.id, "sent")}
+                            >
+                              Mark as Sent
+                            </MenuItem>
+                            <MenuItem
+                              icon={<FiAlertTriangle />}
+                              onClick={() => handleUpdateStatus(selectedInvoice.id, "overdue")}
+                            >
+                              Mark as Overdue
+                            </MenuItem>
+                          </MenuList>
+                        </Menu>
+                      </VStack>
+                    </CardBody>
+                  </Card>
+                </Box>
+              </Grid>
+            )}
+          </ModalBody>
+          <ModalFooter borderTopWidth="1px">
+            <Button variant="ghost" mr={3} onClick={() => setIsViewModalOpen(false)}>
+              Close
+            </Button>
+            <Button
+              colorScheme="blue"
+              onClick={() => {
+                handleUpdateStatus(selectedInvoice.id, "paid");
+                setIsViewModalOpen(false);
+              }}
+            >
+              Mark as Paid & Close
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Generate Invoice Modal (Enhanced) */}
+      <Modal
+        isOpen={isGenerateModalOpen}
+        onClose={() => setIsGenerateModalOpen(false)}
+        size="xl"
+      >
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader borderTopRadius={"md"} bg={"blue.500"} borderBottomWidth="1px">
+            <Heading size="md" color={"white"}>Generate New Invoice</Heading>
+          </ModalHeader>
+          <ModalCloseButton color={"white"} />
+          
+          <ModalBody>
+            <VStack spacing={6} align="stretch">
+              {/* Customer Selection */}
+              <FormControl isRequired>
+                <FormLabel>Select Customer</FormLabel>
+                <Select
+                  placeholder="Choose a customer..."
+                  value={generateForm.customerId}
+                  onChange={(e) =>
+                    setGenerateForm({
+                      ...generateForm,
+                      customerId: e.target.value,
+                    })
+                  }
+                  size="md"
+                >
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name} ({customer.id}) - {customer.email}
+                    </option>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Billing Period */}
+              <Box>
+                <FormLabel>Billing Period</FormLabel>
+                <HStack spacing={4}>
                   <FormControl isRequired>
-                    <FormLabel>Period Start</FormLabel>
                     <Input
                       type="date"
                       value={generateForm.periodStart}
@@ -1103,10 +1407,11 @@ const Invoices = () => {
                           periodStart: e.target.value,
                         })
                       }
+                      size="md"
                     />
                   </FormControl>
+                  <Text>to</Text>
                   <FormControl isRequired>
-                    <FormLabel>Period End</FormLabel>
                     <Input
                       type="date"
                       value={generateForm.periodEnd}
@@ -1116,90 +1421,93 @@ const Invoices = () => {
                           periodEnd: e.target.value,
                         })
                       }
+                      size="md"
                     />
                   </FormControl>
-                </SimpleGrid>
+                </HStack>
+              </Box>
 
-                <FormControl>
-                  <FormLabel>Billing Cycle</FormLabel>
-                  <Select
-                    value={generateForm.billingCycle}
-                    onChange={(e) =>
-                      setGenerateForm({
-                        ...generateForm,
-                        billingCycle: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                    <option value="quarterly">Quarterly</option>
-                    <option value="annually">Annually</option>
-                  </Select>
-                </FormControl>
+              {/* Billing Cycle */}
+              <FormControl>
+                <FormLabel>Billing Cycle</FormLabel>
+                <Select
+                  value={generateForm.billingCycle}
+                  onChange={(e) =>
+                    setGenerateForm({
+                      ...generateForm,
+                      billingCycle: e.target.value,
+                    })
+                  }
+                  size="md"
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="annually">Annually</option>
+                </Select>
+              </FormControl>
 
-                {generateForm.customerId && (
-                  <Box p={4} bg="gray.50" borderRadius="md" w="100%">
-                    <Text fontSize="sm" color="gray.600" mb={2}>
-                      Selected Customer Details:
-                    </Text>
-                    {(() => {
-                      const customer = customers.find(
-                        (c) => c.id === generateForm.customerId
-                      );
-                      return customer ? (
-                        <VStack align="stretch" spacing={1}>
-                          <Text>
-                            <strong>Rate:</strong> ${customer.rate}/sec
-                          </Text>
-                          <Text>
-                            <strong>Tax Rate:</strong>{" "}
-                            {(customer.taxRate * 100).toFixed(0)}%
-                          </Text>
-                          <Text>
-                            <strong>Email:</strong> {customer.email}
-                          </Text>
-                          <Text>
-                            <strong>Phone:</strong> {customer.phone}
-                          </Text>
-                        </VStack>
-                      ) : null;
-                    })()}
+              {/* Customer Preview */}
+              {generateForm.customerId && (
+                <Alert status="info" borderRadius="md">
+                  <AlertIcon />
+                  <Box>
+                    <AlertTitle>Selected Customer</AlertTitle>
+                    <AlertDescription>
+                      {(() => {
+                        const customer = customers.find(
+                          (c) => c.id === generateForm.customerId
+                        );
+                        return customer ? (
+                          <VStack align="start" spacing={1}>
+                            <Text><strong>Name:</strong> {customer.name}</Text>
+                            <Text><strong>Rate:</strong> ${customer.rate}/sec</Text>
+                            <Text><strong>Tax Rate:</strong> {(customer.taxRate * 100).toFixed(0)}%</Text>
+                            <Text><strong>Email:</strong> {customer.email}</Text>
+                          </VStack>
+                        ) : null;
+                      })()}
+                    </AlertDescription>
                   </Box>
-                )}
-              </VStack>
-            </ModalBody>
-            <ModalFooter>
-              <Button
-                variant="ghost"
-                mr={3}
-                onClick={() => setIsGenerateModalOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                colorScheme="blue"
-                onClick={handleGenerateInvoice}
-                isDisabled={!generateForm.customerId}
-              >
-                Generate Invoice
-              </Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
-      </VStack>
+                </Alert>
+              )}
+            </VStack>
+          </ModalBody>
+          <ModalFooter borderTopWidth="1px">
+            <Button
+              variant="outline"
+              mr={3}
+              onClick={() => setIsGenerateModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              colorScheme="blue"
+              onClick={handleGenerateInvoice}
+              isDisabled={!generateForm.customerId}
+              leftIcon={<FiFileText />}
+              size="md"
+            >
+              Generate Invoice
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Container>
   );
 };
 
-// Helper component for simple grid
-const Simplegrid = ({ children, columns = 2, spacing = 4 }) => (
-  <Box
-    display="grid"
-    gridTemplateColumns={`repeat(${columns}, 1fr)`}
-    gap={spacing}
-  >
+// Add missing CardFooter component
+const CardFooter = ({ children, ...props }) => (
+  <Box as="footer" {...props}>
+    {children}
+</Box>
+);
+
+// Add missing InputLeftElement component
+const InputLeftElement = ({ children, ...props }) => (
+  <Box position="absolute" left="0" top="0" height="100%" display="flex" alignItems="center" pl="3" {...props}>
     {children}
   </Box>
 );

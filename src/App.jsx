@@ -4,10 +4,10 @@ import { ChakraProvider, Box } from '@chakra-ui/react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import CDRUpload from './pages/CDRUpload';
-import CDRList from './pages/CDRList';
-import Customers from './pages/Customers';
+import Customers from './pages/Accounts';
 import Invoices from './pages/Invoices';
 import Settings from './pages/Settings';
+import Report from './pages/Reports';
 
 function App() {
 
@@ -20,10 +20,10 @@ function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/upload" element={<CDRUpload />} />
-              <Route path="/cdrs" element={<CDRList />} />
-              <Route path="/customers" element={<Customers />} />
+              <Route path="/accounts" element={<Customers />} />
               <Route path="/invoices" element={<Invoices />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/reports" element={<Report />} />
             </Routes>
           </Box>
         </Layout>

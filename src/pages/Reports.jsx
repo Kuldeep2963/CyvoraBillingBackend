@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Box,
   Container,
@@ -6,16 +6,13 @@ import {
   Text,
   Button,
   Flex,
-  Grid,
-  GridItem,
   Card,
   CardBody,
   CardHeader,
   SimpleGrid,
+  Checkbox,
   Select,
   Input,
-  InputGroup,
-  InputLeftElement,
   Table,
   Thead,
   Tbody,
@@ -25,7 +22,6 @@ import {
   Badge,
   HStack,
   VStack,
-  Progress,
   IconButton,
   Menu,
   MenuButton,
@@ -39,38 +35,86 @@ import {
   Stat,
   StatLabel,
   StatNumber,
-  StatHelpText,
-  StatArrow,
   useColorModeValue,
   FormControl,
   FormLabel,
   Switch,
-  Divider,
-  Stack,
+  useToast,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalFooter,
+  ModalBody,
+  ModalCloseButton,
+  Spinner,
+  Center,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
+  NumberInput,
+  NumberInputField,
+  NumberInputStepper,
+  NumberIncrementStepper,
+  NumberDecrementStepper,
+  Tag,
   Tooltip,
-  useToast
-} from '@chakra-ui/react';
+  Progress,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  InputGroup,
+  InputLeftElement,
+  Icon,
+  Divider,
+  Wrap,
+  WrapItem,
+  Slider,
+  SliderTrack,
+  SliderFilledTrack,
+  SliderThumb,
+  SliderMark,
+  Accordion,
+  AccordionItem,
+  AccordionButton,
+  AccordionPanel,
+  AccordionIcon,
+} from "@chakra-ui/react";
 import {
   DownloadIcon,
   CalendarIcon,
-  // SearchIcon,
   ChevronDownIcon,
-  ChevronRightIcon,
   ViewIcon,
   EditIcon,
   DeleteIcon,
-  
-  // FilterIcon,
-  // RefreshIcon,
   ArrowUpIcon,
   ArrowDownIcon,
-  // InfoOutlineIcon,
   SettingsIcon,
   AttachmentIcon,
-  // ChartBarIcon,
-  // ChartLineIcon,
-  // ChartPieIcon
-} from '@chakra-ui/icons';
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  SearchIcon,
+  TimeIcon,
+  WarningIcon,
+  CheckCircleIcon,
+  CloseIcon,
+  StarIcon,
+  InfoIcon,
+  ChevronRightIcon as ChevronRight,
+} from "@chakra-ui/icons";
+import {
+  FiFilter,
+  FiBarChart2,
+  FiTrendingUp,
+  FiTrendingDown,
+  FiPieChart,
+  FiGrid,
+  FiList,
+  FiRefreshCw,
+  FiEye,
+  FiEyeOff,
+} from "react-icons/fi";
 import {
   LineChart,
   Line,
@@ -86,790 +130,1682 @@ import {
   Legend,
   ResponsiveContainer,
   AreaChart,
-  Area
-} from 'recharts';
+  Area,
+  ScatterChart,
+  Scatter,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Treemap,
+} from "recharts";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import {
+  fetchReportAccounts,
+  generateReport,
+  exportReport,
+} from "../utils/api";
 
 const Reports = () => {
-  const [dateRange, setDateRange] = useState('last30days');
-  const [reportType, setReportType] = useState('revenue');
+  const [dateRange, setDateRange] = useState({
+    startDate: new Date(new Date().setDate(new Date().getDate() - 30)),
+    endDate: new Date(),
+    startHour: 0,
+    endHour: 23,
+  });
   const [activeTab, setActiveTab] = useState(0);
-  
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState("all");
+  const [accounts, setAccounts] = useState({ customers: [], vendors: [] });
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [isVendorReport, setIsVendorReport] = useState(false);
+  const [reportData, setReportData] = useState([]);
+  const [reportSummary, setReportSummary] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [marginThreshold, setMarginThreshold] = useState(0);
+  const [chartType, setChartType] = useState("bar");
+  const [timeGranularity, setTimeGranularity] = useState("hour");
+  const [viewType, setViewType] = useState("table");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
+  const [selectedRows, setSelectedRows] = useState([]);
+  const [page, setPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [filters, setFilters] = useState({
+    minASR: 0,
+    maxASR: 100,
+    minMargin: -100,
+    maxMargin: 100,
+  });
+
   const toast = useToast();
-  const cardBg = useColorModeValue('white', 'gray.800');
-  const borderColor = useColorModeValue('gray.200', 'gray.700');
+  const cardBg = useColorModeValue("white", "gray.800");
+  const borderColor = useColorModeValue("gray.200", "gray.700");
+  const textColor = useColorModeValue("gray.800", "white");
+  const mutedColor = useColorModeValue("gray.600", "gray.400");
 
-  // Sample data for charts
-  const revenueData = [
-    { month: 'Jan', revenue: 12500, calls: 2450, data: 125 },
-    { month: 'Feb', revenue: 13800, calls: 2780, data: 142 },
-    { month: 'Mar', revenue: 15200, calls: 3120, data: 156 },
-    { month: 'Apr', revenue: 14500, calls: 2890, data: 148 },
-    { month: 'May', revenue: 16800, calls: 3350, data: 168 },
-    { month: 'Jun', revenue: 18200, calls: 3640, data: 182 },
-    { month: 'Jul', revenue: 19500, calls: 3900, data: 195 }
-  ];
+  useEffect(() => {
+    loadAccounts();
+  }, []);
 
-  const serviceTypeData = [
-    { name: 'Voice Calls', value: 45, color: '#3182CE' },
-    { name: 'Data Usage', value: 30, color: '#38A169' },
-    { name: 'SMS Services', value: 15, color: '#D69E2E' },
-    { name: 'Monthly Fees', value: 10, color: '#805AD5' }
-  ];
-
-  const customerRevenueData = [
-    { customer: 'ABC Telecom', revenue: 12500, growth: 12.5, status: 'active' },
-    { customer: 'XYZ Mobile', revenue: 9800, growth: 8.2, status: 'active' },
-    { customer: 'Global Comm', revenue: 15600, growth: -2.5, status: 'warning' },
-    { customer: 'Telecom Plus', revenue: 7500, growth: 15.8, status: 'active' },
-    { customer: 'Connect World', revenue: 5200, growth: 5.4, status: 'active' },
-    { customer: 'Net Solutions', revenue: 3400, growth: -8.1, status: 'critical' }
-  ];
-
-  const topCDRReports = [
-    { id: 'CDR-001', type: 'Voice Usage', period: 'Oct 2023', records: 2450, size: '2.4MB', status: 'processed' },
-    { id: 'CDR-002', type: 'Data Usage', period: 'Oct 2023', records: 1250, size: '1.8MB', status: 'processing' },
-    { id: 'CDR-003', type: 'SMS Traffic', period: 'Sep 2023', records: 890, size: '0.9MB', status: 'processed' },
-    { id: 'CDR-004', type: 'Voice Usage', period: 'Sep 2023', records: 2120, size: '2.1MB', status: 'processed' },
-    { id: 'CDR-005', type: 'Combined', period: 'Aug 2023', records: 3560, size: '3.5MB', status: 'processed' }
-  ];
-
-  const reportTemplates = [
-    { id: 1, name: 'Monthly Revenue', type: 'Financial', frequency: 'Monthly', lastRun: '2 days ago' },
-    { id: 2, name: 'CDR Usage Summary', type: 'Usage', frequency: 'Weekly', lastRun: '1 day ago' },
-    { id: 3, name: 'Customer Billing', type: 'Billing', frequency: 'Monthly', lastRun: '3 days ago' },
-    { id: 4, name: 'Service Performance', type: 'Performance', frequency: 'Daily', lastRun: 'Today' }
-  ];
-
-  // Statistics data
-  const stats = [
-    { label: 'Total Revenue', value: '$127,500', change: '+12.5%', trend: 'up' },
-    { label: 'Active Customers', value: '48', change: '+5', trend: 'up' },
-    { label: 'Total CDR Records', value: '15,240', change: '+8.2%', trend: 'up' },
-    { label: 'Avg Invoice Value', value: '$2,650', change: '+3.4%', trend: 'up' }
-  ];
-
-  const handleExportReport = (format) => {
-    toast({
-      title: 'Export Started',
-      description: `Exporting report in ${format} format...`,
-      status: 'info',
-      duration: 2000,
-      isClosable: true
-    });
-    
-    // Simulate export delay
-    setTimeout(() => {
+  const loadAccounts = async () => {
+    setAccountsLoading(true);
+    try {
+      const data = await fetchReportAccounts();
+      if (data.success) {
+        setAccounts(data);
+      }
+    } catch (error) {
       toast({
-        title: 'Export Complete',
-        description: `Report downloaded in ${format} format`,
-        status: 'success',
-        duration: 3000,
-        isClosable: true
+        title: "Error loading accounts",
+        description: error.message,
+        status: "error",
+        duration: 5000,
+        isClosable: true,
       });
-    }, 1500);
+    } finally {
+      setAccountsLoading(false);
+    }
   };
 
-  const handleRunReport = () => {
-    toast({
-      title: 'Generating Report',
-      description: 'Processing report data...',
-      status: 'info',
-      duration: 2000,
-      isClosable: true
-    });
-    
-    setTimeout(() => {
+  const handleGenerateReport = async () => {
+    if (!dateRange.startDate || !dateRange.endDate) {
       toast({
-        title: 'Report Generated',
-        description: 'New report is ready to view',
-        status: 'success',
+        title: "Date range required",
+        description: "Please select start and end dates",
+        status: "warning",
         duration: 3000,
-        isClosable: true
+        isClosable: true,
       });
-    }, 2000);
-  };
+      return;
+    }
 
-  return (
-    <Container maxW="container.xl" py={8}>
-      {/* Header */}
-      <Flex justify="space-between" align="center" mb={8}>
-        <Box>
-          <Heading size="lg" mb={2}>Analytics & Reports</Heading>
-          <Text color="gray.600">Comprehensive insights and analytics from your CDR data</Text>
-        </Box>
+    if (dateRange.endDate < dateRange.startDate) {
+      toast({
+        title: "Invalid date range",
+        description: "End date must be after start date",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    const daysDiff = Math.ceil(
+      (dateRange.endDate - dateRange.startDate) / (1000 * 60 * 60 * 24),
+    );
+    if (daysDiff > 90) {
+      toast({
+        title: "Large date range",
+        description: "For better performance, please select a date range under 90 days",
+        status: "warning",
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+
+    setLoading(true);
+    try {
+      let reportType = "";
+      let params = {
+        startDate: dateRange.startDate.toISOString().split("T")[0],
+        endDate: dateRange.endDate.toISOString().split("T")[0],
+        startHour: dateRange.startHour,
+        endHour: dateRange.endHour,
+        accountId: selectedAccount,
+        vendorReport: isVendorReport,
+      };
+
+      console.log("📊 Generating report with params:", params);
+
+      switch (activeTab) {
+        case 0: // Hourly Report
+          reportType = "hourly-report";
+          break;
+        case 1: // Margin Report
+          reportType = "margin-report";
+          break;
+        case 2: // Negative Margin Report
+          reportType = "negative-margin-report";
+          break;
+        case 3: // Customer Traffic Report
+          reportType = "customer-traffic";
+          params.vendorReport = false;
+          break;
+      }
+
+      const result = await generateReport(reportType, params);
+      console.log("📈 Report result:", result);
+
+      if (result.success || result.data) {
+        const data = result.data || [];
+        setReportData(data);
+
+        if (result.summary && !Array.isArray(result.summary)) {
+          setReportSummary(result.summary);
+        } else {
+          const summary = {
+            totalAttempts: data.reduce((sum, r) => sum + (r.attempts || 0), 0),
+            totalCompleted: data.reduce((sum, r) => sum + (r.completed || 0), 0),
+            totalRevenue: data.reduce((sum, r) => sum + (r.revenue || 0), 0),
+            totalCost: data.reduce((sum, r) => sum + (r.cost || 0), 0),
+            totalMargin: data.reduce((sum, r) => sum + (r.margin || 0), 0),
+            avgASR: data.length > 0 ? data.reduce((sum, r) => sum + (r.asr || 0), 0) / data.length : 0,
+            avgMarginPercent: data.length > 0 ? data.reduce((sum, r) => sum + (r.marginPercent || 0), 0) / data.length : 0,
+            totalCustomers: [...new Set(data.map((r) => r.customer || r.accountName))].filter(Boolean).length,
+            negativeMarginCalls: data.filter((r) => (r.margin || 0) < 0).length,
+            totalLoss: data.filter((r) => (r.margin || 0) < 0).reduce((sum, r) => sum + r.margin, 0),
+            affectedCustomers: [...new Set(data.filter((r) => (r.margin || 0) < 0).map((r) => r.customer || r.accountName || r.accountCode))].filter(Boolean).length,
+            affectedDestinations: [...new Set(data.filter((r) => (r.margin || 0) < 0).map((r) => r.destination))].filter(Boolean).length,
+          };
+          setReportSummary(summary);
+        }
         
-        <HStack spacing={3}>
-          <Menu>
-            <MenuButton as={Button} rightIcon={<ChevronDownIcon />} variant="outline">
-              <CalendarIcon mr={2} />
-              Last 30 Days
-            </MenuButton>
-            <MenuList>
-              <MenuItem onClick={() => setDateRange('today')}>Today</MenuItem>
-              <MenuItem onClick={() => setDateRange('last7days')}>Last 7 Days</MenuItem>
-              <MenuItem onClick={() => setDateRange('last30days')}>Last 30 Days</MenuItem>
-              <MenuItem onClick={() => setDateRange('lastquarter')}>Last Quarter</MenuItem>
-              <MenuItem onClick={() => setDateRange('custom')}>Custom Range</MenuItem>
-            </MenuList>
-          </Menu>
-          
-          <Button
-            leftIcon={<DownloadIcon />}
-            colorScheme="blue"
-            onClick={() => handleExportReport('PDF')}
-          >
-            Export
-          </Button>
-        </HStack>
-      </Flex>
+        setIsModalOpen(false);
+        setPage(1);
+        setSelectedRows([]);
 
-      {/* Quick Stats */}
-      <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6} mb={8}>
-        {stats.map((stat, index) => (
-          <Card key={index} bg={cardBg} border="1px" borderColor={borderColor}>
+        toast({
+          title: "Report Generated Successfully",
+          description: `${data.length} records processed`,
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+          position: "top-right",
+        });
+      } else {
+        throw new Error(result.error || "Failed to generate report");
+      }
+    } catch (error) {
+      console.error("❌ Report generation error:", error);
+      toast({
+        title: "Error generating report",
+        description: error.message,
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+        position: "top-right",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExport = async (format) => {
+    if (!reportData || reportData.length === 0) {
+      toast({
+        title: "No data to export",
+        description: "Please generate a report first",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const fileName = `report_${new Date().getTime()}_${dateRange.startDate.toISOString().split("T")[0]}_to_${dateRange.endDate.toISOString().split("T")[0]}`;
+      await exportReport(reportData, format, fileName);
+
+      toast({
+        title: "Export Complete",
+        description: `Report exported successfully as ${format.toUpperCase()}`,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: error.message,
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const formatCurrency = (value) => {
+    if (value === undefined || value === null) return "$0.00";
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 6,
+    }).format(parseFloat(value));
+  };
+
+  const formatNumber = (value) => {
+    if (value === undefined || value === null) return "0";
+    return new Intl.NumberFormat("en-US").format(parseFloat(value));
+  };
+
+  const formatPercentage = (value) => {
+    if (value === undefined || value === null) return "0.00%";
+    return `${parseFloat(value).toFixed(3)}%`;
+  };
+
+  const formatDuration = (seconds) => {
+    if (!seconds || seconds === 0) return "00:00";
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const filteredData = useMemo(() => {
+    let data = [...reportData];
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      data = data.filter((row) => {
+        return Object.keys(row).some((key) => {
+          const value = row[key];
+          return value && value.toString().toLowerCase().includes(term);
+        });
+      });
+    }
+
+    data = data.filter((row) => {
+      const asr = parseFloat(row.asr || row.ASR || row.marginPercent || row.MarginPercent || 0);
+      const margin = parseFloat(row.margin || row.Margin || row.marPercent || row.MarPercent || 0);
+
+      return (
+        asr >= filters.minASR &&
+        asr <= filters.maxASR &&
+        margin >= filters.minMargin &&
+        margin <= filters.maxMargin
+      );
+    });
+
+    if (sortConfig.key) {
+      data.sort((a, b) => {
+        let aValue = a[sortConfig.key];
+        let bValue = b[sortConfig.key];
+
+        if (!isNaN(parseFloat(aValue)) && !isNaN(parseFloat(bValue))) {
+          aValue = parseFloat(aValue);
+          bValue = parseFloat(bValue);
+        }
+
+        if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return data;
+  }, [reportData, searchTerm, sortConfig, filters]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * rowsPerPage;
+    const end = start + rowsPerPage;
+    return filteredData.slice(start, end);
+  }, [filteredData, page, rowsPerPage]);
+
+  const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+
+  const handleSort = (key) => {
+    let direction = "asc";
+    if (sortConfig.key === key && sortConfig.direction === "asc") {
+      direction = "desc";
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const handleRowSelect = (id) => {
+    if (selectedRows.includes(id)) {
+      setSelectedRows(selectedRows.filter((rowId) => rowId !== id));
+    } else {
+      setSelectedRows([...selectedRows, id]);
+    }
+  };
+
+  const handleSelectAll = () => {
+    if (selectedRows.length === paginatedData.length) {
+      setSelectedRows([]);
+    } else {
+      setSelectedRows(paginatedData.map((_, index) => index));
+    }
+  };
+
+  const dashboardMetrics = useMemo(() => {
+    if (!reportData.length) return null;
+
+    const metrics = {
+      totalRevenue: 0,
+      totalCost: 0,
+      totalCalls: 0,
+      totalMargin: 0,
+      avgASR: 0,
+      avgACD: 0,
+      topCustomers: [],
+      topDestinations: [],
+    };
+
+    const customerMap = {};
+    const destinationMap = {};
+
+    reportData.forEach((row) => {
+      metrics.totalRevenue += parseFloat(row.revenue || row.Revenue || row.TotalRevenue || 0);
+      metrics.totalCost += parseFloat(row.cost || row.Cost || 0);
+      metrics.totalCalls += parseInt(row.attempts || row.Attempts || row.TotalCalls || 0);
+      metrics.totalMargin += parseFloat(row.margin || row.Margin || row.TotalMargin || 0);
+      metrics.avgASR += parseFloat(row.asr || row.ASR || 0);
+      metrics.avgACD += parseFloat(row.acd || row.ACD || 0);
+
+      const customer = row.customer || row.Customer || row.accountName || row.customername;
+      if (customer) {
+        if (!customerMap[customer]) customerMap[customer] = 0;
+        customerMap[customer] += parseFloat(row.revenue || row.Revenue || 0);
+      }
+
+      const destination = row.destination || row.Destination || row.custDestination || row.CustDestination || row.calleeareacode;
+      if (destination) {
+        if (!destinationMap[destination]) destinationMap[destination] = 0;
+        destinationMap[destination] += parseInt(row.attempts || row.Attempts || 0);
+      }
+    });
+
+    if (reportData.length > 0) {
+      metrics.avgASR /= reportData.length;
+      metrics.avgACD /= reportData.length;
+    }
+
+    metrics.topCustomers = Object.entries(customerMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, revenue]) => ({ name, revenue }));
+
+    metrics.topDestinations = Object.entries(destinationMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, calls]) => ({ name, calls }));
+
+    return metrics;
+  }, [reportData]);
+
+  const ReportModal = () => (
+    <Modal
+      isOpen={isModalOpen}
+      onClose={() => setIsModalOpen(false)}
+      size="xl"
+      isCentered
+    >
+      <ModalOverlay backdropFilter="blur(4px)" />
+      <ModalContent>
+        <ModalHeader bg="blue.500" color="white" borderTopRadius="md">
+          <HStack>
+            <FiFilter />
+            <Text>
+              Generate{" "}
+              {["Hourly", "Margin", "Negative Margin", "Customer Traffic"][activeTab]}{" "}
+              Report
+            </Text>
+          </HStack>
+        </ModalHeader>
+        <ModalCloseButton color="white" />
+        <ModalBody py={6}>
+          <VStack spacing={6} align="stretch">
+            <Box>
+              <FormLabel fontWeight="bold">Date Range</FormLabel>
+              <HStack mb={3}>
+                {[
+                  { label: "Today", days: 0 },
+                  { label: "Yesterday", days: 1 },
+                  { label: "Last 7 Days", days: 7 },
+                  { label: "Last 30 Days", days: 30 },
+                  { label: "Last 90 Days", days: 90 },
+                ].map((option) => (
+                  <Button
+                    key={option.label}
+                    size="xs"
+                    variant="outline"
+                    onClick={() => {
+                      const end = new Date();
+                      const start = new Date();
+                      start.setDate(start.getDate() - option.days);
+                      setDateRange({
+                        startDate: start,
+                        endDate: end,
+                        startHour: 0,
+                        endHour: 23,
+                      });
+                    }}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </HStack>
+              <HStack>
+                <Box flex={1}>
+                  <FormLabel fontSize="sm">Start Date</FormLabel>
+                  <DatePicker
+                    selected={dateRange.startDate}
+                    onChange={(date) => setDateRange({ ...dateRange, startDate: date })}
+                    selectsStart
+                    startDate={dateRange.startDate}
+                    endDate={dateRange.endDate}
+                    dateFormat="yyyy-MM-dd"
+                    customInput={<Input />}
+                    isClearable
+                  />
+                </Box>
+                <Box flex={1}>
+                  <FormLabel fontSize="sm">End Date</FormLabel>
+                  <DatePicker
+                    selected={dateRange.endDate}
+                    onChange={(date) => setDateRange({ ...dateRange, endDate: date })}
+                    selectsEnd
+                    startDate={dateRange.startDate}
+                    endDate={dateRange.endDate}
+                    minDate={dateRange.startDate}
+                    dateFormat="yyyy-MM-dd"
+                    customInput={<Input />}
+                    isClearable
+                  />
+                </Box>
+              </HStack>
+              <HStack mt={4} spacing={4}>
+                <Box flex={1}>
+                  <FormLabel fontSize="sm">From Hour</FormLabel>
+                  <Menu>
+                    <MenuButton as={Button} size="sm" variant="outline">
+                      {dateRange.startHour.toString().padStart(2, "0")}:00
+                    </MenuButton>
+                    <MenuList maxH="200px" overflowY="auto">
+                      {[...Array(24).keys()].map((hour) => (
+                        <MenuItem
+                          key={hour}
+                          onClick={() => setDateRange({ ...dateRange, startHour: hour })}
+                        >
+                          {hour.toString().padStart(2, "0")}:00
+                        </MenuItem>
+                      ))}
+                    </MenuList>
+                  </Menu>
+                </Box>
+                <Box flex={1}>
+                  <FormLabel fontSize="sm">To Hour</FormLabel>
+                  <Menu>
+                    <MenuButton as={Button} size="sm" variant="outline">
+                      {dateRange.endHour.toString().padStart(2, "0")}:59
+                    </MenuButton>
+                    <MenuList maxH="200px" overflowY="auto">
+                      {[...Array(24).keys()].map((hour) => (
+                        <MenuItem
+                          key={hour}
+                          onClick={() => setDateRange({ ...dateRange, endHour: hour })}
+                        >
+                          {hour.toString().padStart(2, "0")}:59
+                        </MenuItem>
+                      ))}
+                    </MenuList>
+                  </Menu>
+                </Box>
+              </HStack>
+              <Text fontSize="xs" color="gray.500" mt={2}>
+                {Math.ceil((dateRange.endDate - dateRange.startDate) / (1000 * 60 * 60 * 24))} days selected
+              </Text>
+            </Box>
+
+            <FormControl>
+              <FormLabel fontWeight="bold">
+                {isVendorReport ? "Vendor Account" : "Customer Account"}
+              </FormLabel>
+              <Select
+                value={selectedAccount}
+                onChange={(e) => setSelectedAccount(e.target.value)}
+                placeholder={accountsLoading ? "Loading accounts..." : "Select an account"}
+                isDisabled={accountsLoading}
+              >
+                <option value="all">All Accounts</option>
+                <option value="top10">Top 10 Accounts by Revenue</option>
+                <option value="active">Active Accounts Only</option>
+                {(isVendorReport ? accounts.vendors : accounts.customers).map((account) => (
+                  <option
+                    key={account.id || account._id}
+                    value={isVendorReport ? account.vendorCode : account.customerCode}
+                  >
+                    {account.accountName} ({account.authenticationValue})
+                  </option>
+                ))}
+              </Select>
+            </FormControl>
+
+            <Accordion allowToggle>
+              <AccordionItem border="none">
+                <AccordionButton px={0} py={2}>
+                  <Box flex="1" textAlign="left" fontWeight="medium">
+                    Advanced Options
+                  </Box>
+                  <AccordionIcon />
+                </AccordionButton>
+                <AccordionPanel px={0} pb={0}>
+                  <VStack spacing={4} align="stretch">
+                    {activeTab === 0 && (
+                      <FormControl display="flex" alignItems="center">
+                        <Switch
+                          id="vendor-report"
+                          isChecked={isVendorReport}
+                          onChange={(e) => {
+                            setIsVendorReport(e.target.checked);
+                            setSelectedAccount("all");
+                          }}
+                          colorScheme="blue"
+                          size="lg"
+                        />
+                        <FormLabel htmlFor="vendor-report" mb={0} ml={3}>
+                          Generate Vendor Report
+                        </FormLabel>
+                      </FormControl>
+                    )}
+
+                    {activeTab === 2 && (
+                      <FormControl>
+                        <FormLabel>Negative Margin Threshold</FormLabel>
+                        <HStack spacing={4}>
+                          <NumberInput
+                            value={marginThreshold}
+                            onChange={(value) => setMarginThreshold(value)}
+                            precision={2}
+                            step={0.1}
+                            min={-100}
+                            max={0}
+                            width="150px"
+                          >
+                            <NumberInputField />
+                            <NumberInputStepper>
+                              <NumberIncrementStepper />
+                              <NumberDecrementStepper />
+                            </NumberInputStepper>
+                          </NumberInput>
+                          <Slider
+                            value={marginThreshold}
+                            onChange={(value) => setMarginThreshold(value)}
+                            min={-100}
+                            max={0}
+                            step={1}
+                            width="200px"
+                          >
+                            <SliderTrack>
+                              <SliderFilledTrack bg="red.500" />
+                            </SliderTrack>
+                            <SliderThumb />
+                          </Slider>
+                        </HStack>
+                        <Text fontSize="sm" color="gray.500" mt={1}>
+                          Show calls with margin below: {marginThreshold}%
+                        </Text>
+                      </FormControl>
+                    )}
+
+                    <FormControl>
+                      <FormLabel>Time Granularity</FormLabel>
+                      <Select
+                        value={timeGranularity}
+                        onChange={(e) => setTimeGranularity(e.target.value)}
+                      >
+                        <option value="hour">Hourly</option>
+                        <option value="day">Daily</option>
+                        <option value="week">Weekly</option>
+                        <option value="month">Monthly</option>
+                      </Select>
+                    </FormControl>
+
+                    <FormControl>
+                      <FormLabel>Result Limit</FormLabel>
+                      <Select
+                        value={rowsPerPage}
+                        onChange={(e) => setRowsPerPage(parseInt(e.target.value))}
+                      >
+                        <option value={50}>50 rows</option>
+                        <option value={100}>100 rows</option>
+                        <option value={250}>250 rows</option>
+                        <option value={500}>500 rows</option>
+                        <option value={1000}>1000 rows</option>
+                      </Select>
+                    </FormControl>
+                  </VStack>
+                </AccordionPanel>
+              </AccordionItem>
+            </Accordion>
+          </VStack>
+        </ModalBody>
+
+        <ModalFooter>
+          <HStack spacing={6} width="100%">
+            <Button
+              variant="outline"
+              onClick={() => setIsModalOpen(false)}
+              flex={1}
+            >
+              Cancel
+            </Button>
+            <Button
+              colorScheme="blue"
+              onClick={handleGenerateReport}
+              isLoading={loading}
+              leftIcon={<FiFilter />}
+              flex={2}
+              size="md"
+            >
+              Generate Report
+            </Button>
+          </HStack>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
+
+  const ReportSummary = () => {
+    if (!reportSummary || Object.keys(reportSummary).length === 0) return null;
+
+    const summaries = {
+      0: [
+        {
+          label: "Total Attempts",
+          value: reportSummary.totalAttempts?.toLocaleString() || "0",
+          icon: FiBarChart2,
+          color: "blue.500",
+        },
+        {
+          label: "Completed Calls",
+          value: reportSummary.totalCompleted?.toLocaleString() || "0",
+          icon: CheckCircleIcon,
+          color: "green.500",
+        },
+        {
+          label: "Total Revenue",
+          value: formatCurrency(reportSummary.totalRevenue || 0),
+          icon: FiTrendingUp,
+          color: "purple.500",
+        },
+        {
+          label: "Avg ASR",
+          value: `${reportSummary.avgASR?.toFixed(2) || "0.00"}%`,
+          icon: StarIcon,
+          color: "yellow.500",
+        },
+      ],
+      1: [
+        {
+          label: "Total Revenue",
+          value: formatCurrency(reportSummary.totalRevenue || 0),
+          icon: FiTrendingUp,
+          color: "green.500",
+        },
+        {
+          label: "Total Cost",
+          value: formatCurrency(reportSummary.totalCost || 0),
+          icon: FiTrendingDown,
+          color: "red.500",
+        },
+        {
+          label: "Total Margin",
+          value: formatCurrency(reportSummary.totalMargin || 0),
+          icon: FiBarChart2,
+          color: "blue.500",
+        },
+        {
+          label: "Avg Margin %",
+          value: `${reportSummary.avgMarginPercent?.toFixed(2) || "0.00"}%`,
+          icon: StarIcon,
+          color: "purple.500",
+        },
+      ],
+      2: [
+        {
+          label: "Total Loss",
+          value: formatCurrency(Math.abs(reportSummary.totalLoss || 0)),
+          icon: WarningIcon,
+          color: "red.500",
+        },
+        {
+          label: "Negative Calls",
+          value: reportSummary.negativeMarginCalls?.toLocaleString() || "0",
+          icon: CloseIcon,
+          color: "orange.500",
+        },
+        {
+          label: "Affected Customers",
+          value: reportSummary.affectedCustomers?.toLocaleString() || "0",
+          icon: InfoIcon,
+          color: "yellow.500",
+        },
+        {
+          label: "Destinations",
+          value: reportSummary.affectedDestinations?.toLocaleString() || "0",
+          icon: FiGrid,
+          color: "cyan.500",
+        },
+      ],
+      3: [
+        {
+          label: "Total Customers",
+          value: reportSummary.totalCustomers?.toLocaleString() || "0",
+          icon: FiList,
+          color: "blue.500",
+        },
+        {
+          label: "Total Attempts",
+          value: reportSummary.totalAttempts?.toLocaleString() || "0",
+          icon: FiBarChart2,
+          color: "green.500",
+        },
+        {
+          label: "Total Revenue",
+          value: formatCurrency(reportSummary.totalRevenue || 0),
+          icon: FiTrendingUp,
+          color: "purple.500",
+        },
+        {
+          label: "Avg ASR",
+          value: `${reportSummary.avgASR?.toFixed(3) || "0.00"}%`,
+          icon: StarIcon,
+          color: "yellow.500",
+        },
+      ],
+    };
+
+    return (
+      <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4} mb={6}>
+        {summaries[activeTab]?.map((stat, index) => (
+          <Card
+            key={index}
+            bg={cardBg}
+            border="1px"
+            borderColor={borderColor}
+            _hover={{ transform: "translateY(-2px)", boxShadow: "lg" }}
+            transition="all 0.2s"
+          >
             <CardBody>
+              <HStack justify="space-between" mb={2}>
+                <Box p={2} bg={`${stat.color}.100`} borderRadius="md">
+                  <Icon as={stat.icon} color={`${stat.color}.500`} boxSize={5} />
+                </Box>
+              </HStack>
               <Stat>
-                <StatLabel color="gray.600">{stat.label}</StatLabel>
-                <StatNumber fontSize="2xl">{stat.value}</StatNumber>
-                <StatHelpText>
-                  <StatArrow type={stat.trend === 'up' ? 'increase' : 'decrease'} />
-                  {stat.change}
-                </StatHelpText>
+                <StatLabel color={mutedColor} fontSize="sm">
+                  {stat.label}
+                </StatLabel>
+                <StatNumber fontSize="xl" color={textColor}>
+                  {stat.value}
+                </StatNumber>
               </Stat>
             </CardBody>
           </Card>
         ))}
       </SimpleGrid>
+    );
+  };
 
-      {/* Main Content Tabs */}
-      <Tabs variant="enclosed" colorScheme="blue" mb={8}>
-        <TabList>
-          <Tab>Overview</Tab>
-          <Tab>Revenue Analytics</Tab>
-          <Tab>CDR Reports</Tab>
-          <Tab>Customer Reports</Tab>
-          <Tab>Scheduled Reports</Tab>
+  const DashboardMetrics = () => {
+    if (!dashboardMetrics) return null;
+
+    return (
+      <Card bg={cardBg} border="1px" borderColor={borderColor} mb={6}>
+        <CardHeader>
+          <Heading size="md">Performance Overview</Heading>
+        </CardHeader>
+        <CardBody>
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+            <Box>
+              <Text fontSize="sm" color={mutedColor}>
+                Profit Margin
+              </Text>
+              <Heading size="lg" color={dashboardMetrics.totalMargin >= 0 ? "green.500" : "red.500"}>
+                {formatCurrency(dashboardMetrics.totalMargin)}
+              </Heading>
+              <Text fontSize="xs">
+                {dashboardMetrics.totalRevenue > 0
+                  ? ((dashboardMetrics.totalMargin / dashboardMetrics.totalRevenue) * 100).toFixed(6)
+                  : 0}% margin
+              </Text>
+            </Box>
+            <Box>
+              <Text fontSize="sm" color={mutedColor}>
+                Call Success Rate
+              </Text>
+              <Heading size="lg">{formatPercentage(dashboardMetrics.avgASR)}</Heading>
+              <Progress value={dashboardMetrics.avgASR} colorScheme="green" size="sm" mt={1} />
+            </Box>
+            <Box>
+              <Text fontSize="sm" color={mutedColor}>
+                Avg Call Duration
+              </Text>
+              <Heading size="lg">{formatDuration(dashboardMetrics.avgACD)}</Heading>
+              <Text fontSize="xs">per call</Text>
+            </Box>
+            <Box>
+              <Text fontSize="sm" color={mutedColor}>
+                Total Calls
+              </Text>
+              <Heading size="lg">{formatNumber(dashboardMetrics.totalCalls)}</Heading>
+              <Text fontSize="xs">in selected period</Text>
+            </Box>
+          </SimpleGrid>
+        </CardBody>
+      </Card>
+    );
+  };
+
+  const EnhancedTableView = () => {
+    const getSortIcon = (key) => {
+      if (sortConfig.key !== key) return null;
+      return sortConfig.direction === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />;
+    };
+
+    if (loading) {
+      return (
+        <Center py={20}>
+          <VStack spacing={4}>
+            <Spinner size="xl" color="blue.500" thickness="4px" />
+            <VStack spacing={1}>
+              <Text fontWeight="medium">Generating Report</Text>
+              <Text fontSize="sm" color={mutedColor}>
+                Processing your data...
+              </Text>
+            </VStack>
+            <Progress size="xs" width="200px" isIndeterminate colorScheme="blue" />
+          </VStack>
+        </Center>
+      );
+    }
+
+    if (!reportData || reportData.length === 0) {
+      return (
+        <Alert
+          status="info"
+          borderRadius="md"
+          variant="subtle"
+          flexDirection="column"
+          alignItems="center"
+          justifyContent="center"
+          textAlign="center"
+          height="200px"
+        >
+          <AlertIcon boxSize="40px" mr={0} />
+          <AlertTitle mt={4} mb={1} fontSize="lg">
+            No Report Data
+          </AlertTitle>
+          <AlertDescription maxWidth="sm">
+            Generate a report to view analytics and insights from your CDR data.
+          </AlertDescription>
+          <Button mt={4} colorScheme="blue" onClick={() => setIsModalOpen(true)}>
+            Generate Report
+          </Button>
+        </Alert>
+      );
+    }
+
+    const renderTable = () => {
+      switch (activeTab) {
+        case 0:
+          return (
+            <Box overflowX="auto">
+              <Box
+                position="relative"
+                maxHeight="580px"
+                overflow="hidden"
+                border="1px solid"
+                borderColor={borderColor}
+                borderRadius="md"
+              >
+                <Box position="sticky" top={0} zIndex={10} bg="gray.200" borderBottom="1px solid" borderColor={borderColor}>
+                  <Table variant="simple" size="sm">
+                    <Thead>
+                      <Tr>
+                        <Th width="50px">
+                          <Checkbox
+                            isChecked={selectedRows.length === paginatedData.length}
+                            onChange={handleSelectAll}
+                          />
+                        </Th>
+                        <Th cursor="pointer" onClick={() => handleSort("hour")}>
+                          <HStack>
+                            <Text>Time Range</Text>
+                            {getSortIcon("hour")}
+                          </HStack>
+                        </Th>
+                        <Th isNumeric cursor="pointer" onClick={() => handleSort("attempts")}>
+                          <HStack justify="flex-end">
+                            <Text>Attempts</Text>
+                            {getSortIcon("attempts")}
+                          </HStack>
+                        </Th>
+                        <Th isNumeric>Completed</Th>
+                        <Th isNumeric cursor="pointer" onClick={() => handleSort("asr")}>
+                          <HStack justify="flex-end">
+                            <Text>ASR %</Text>
+                            {getSortIcon("asr")}
+                          </HStack>
+                        </Th>
+                        <Th isNumeric>ACD (sec)</Th>
+                        <Th isNumeric>Duration(sec)</Th>
+                        <Th isNumeric cursor="pointer" onClick={() => handleSort("revenue")}>
+                          <HStack justify="flex-end">
+                            <Text>Revenue</Text>
+                            {getSortIcon("revenue")}
+                          </HStack>
+                        </Th>
+                        <Th isNumeric cursor="pointer" onClick={() => handleSort("cost")}>
+                          <HStack justify="flex-end">
+                            <Text>Cost</Text>
+                            {getSortIcon("cost")}
+                          </HStack>
+                        </Th>
+                        <Th isNumeric cursor="pointer" onClick={() => handleSort("margin")}>
+                          <HStack justify="flex-end">
+                            <Text>Margin</Text>
+                            {getSortIcon("margin")}
+                          </HStack>
+                        </Th>
+                      </Tr>
+                    </Thead>
+                  </Table>
+                </Box>
+
+                <Box maxHeight="500px" overflowY="auto">
+                  <Table variant="simple" size="sm">
+                    <Tbody>
+                      {paginatedData.map((row, index) => (
+                        <Tr key={index}>
+                          <Td width="50px">
+                            <Checkbox
+                              isChecked={selectedRows.includes(index)}
+                              onChange={() => handleRowSelect(index)}
+                            />
+                          </Td>
+                          <Td>{row.hour}</Td>
+                          <Td isNumeric>{formatNumber(row.attempts)}</Td>
+                          <Td isNumeric>{formatNumber(row.completed)}</Td>
+                          <Td isNumeric>
+                            <Badge colorScheme={row.asr > 50 ? "green" : row.asr > 20 ? "yellow" : "red"}>
+                              {row.asr}%
+                            </Badge>
+                          </Td>
+                          <Td isNumeric>{row.acd}</Td>
+                          <Td isNumeric>{formatNumber(row.duration)}</Td>
+                          <Td isNumeric>{formatCurrency(row.revenue)}</Td>
+                          <Td isNumeric>{formatCurrency(row.cost)}</Td>
+                          <Td isNumeric>
+                            <Text fontWeight={"semibold"} color={row.margin >= 0 ? "green.600" : "red.500"}>
+                              {formatCurrency(row.margin)}
+                            </Text>
+                          </Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
+                </Box>
+              </Box>
+            </Box>
+          );
+
+        case 1:
+          return (
+            <Box maxH="500px" overflowY="auto" border="1px solid" borderColor="gray.200">
+              <Table variant="simple" size="sm">
+                <Thead position="sticky" top={0} zIndex={1} bg="gray.50">
+                  <Tr>
+                    <Th cursor="pointer" onClick={() => handleSort("accountCode")}>
+                      <HStack>
+                        <Text>Account ID</Text>
+                        {getSortIcon("accountCode")}
+                      </HStack>
+                    </Th>
+                    <Th cursor="pointer" onClick={() => handleSort("accountName")}>
+                      <HStack>
+                        <Text>Customer</Text>
+                        {getSortIcon("accountName")}
+                      </HStack>
+                    </Th>
+                    <Th cursor="pointer" onClick={() => handleSort("destination")}>
+                      <HStack>
+                        <Text>Destination</Text>
+                        {getSortIcon("destination")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("attempts")}>
+                      <HStack justify="flex-end">
+                        <Text>Attempts</Text>
+                        {getSortIcon("attempts")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("revenue")}>
+                      <HStack justify="flex-end">
+                        <Text>Revenue</Text>
+                        {getSortIcon("revenue")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("cost")}>
+                      <HStack justify="flex-end">
+                        <Text>Cost</Text>
+                        {getSortIcon("cost")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("margin")}>
+                      <HStack justify="flex-end">
+                        <Text>Margin</Text>
+                        {getSortIcon("margin")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("marginPercent")}>
+                      <HStack justify="flex-end">
+                        <Text>Margin %</Text>
+                        {getSortIcon("marginPercent")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("duration")}>
+                      <HStack justify="flex-end">
+                        <Text>Duration (Sec)</Text>
+                        {getSortIcon("duration")}
+                      </HStack>
+                    </Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {paginatedData.map((row, index) => (
+                    <Tr key={index}>
+                      <Td>{row.accountCode}</Td>
+                      <Td>{row.accountName}</Td>
+                      <Td>
+                        <HStack>
+                          <Text>{row.destination}</Text>
+                        </HStack>
+                      </Td>
+                      <Td isNumeric>{formatNumber(row.attempts)}</Td>
+                      <Td isNumeric>{formatCurrency(row.revenue)}</Td>
+                      <Td isNumeric>{formatCurrency(row.cost)}</Td>
+                      <Td isNumeric>
+                        <Text color={row.margin >= 0 ? "green.500" : "red.500"} fontWeight="bold">
+                          {formatCurrency(row.margin)}
+                        </Text>
+                      </Td>
+                      <Td isNumeric>
+                        <Badge colorScheme={row.marginPercent >= 0 ? "green" : "red"}>
+                          {row.marginPercent}%
+                        </Badge>
+                      </Td>
+                      <Td isNumeric>{formatNumber(row.duration)}</Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </Box>
+          );
+
+        case 2:
+          return (
+            <Box maxH="500px" overflowY="auto" border="1px solid" borderColor="red.200">
+              <Table variant="simple" size="sm">
+                <Thead position="sticky" top={0} zIndex={1} bg="red.50">
+                  <Tr>
+                    <Th cursor="pointer" onClick={() => handleSort("accountCode")}>
+                      <HStack>
+                        <Text>Account ID</Text>
+                        {getSortIcon("accountCode")}
+                      </HStack>
+                    </Th>
+                    <Th cursor="pointer" onClick={() => handleSort("accountName")}>
+                      <HStack>
+                        <Text>Customer</Text>
+                        {getSortIcon("accountName")}
+                      </HStack>
+                    </Th>
+                    <Th cursor="pointer" onClick={() => handleSort("destination")}>
+                      <HStack>
+                        <Text>Destination</Text>
+                        {getSortIcon("destination")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("attempts")}>
+                      <HStack justify="flex-end">
+                        <Text>Attempts</Text>
+                        {getSortIcon("attempts")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("revenue")}>
+                      <HStack justify="flex-end">
+                        <Text>Revenue</Text>
+                        {getSortIcon("revenue")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("cost")}>
+                      <HStack justify="flex-end">
+                        <Text>Cost</Text>
+                        {getSortIcon("cost")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("margin")}>
+                      <HStack justify="flex-end">
+                        <Text>Margin</Text>
+                        {getSortIcon("margin")}
+                      </HStack>
+                    </Th>
+                    <Th isNumeric cursor="pointer" onClick={() => handleSort("marginPercent")}>
+                      <HStack justify="flex-end">
+                        <Text>Margin %</Text>
+                        {getSortIcon("marginPercent")}
+                      </HStack>
+                    </Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {paginatedData.map((row, index) => (
+                    <Tr key={index} bg="red.50">
+                      <Td>{row.accountCode}</Td>
+                      <Td>{row.accountName}</Td>
+                      <Td>{row.destination}</Td>
+                      <Td isNumeric>{formatNumber(row.attempts)}</Td>
+                      <Td isNumeric>{formatCurrency(row.revenue)}</Td>
+                      <Td isNumeric>{formatCurrency(row.cost)}</Td>
+                      <Td isNumeric color="red.600" fontWeight="bold">
+                        {formatCurrency(row.margin)}
+                      </Td>
+                      <Td isNumeric>
+                        <Badge colorScheme="red">{row.marginPercent}%</Badge>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </Box>
+          );
+
+        case 3:
+          return (
+            <Box maxH="500px" overflowY="auto" border="1px solid" borderColor="gray.200">
+              <Table variant="simple" size="sm">
+                <Thead position="sticky" top={0} zIndex={1} bg="gray.50">
+                  <Tr>
+                    <Th>Customer</Th>
+                    <Th>Dest</Th>
+                    <Th>Vendor</Th>
+                    <Th isNumeric>Attempts</Th>
+                    <Th isNumeric>Comp</Th>
+                    <Th isNumeric>ASR%</Th>
+                    <Th isNumeric>ACD</Th>
+                    <Th isNumeric>Revenue</Th>
+                    <Th isNumeric>Margin</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {paginatedData.map((row, index) => (
+                    <Tr key={index}>
+                      <Td fontSize="xs">{row.customer}</Td>
+                      <Td>{row.custDestination}</Td>
+                      <Td fontSize="xs">{row.vendor}</Td>
+                      <Td isNumeric>{formatNumber(row.attempts)}</Td>
+                      <Td isNumeric>{formatNumber(row.completed)}</Td>
+                      <Td isNumeric>
+                        <Badge colorScheme={row.asr > 40 ? "green" : "orange"}>
+                          {row.asr}%
+                        </Badge>
+                      </Td>
+                      <Td isNumeric>{row.acd}</Td>
+                      <Td isNumeric>{formatCurrency(row.revenue)}</Td>
+                      <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>
+                        {formatCurrency(row.margin)}
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </Box>
+          );
+
+        default:
+          return null;
+      }
+    };
+
+    return (
+      <>
+        {renderTable()}
+
+        <Flex justify="space-between" align="center" mt={4} py={2}>
+          <Text fontSize="sm" color={mutedColor}>
+            Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, filteredData.length)} of{" "}
+            {filteredData.length} entries
+          </Text>
+
+          <HStack spacing={2}>
+            <IconButton
+              icon={<ChevronLeftIcon />}
+              size="sm"
+              onClick={() => setPage(Math.max(1, page - 1))}
+              isDisabled={page === 1}
+              aria-label="Previous page"
+            />
+
+            {[...Array(Math.min(5, totalPages))].map((_, i) => {
+              let pageNum =
+                totalPages <= 5
+                  ? i + 1
+                  : page <= 3
+                    ? i + 1
+                    : page >= totalPages - 2
+                      ? totalPages - 4 + i
+                      : page - 2 + i;
+
+              return (
+                <Button
+                  key={pageNum}
+                  size="sm"
+                  variant={page === pageNum ? "solid" : "outline"}
+                  colorScheme={page === pageNum ? "blue" : "gray"}
+                  onClick={() => setPage(pageNum)}
+                >
+                  {pageNum}
+                </Button>
+              );
+            })}
+
+            <IconButton
+              icon={<ChevronRightIcon />}
+              size="sm"
+              onClick={() => setPage(Math.min(totalPages, page + 1))}
+              isDisabled={page === totalPages}
+              aria-label="Next page"
+            />
+          </HStack>
+        </Flex>
+      </>
+    );
+  };
+
+  const ChartVisualization = () => {
+    if (!reportData || reportData.length === 0) return null;
+
+    const chartData = reportData.slice(0, 20).map((item) => ({
+      name: item.hour || item.customer || item.Customer || item.accountName || item.AccountID || "Unknown",
+      revenue: parseFloat(item.revenue || item.Revenue || item.TotalRevenue || 0),
+      cost: parseFloat(item.cost || item.Cost || 0),
+      margin: parseFloat(item.margin || item.Margin || item.TotalMargin || 0),
+      asr: parseFloat(item.asr || item.ASR || 0),
+      attempts: parseInt(item.attempts || item.Attempts || item.TotalAttempts || 0),
+    }));
+
+    const renderChart = () => {
+      switch (chartType) {
+        case "bar":
+          return (
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} fontSize={12} />
+              <YAxis />
+              <RechartsTooltip
+                formatter={(value) => [formatCurrency(value), ""]}
+                labelFormatter={(label) => `Customer: ${label}`}
+              />
+              <Legend />
+              <Bar dataKey="revenue" name="Revenue" fill="#3182CE" />
+              <Bar dataKey="cost" name="Cost" fill="#E53E3E" />
+              <Bar dataKey="margin" name="Margin" fill="#38A169" />
+            </BarChart>
+          );
+
+        case "line":
+          return (
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} fontSize={12} />
+              <YAxis />
+              <RechartsTooltip
+                formatter={(value, name) => {
+                  if (name === "asr") return [`${value}%`, "ASR"];
+                  return [formatCurrency(value), name];
+                }}
+              />
+              <Legend />
+              <Line type="monotone" dataKey="revenue" stroke="#3182CE" strokeWidth={2} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="margin" stroke="#38A169" strokeWidth={2} dot={{ r: 4 }} />
+            </LineChart>
+          );
+
+        case "area":
+          return (
+            <AreaChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} fontSize={12} />
+              <YAxis />
+              <RechartsTooltip formatter={(value) => [formatCurrency(value), ""]} />
+              <Legend />
+              <Area type="monotone" dataKey="revenue" stroke="#3182CE" fill="#3182CE" fillOpacity={0.3} />
+              <Area type="monotone" dataKey="margin" stroke="#38A169" fill="#38A169" fillOpacity={0.3} />
+            </AreaChart>
+          );
+
+        case "pie":
+          const pieData = chartData.slice(0, 8).map((item) => ({ name: item.name, value: item.revenue }));
+          const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D", "#FFC658", "#FF6B6B"];
+
+          return (
+            <PieChart>
+              <Pie
+                data={pieData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                outerRadius={150}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {pieData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Pie>
+              <RechartsTooltip formatter={(value) => [formatCurrency(value), "Revenue"]} />
+              <Legend />
+            </PieChart>
+          );
+
+        default:
+          return null;
+      }
+    };
+
+    return (
+      <Card bg={cardBg} border="1px" borderColor={borderColor} mt={6}>
+        <CardHeader>
+          <Flex justify="space-between" align="center">
+            <Heading size="md">Data Visualization</Heading>
+            <HStack spacing={3}>
+              <Select size="sm" w="150px" value={chartType} onChange={(e) => setChartType(e.target.value)}>
+                <option value="bar">Bar Chart</option>
+                <option value="line">Line Chart</option>
+                <option value="area">Area Chart</option>
+                <option value="pie">Pie Chart</option>
+              </Select>
+              <Select size="sm" w="150px" value={viewType} onChange={(e) => setViewType(e.target.value)}>
+                <option value="table">Table View</option>
+                <option value="chart">Chart View</option>
+                <option value="both">Both</option>
+              </Select>
+            </HStack>
+          </Flex>
+        </CardHeader>
+        <CardBody>
+          <Box height="400px">
+            <ResponsiveContainer width="100%" height="100%">
+              {renderChart()}
+            </ResponsiveContainer>
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+
+  const testAPI = async () => {
+    try {
+      const testParams = {
+        startDate: "2024-01-01",
+        endDate: "2024-01-02",
+        startHour: 0,
+        endHour: 23,
+        accountId: "all",
+        vendorReport: false
+      };
+      
+      console.log("🧪 Testing API with:", testParams);
+      const result = await generateReport("hourly-report", testParams);
+      console.log("🧪 Test result:", result);
+      
+      if (result.success) {
+        toast({
+          title: "API Test Successful",
+          description: `Got ${result.data?.length || 0} records`,
+          status: "success",
+          duration: 3000,
+        });
+      }
+    } catch (error) {
+      console.error("🧪 Test failed:", error);
+      toast({
+        title: "API Test Failed",
+        description: error.message,
+        status: "error",
+        duration: 5000,
+      });
+    }
+  };
+
+  return (
+    <Container maxW="container.xl" py={8}>
+      <Flex justify="space-between" align="center" mb={8}>
+        <Box>
+          <Heading size="lg" mb={2}>
+            CDR Analytics Reports
+          </Heading>
+          <Text color={mutedColor}>
+            Generate detailed reports and insights from CDR data
+          </Text>
+        </Box>
+
+        <HStack spacing={3}>
+          <Button
+            size="md"
+            leftIcon={<FiRefreshCw />}
+            variant="ghost"
+            onClick={() => loadAccounts()}
+            isLoading={accountsLoading}
+          >
+            Refresh
+          </Button>
+          
+          {/* <Button
+            size="sm"
+            colorScheme="yellow"
+            onClick={() => {
+              console.log("🔍 Current state:", {
+                dateRange,
+                selectedAccount,
+                isVendorReport,
+                activeTab,
+                accounts
+              });
+              toast({
+                title: "Debug Info Logged",
+                description: "Check browser console for details",
+                status: "info",
+                duration: 3000,
+              });
+            }}
+          >
+            Debug
+          </Button> */}
+          
+          {/* <Button
+            size="sm"
+            colorScheme="purple"
+            onClick={testAPI}
+          >
+            Test API
+          </Button>
+           */}
+          <Button
+            size="sm"
+            leftIcon={<CalendarIcon />}
+            colorScheme="blue"
+            onClick={() => setIsModalOpen(true)}
+          >
+            Generate Report
+          </Button>
+
+          <Menu>
+            <MenuButton
+              size="sm"
+              as={Button}
+              rightIcon={<ChevronDownIcon />}
+              colorScheme="green"
+              isLoading={exporting}
+              isDisabled={!reportData || reportData.length === 0}
+            >
+              <DownloadIcon mr={2} />
+              Export
+            </MenuButton>
+            <MenuList>
+              <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("csv")}>
+                Export as CSV
+              </MenuItem>
+              <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("excel")}>
+                Export as Excel
+              </MenuItem>
+              <Divider />
+              <MenuItem icon={<SettingsIcon />} onClick={() => window.print()}>
+                Print Report
+              </MenuItem>
+            </MenuList>
+          </Menu>
+        </HStack>
+      </Flex>
+
+      {dashboardMetrics && <DashboardMetrics />}
+
+      <Tabs
+        variant={{ base: "line", md: "soft-rounded" }}
+        colorScheme="blue"
+        mb={8}
+        index={activeTab}
+        onChange={(index) => {
+          setActiveTab(index);
+          setReportData([]);
+          setReportSummary({});
+          setPage(1);
+        }}
+      >
+        <TabList gap={8}>
+          <Tab>
+            <HStack spacing={2}>
+              <TimeIcon />
+              <Text>Hourly Reports</Text>
+            </HStack>
+          </Tab>
+          <Tab>
+            <HStack spacing={2}>
+              <FiBarChart2 />
+              <Text>Margin Reports</Text>
+            </HStack>
+          </Tab>
+          <Tab>
+            <HStack spacing={2}>
+              <FiTrendingDown />
+              <Text>Negative Margin</Text>
+            </HStack>
+          </Tab>
+          <Tab>
+            <HStack spacing={2}>
+              <FiList />
+              <Text>Customer Traffic</Text>
+            </HStack>
+          </Tab>
         </TabList>
 
         <TabPanels>
-          {/* Overview Tab */}
-          <TabPanel px={0}>
-            <Grid templateColumns={{ base: '1fr', lg: '2fr 1fr' }} gap={6}>
-              {/* Revenue Chart */}
+          {[0, 1, 2, 3].map((tabIndex) => (
+            <TabPanel key={tabIndex} px={0}>
+              <ReportSummary />
+
+              <Box mb={4}>
+                <InputGroup w={"300px"} bg={"white"}>
+                  <InputLeftElement pointerEvents="none">
+                    <SearchIcon color="gray.400" />
+                  </InputLeftElement>
+                  <Input
+                    placeholder="Search in report..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </InputGroup>
+              </Box>
+
               <Card bg={cardBg} border="1px" borderColor={borderColor}>
                 <CardHeader>
                   <Flex justify="space-between" align="center">
-                    <Heading size="md">Revenue Trend</Heading>
-                    <Select size="sm" width="150px" defaultValue="monthly">
-                      <option value="daily">Daily</option>
-                      <option value="weekly">Weekly</option>
-                      <option value="monthly">Monthly</option>
-                    </Select>
+                    <VStack align="start" spacing={1}>
+                      <Heading size="md">
+                        {["Hourly Report", "Margin Report", "Negative Margin Report", "Customer Traffic Report"][tabIndex]}
+                      </Heading>
+                      <Text fontSize="sm" color={mutedColor}>
+                        Generated on {new Date().toLocaleDateString()} | Data range:{" "}
+                        {dateRange.startDate.toLocaleDateString()} to {dateRange.endDate.toLocaleDateString()}
+                      </Text>
+                    </VStack>
+
+                    <HStack spacing={2}>
+                      <Badge colorScheme="yellow" fontSize="sm" px={2} py={1}>
+                        {filteredData.length} records
+                      </Badge>
+                      <Menu>
+                        <MenuButton as={Button} size="sm" variant="outline">
+                          <HStack spacing={1}>
+                            <FiEye />
+                            <ChevronDownIcon ml={1} />
+                          </HStack>
+                        </MenuButton>
+                        <MenuList>
+                          <MenuItem onClick={() => setRowsPerPage(50)}>50 per page</MenuItem>
+                          <MenuItem onClick={() => setRowsPerPage(100)}>100 per page</MenuItem>
+                          <MenuItem onClick={() => setRowsPerPage(250)}>250 per page</MenuItem>
+                        </MenuList>
+                      </Menu>
+                    </HStack>
                   </Flex>
                 </CardHeader>
-                <CardBody>
-                  <Box height="300px">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={revenueData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis dataKey="month" />
-                        <YAxis />
-                        <RechartsTooltip />
-                        <Legend />
-                        <Area 
-                          type="monotone" 
-                          dataKey="revenue" 
-                          name="Revenue ($)" 
-                          stroke="#3182CE" 
-                          fill="#3182CE" 
-                          fillOpacity={0.2}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </Box>
+                <CardBody overflowX="auto">
+                  <EnhancedTableView />
                 </CardBody>
               </Card>
 
-              {/* Service Distribution */}
-              <Card bg={cardBg} border="1px" borderColor={borderColor}>
-                <CardHeader>
-                  <Heading size="md">Service Distribution</Heading>
-                </CardHeader>
-                <CardBody>
-                  <Box height="300px">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={serviceTypeData}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                          outerRadius={80}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {serviceTypeData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <RechartsTooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </Box>
-                </CardBody>
-              </Card>
-            </Grid>
+              <ChartVisualization />
 
-            {/* Top Customers */}
-            <Card bg={cardBg} border="1px" borderColor={borderColor} mt={6}>
-              <CardHeader>
-                <Flex justify="space-between" align="center">
-                  <Heading size="md">Top Customers by Revenue</Heading>
-                  <Button size="sm" variant="ghost" rightIcon={<ChevronRightIcon />}>
-                    View All
-                  </Button>
-                </Flex>
-              </CardHeader>
-              <CardBody>
-                <Table variant="simple">
-                  <Thead>
-                    <Tr bg={"gray.200"}>
-                      <Th color={"gray.800"}>Customer</Th>
-                      <Th color={"gray.800"}>Revenue</Th>
-                      <Th color={"gray.800"}>Growth</Th>
-                      <Th color={"gray.800"}>Status</Th>
-                      <Th color={"gray.800"}>Actions</Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {customerRevenueData.map((customer, index) => (
-                      <Tr key={index}>
-                        <Td>
-                          <Text fontWeight="medium">{customer.customer}</Text>
-                        </Td>
-                        <Td>
-                          <Text fontWeight="bold">${customer.revenue.toLocaleString()}</Text>
-                        </Td>
-                        <Td>
-                          <HStack>
-                            {customer.growth > 0 ? (
-                              <ArrowUpIcon color="green.500" />
-                            ) : (
-                              <ArrowDownIcon color="red.500" />
-                            )}
-                            <Text color={customer.growth > 0 ? 'green.500' : 'red.500'}>
-                              {Math.abs(customer.growth)}%
-                            </Text>
-                          </HStack>
-                        </Td>
-                        <Td>
-                          <Badge
-                            colorScheme={
-                              customer.status === 'active' ? 'green' :
-                              customer.status === 'warning' ? 'yellow' : 'red'
-                            }
-                          >
-                            {customer.status}
-                          </Badge>
-                        </Td>
-                        <Td>
-                          <IconButton
-                            aria-label="View details"
-                            icon={<ViewIcon />}
-                            size="sm"
-                            variant="ghost"
-                          />
-                        </Td>
-                      </Tr>
-                    ))}
-                  </Tbody>
-                </Table>
-              </CardBody>
-            </Card>
-          </TabPanel>
-
-          {/* Revenue Analytics Tab */}
-          <TabPanel px={0}>
-            <Grid templateColumns={{ base: '1fr', lg: '3fr 1fr' }} gap={6}>
-              <Card bg={cardBg} border="1px" borderColor={borderColor}>
-                <CardHeader>
-                  <Heading size="md">Detailed Revenue Analysis</Heading>
-                </CardHeader>
-                <CardBody>
-                  <Tabs size="sm" variant="line">
-                    <TabList>
-                      <Tab>Revenue vs Calls</Tab>
-                      <Tab>Monthly Breakdown</Tab>
-                      <Tab>Year-over-Year</Tab>
-                    </TabList>
-                    <TabPanels>
-                      <TabPanel px={0}>
-                        <Box height="400px">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={revenueData}>
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis dataKey="month" />
-                              <YAxis yAxisId="left" />
-                              <YAxis yAxisId="right" orientation="right" />
-                              <RechartsTooltip />
-                              <Legend />
-                              <Line
-                                yAxisId="left"
-                                type="monotone"
-                                dataKey="revenue"
-                                name="Revenue ($)"
-                                stroke="#3182CE"
-                                strokeWidth={2}
-                              />
-                              <Line
-                                yAxisId="right"
-                                type="monotone"
-                                dataKey="calls"
-                                name="Calls Count"
-                                stroke="#38A169"
-                                strokeWidth={2}
-                              />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </Box>
-                      </TabPanel>
-                      <TabPanel>
-                        <Box height="400px">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={revenueData}>
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis dataKey="month" />
-                              <YAxis />
-                              <RechartsTooltip />
-                              <Legend />
-                              <Bar dataKey="revenue" name="Revenue" fill="#3182CE" />
-                              <Bar dataKey="data" name="Data (GB)" fill="#38A169" />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </Box>
-                      </TabPanel>
-                    </TabPanels>
-                  </Tabs>
-                </CardBody>
-              </Card>
-
-              {/* Filters Sidebar */}
-              <Card bg={cardBg} border="1px" borderColor={borderColor} height="fit-content">
-                <CardHeader>
-                  <Heading size="md">Filters</Heading>
-                </CardHeader>
-                <CardBody>
-                  <VStack spacing={4} align="stretch">
-                    <FormControl>
-                      <FormLabel fontSize="sm">Report Type</FormLabel>
-                      <Select size="sm">
-                        <option>Revenue Summary</option>
-                        <option>Detailed Billing</option>
-                        <option>Tax Report</option>
-                        <option>Collection Report</option>
-                      </Select>
-                    </FormControl>
-
-                    <FormControl>
-                      <FormLabel fontSize="sm">Service Type</FormLabel>
-                      <Select size="sm">
-                        <option>All Services</option>
-                        <option>Voice Calls Only</option>
-                        <option>Data Usage Only</option>
-                        <option>SMS Only</option>
-                      </Select>
-                    </FormControl>
-
-                    <FormControl>
-                      <FormLabel fontSize="sm">Customer Group</FormLabel>
-                      <Select size="sm">
-                        <option>All Customers</option>
-                        <option>Enterprise</option>
-                        <option>SMB</option>
-                        <option>Individual</option>
-                      </Select>
-                    </FormControl>
-
-                    <FormControl display="flex" alignItems="center">
-                      <FormLabel mb={0} fontSize="sm">Include Tax</FormLabel>
-                      <Switch colorScheme="blue" defaultChecked />
-                    </FormControl>
-
-                    <FormControl display="flex" alignItems="center">
-                      <FormLabel mb={0} fontSize="sm">Show Projections</FormLabel>
-                      <Switch colorScheme="blue" />
-                    </FormControl>
-
-                    <Button
-                      colorScheme="blue"
-                      size="sm"
-                      width="full"
-                      onClick={handleRunReport}
-                    >
-                      Generate Report
-                    </Button>
-                  </VStack>
-                </CardBody>
-              </Card>
-            </Grid>
-          </TabPanel>
-
-          {/* CDR Reports Tab */}
-          <TabPanel px={0}>
-            <Card bg={cardBg} border="1px" borderColor={borderColor} mb={6}>
-              <CardHeader>
-                <Flex justify="space-between" align="center">
-                  <Heading size="md">CDR Report History</Heading>
-                  <Button
-                    // leftIcon={<FilterIcon />}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Filter Reports
-                  </Button>
-                </Flex>
-              </CardHeader>
-              <CardBody>
-                <Table variant="simple">
-                  <Thead>
-                    <Tr>
-                      <Th>Report ID</Th>
-                      <Th>Type</Th>
-                      <Th>Period</Th>
-                      <Th>Records</Th>
-                      <Th>File Size</Th>
-                      <Th>Status</Th>
-                      <Th>Actions</Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {topCDRReports.map((report) => (
-                      <Tr key={report.id}>
-                        <Td>
-                          <HStack>
-                            <AttachmentIcon color="blue.500" />
-                            <Text fontWeight="medium">{report.id}</Text>
-                          </HStack>
-                        </Td>
-                        <Td>{report.type}</Td>
-                        <Td>{report.period}</Td>
-                        <Td>{report.records.toLocaleString()}</Td>
-                        <Td>{report.size}</Td>
-                        <Td>
-                          <Badge
-                            colorScheme={
-                              report.status === 'processed' ? 'green' :
-                              report.status === 'processing' ? 'yellow' : 'gray'
-                            }
-                          >
-                            {report.status}
-                          </Badge>
-                        </Td>
-                        <Td>
-                          <HStack spacing={2}>
-                            <Tooltip label="Download Report">
-                              <IconButton
-                                aria-label="Download"
-                                icon={<DownloadIcon />}
-                                size="sm"
-                                variant="ghost"
-                              />
-                            </Tooltip>
-                            <Tooltip label="View Details">
-                              <IconButton
-                                aria-label="View"
-                                icon={<ViewIcon />}
-                                size="sm"
-                                variant="ghost"
-                              />
-                            </Tooltip>
-                            <Tooltip label="Regenerate">
-                              <IconButton
-                                aria-label="Refresh"
-                                // icon={<RefreshIcon />}
-                                size="sm"
-                                variant="ghost"
-                              />
-                            </Tooltip>
-                          </HStack>
-                        </Td>
-                      </Tr>
-                    ))}
-                  </Tbody>
-                </Table>
-              </CardBody>
-            </Card>
-
-            {/* Generate New Report */}
-            <Card bg={cardBg} border="1px" borderColor={borderColor}>
-              <CardHeader>
-                <Heading size="md">Generate New CDR Report</Heading>
-              </CardHeader>
-              <CardBody>
-                <Grid templateColumns={{ base: '1fr', md: 'repeat(3, 1fr)' }} gap={6}>
-                  <FormControl>
-                    <FormLabel>Report Type</FormLabel>
-                    <Select>
-                      <option>Voice Call Summary</option>
-                      <option>Data Usage Report</option>
-                      <option>SMS Traffic Report</option>
-                      <option>Complete CDR Export</option>
-                      <option>Custom Report</option>
-                    </Select>
-                  </FormControl>
-
-                  <FormControl>
-                    <FormLabel>Date Range</FormLabel>
-                    <InputGroup>
-                      <InputLeftElement pointerEvents="none">
-                        <CalendarIcon color="gray.400" />
-                      </InputLeftElement>
-                      <Input type="date" />
-                    </InputGroup>
-                  </FormControl>
-
-                  <FormControl>
-                    <FormLabel>Customer</FormLabel>
-                    <Select>
-                      <option>All Customers</option>
-                      <option>ABC Telecom</option>
-                      <option>XYZ Mobile</option>
-                      <option>Global Comm</option>
-                    </Select>
-                  </FormControl>
-
-                  <FormControl>
-                    <FormLabel>Format</FormLabel>
-                    <Select>
-                      <option>CSV</option>
-                      <option>Excel</option>
-                      <option>PDF</option>
-                      <option>JSON</option>
-                    </Select>
-                  </FormControl>
-
-                  <FormControl>
-                    <FormLabel>Service Type</FormLabel>
-                    <Select>
-                      <option>All Services</option>
-                      <option>Voice Only</option>
-                      <option>Data Only</option>
-                      <option>SMS Only</option>
-                    </Select>
-                  </FormControl>
-
-                  <Flex align="flex-end">
-                    <Button
-                      colorScheme="blue"
-                      width="full"
-                      onClick={handleRunReport}
-                      // leftIcon={<ChartBarIcon />}
-                    >
-                      Generate Report
-                    </Button>
-                  </Flex>
-                </Grid>
-              </CardBody>
-            </Card>
-          </TabPanel>
-
-          {/* Customer Reports Tab */}
-          <TabPanel px={0}>
-            <Grid templateColumns={{ base: '1fr', lg: '2fr 1fr' }} gap={6}>
-              <Card bg={cardBg} border="1px" borderColor={borderColor}>
-                <CardHeader>
-                  <Heading size="md">Customer Performance Metrics</Heading>
-                </CardHeader>
-                <CardBody>
-                  <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
-                    <Box>
-                      <Text fontWeight="medium" mb={4}>Revenue Distribution</Text>
-                      <VStack spacing={4} align="stretch">
-                        {customerRevenueData.slice(0, 4).map((customer, index) => (
-                          <Box key={index}>
-                            <Flex justify="space-between" mb={1}>
-                              <Text fontSize="sm">{customer.customer}</Text>
-                              <Text fontSize="sm" fontWeight="medium">
-                                ${customer.revenue.toLocaleString()}
-                              </Text>
-                            </Flex>
-                            <Progress
-                              value={(customer.revenue / 20000) * 100}
-                              colorScheme="blue"
-                              size="sm"
-                              borderRadius="md"
-                            />
-                          </Box>
-                        ))}
-                      </VStack>
-                    </Box>
-                    
-                    <Box>
-                      <Text fontWeight="medium" mb={4}>Usage Statistics</Text>
-                      <VStack spacing={4} align="stretch">
-                        <Card variant="outline" p={3}>
-                          <Text fontSize="sm" color="gray.600">Avg. Monthly Calls</Text>
-                          <Text fontSize="lg" fontWeight="bold">3,240</Text>
-                        </Card>
-                        <Card variant="outline" p={3}>
-                          <Text fontSize="sm" color="gray.600">Avg. Data Usage</Text>
-                          <Text fontSize="lg" fontWeight="bold">156 GB</Text>
-                        </Card>
-                        <Card variant="outline" p={3}>
-                          <Text fontSize="sm" color="gray.600">Avg. Invoice Value</Text>
-                          <Text fontSize="lg" fontWeight="bold">$2,650</Text>
-                        </Card>
-                      </VStack>
-                    </Box>
-                  </SimpleGrid>
-                </CardBody>
-              </Card>
-
-              <Card bg={cardBg} border="1px" borderColor={borderColor}>
-                <CardHeader>
-                  <Heading size="md">Report Templates</Heading>
-                </CardHeader>
-                <CardBody>
-                  <VStack spacing={4} align="stretch">
-                    {reportTemplates.map((template) => (
-                      <Card key={template.id} variant="outline" p={3} cursor="pointer"
-                        _hover={{ borderColor: 'blue.500', bg: 'blue.50' }}
-                      >
-                        <Flex justify="space-between" align="start">
-                          <Box>
-                            <Text fontWeight="medium">{template.name}</Text>
-                            <Text fontSize="sm" color="gray.600">
-                              {template.type} • {template.frequency}
-                            </Text>
-                            <Text fontSize="xs" color="gray.500">
-                              Last run: {template.lastRun}
-                            </Text>
-                          </Box>
-                          <Button size="sm" variant="ghost">
-                            Run
-                          </Button>
-                        </Flex>
-                      </Card>
-                    ))}
-                  </VStack>
-                </CardBody>
-              </Card>
-            </Grid>
-          </TabPanel>
-
-          {/* Scheduled Reports Tab */}
-          <TabPanel px={0}>
-            <Card bg={cardBg} border="1px" borderColor={borderColor}>
-              <CardHeader>
-                <Flex justify="space-between" align="center">
-                  <Heading size="md">Scheduled Reports</Heading>
-                  <Button
-                    leftIcon={<CalendarIcon />}
-                    colorScheme="blue"
-                    size="sm"
-                  >
-                    Schedule New Report
-                  </Button>
-                </Flex>
-              </CardHeader>
-              <CardBody>
-                <Table variant="simple">
-                  <Thead>
-                    <Tr>
-                      <Th>Report Name</Th>
-                      <Th>Frequency</Th>
-                      <Th>Next Run</Th>
-                      <Th>Recipients</Th>
-                      <Th>Format</Th>
-                      <Th>Status</Th>
-                      <Th>Actions</Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    <Tr>
-                      <Td>Monthly Revenue Report</Td>
-                      <Td>Monthly (1st)</Td>
-                      <Td>Dec 1, 2023</Td>
-                      <Td>5 recipients</Td>
-                      <Td>PDF, Excel</Td>
-                      <Td>
-                        <Badge colorScheme="green">Active</Badge>
-                      </Td>
-                      <Td>
-                        <HStack spacing={2}>
-                          <IconButton aria-label="Edit" icon={<EditIcon />} size="sm" />
-                          <IconButton aria-label="Delete" icon={<DeleteIcon />} size="sm" />
-                        </HStack>
-                      </Td>
-                    </Tr>
-                    <Tr>
-                      <Td>Weekly CDR Summary</Td>
-                      <Td>Weekly (Monday)</Td>
-                      <Td>Nov 27, 2023</Td>
-                      <Td>3 recipients</Td>
-                      <Td>CSV</Td>
-                      <Td>
-                        <Badge colorScheme="green">Active</Badge>
-                      </Td>
-                      <Td>
-                        <HStack spacing={2}>
-                          <IconButton aria-label="Edit" icon={<EditIcon />} size="sm" />
-                          <IconButton aria-label="Delete" icon={<DeleteIcon />} size="sm" />
-                        </HStack>
-                      </Td>
-                    </Tr>
-                    <Tr>
-                      <Td>Daily Performance</Td>
-                      <Td>Daily</Td>
-                      <Td>Tomorrow</Td>
-                      <Td>2 recipients</Td>
-                      <Td>PDF</Td>
-                      <Td>
-                        <Badge colorScheme="yellow">Paused</Badge>
-                      </Td>
-                      <Td>
-                        <HStack spacing={2}>
-                          <IconButton aria-label="Edit" icon={<EditIcon />} size="sm" />
-                          <IconButton aria-label="Delete" icon={<DeleteIcon />} size="sm" />
-                        </HStack>
-                      </Td>
-                    </Tr>
-                  </Tbody>
-                </Table>
-              </CardBody>
-            </Card>
-          </TabPanel>
+              
+            </TabPanel>
+          ))}
         </TabPanels>
       </Tabs>
 
-      {/* Quick Actions Footer */}
+      <ReportModal />
+
       <Flex justify="space-between" align="center" mt={8} pt={6} borderTop="1px" borderColor={borderColor}>
-        <Text color="gray.600" fontSize="sm">
-          Last updated: Today at 14:30 • Data refresh every 15 minutes
-        </Text>
-        
+        <VStack align="start" spacing={1}>
+          <Text color={mutedColor} fontSize="sm">
+            Data last updated: {new Date().toLocaleString()}
+          </Text>
+          <Text color={mutedColor} fontSize="xs">
+            Report ID: REP-{new Date().getTime()}
+          </Text>
+        </VStack>
+
         <HStack spacing={3}>
           <Button
-            // leftIcon={<RefreshIcon />}
-            variant="outline"
+            variant="ghost"
             size="sm"
-            onClick={() => window.location.reload()}
+            leftIcon={<InfoIcon />}
+            onClick={() => {
+              toast({
+                title: "About this report",
+                description: "This report shows detailed CDR analytics with various metrics and visualizations.",
+                status: "info",
+                duration: 5000,
+                isClosable: true,
+              });
+            }}
           >
-            Refresh Data
+            Help
           </Button>
-          <Menu>
-            <MenuButton as={Button} size="sm" variant="outline" rightIcon={<ChevronDownIcon />}>
-              <SettingsIcon mr={2} />
-              Settings
-            </MenuButton>
-            <MenuList>
-              <MenuItem>Data Retention Settings</MenuItem>
-              <MenuItem>Export Preferences</MenuItem>
-              <MenuItem>Notification Settings</MenuItem>
-              <MenuItem>API Access</MenuItem>
-            </MenuList>
-          </Menu>
+          <Button size="sm" onClick={() => setIsModalOpen(true)} leftIcon={<FiFilter />} colorScheme="blue">
+            New Report
+          </Button>
         </HStack>
       </Flex>
     </Container>

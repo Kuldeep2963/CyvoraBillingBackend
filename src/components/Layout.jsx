@@ -29,12 +29,10 @@ const Layout = ({ children }) => {
   
   const navItems = [
     { path: '/', label: 'Dashboard', icon: FiHome },
-    { path: '/upload', label: 'Upload CDR', icon: FiUpload },
-    { path: '/cdrs', label: 'CDR List', icon: FiList },
-    { path: '/customers', label: 'Customers', icon: FiUsers },
+    { path: '/accounts', label: 'Accounts', icon: FiUsers },
     { path: '/invoices', label: 'Invoices', icon: FiFileText },
-    { path: '/settings', label: 'Settings', icon: FiSettings },
     { path: '/reports', label: 'Reports', icon: FiFileText },
+    { path: '/settings', label: 'Settings', icon: FiSettings },
   ];
 
   return (

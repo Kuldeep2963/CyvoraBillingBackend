@@ -81,7 +81,8 @@ export const deleteCDR = async (id) => {
 export const fetchCustomers = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/customers`);
-    return await handleResponse(response);
+    const data = await handleResponse(response);
+    return data.accounts || [];
   } catch (error) {
     console.error('Error fetching customers:', error);
     throw error;
@@ -131,3 +132,55 @@ export const deleteCustomer = async (id) => {
     throw error;
   }
 };
+
+// Report APIs
+export const fetchReportAccounts = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/reports/accounts`);
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching report accounts:', error);
+    throw error;
+  }
+};
+
+export const generateReport = async (type, params) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/reports/${type}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error generating ${type}:`, error);
+    throw error;
+  }
+};
+
+export const exportReport = async (data, format, fileName) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/reports/export-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data, format, fileName })
+    });
+    
+    if (!response.ok) throw new Error('Export failed');
+    
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName || 'report'}.${format === 'excel' ? 'xlsx' : 'csv'}`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+    return { success: true };
+  } catch (error) {
+    console.error('Error exporting report:', error);
+    throw error;
+  }
+};
+

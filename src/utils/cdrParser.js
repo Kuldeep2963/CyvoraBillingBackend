@@ -1,9 +1,10 @@
 import Papa from 'papaparse';
+import { CDR_HEADERS, mapCDRRowToObject, validateCDRRow } from './cdrConstants';
 
 export const parseCDRFile = (file) => {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
-      header: true,
+      header: false,
       skipEmptyLines: true,
       complete: (results) => {
         if (results.errors.length > 0) {
@@ -11,7 +12,16 @@ export const parseCDRFile = (file) => {
           return;
         }
         
-        const validatedCDRs = validateCDRs(results.data);
+        const dataToProcess = results.data;
+        // If the first row contains headers (e.g., 'callere164'), skip it
+        const hasHeader = dataToProcess.length > 0 && 
+                         (dataToProcess[0][0] === 'callere164' || dataToProcess[0][0] === 'caller_e164');
+        
+        const rows = hasHeader ? dataToProcess.slice(1) : dataToProcess;
+        const mappedData = rows
+          .filter(row => validateCDRRow(row))
+          .map(row => mapCDRRowToObject(row));
+        const validatedCDRs = validateCDRs(mappedData);
         resolve(validatedCDRs);
       },
       error: (error) => {
@@ -63,18 +73,18 @@ export const validateCDRs = (cdrs) => {
   return cdrs.map((cdr, index) => {
     const errors = [];
     
-    // Extract essential fields from your CDR format
-    const callerNumber = cdr.callere164 || '';
-    const calleeNumber = cdr.calleee164 || '';
-    const startTimeStr = cdr.starttime || cdr.recordstarttime || '';
-    const stopTimeStr = cdr.stoptime || '';
-    const duration = cdr.duration || calculateDuration(startTimeStr, stopTimeStr);
-    const callStatus = determineCallStatus(cdr.endreason || cdr.status || '');
-    const feeAmount = parseFloat(cdr.fee || cdr.incomefee || 0);
-    const taxAmount = parseFloat(cdr.tax || cdr.incometax || 0);
-    const customerId = cdr.customeraccount || cdr.customeraccount || '';
-    const customerName = cdr.customername || cdr.customername || '';
-    const callDirection = determineCallDirection(cdr.calleroriginalinfo || cdr.enddirection || '');
+    // Extract essential fields supporting both old and new schema
+    const callerNumber = cdr.caller_e164 || cdr.callere164 || '';
+    const calleeNumber = cdr.callee_e164 || cdr.calleee164 || '';
+    const startTimeStr = cdr.starttime || cdr.recordstarttime || convertEpochToISO(cdr.start_time_epoch) || '';
+    const stopTimeStr = cdr.stoptime || convertEpochToISO(cdr.stop_time_epoch) || '';
+    const duration = cdr.duration_seconds || cdr.duration || calculateDuration(startTimeStr, stopTimeStr);
+    const callStatus = determineCallStatus(cdr.end_reason_code || cdr.endreason || cdr.status || '', cdr.answered_flag);
+    const feeAmount = parseFloat(cdr.fee_amount || cdr.fee || cdr.incomefee || 0);
+    const taxAmount = parseFloat(cdr.tax_amount || cdr.tax || cdr.incometax || 0);
+    const customerId = cdr.caller_customer || cdr.customer_id || cdr.customeraccount || '';
+    const customerName = cdr.caller_customer_name || cdr.customer_name || cdr.customername || '';
+    const callDirection = determineCallDirection(cdr.caller_direction || cdr.calleroriginalinfo || cdr.enddirection || '');
     
     // Check essential fields
     if (!callerNumber || callerNumber.trim() === '') {
@@ -157,19 +167,19 @@ export const validateCDRs = (cdrs) => {
       total = fee + tax;
     }
     
-    // Map your CDR fields to our standardized format
+    // Map your CDR fields to our standardized format (supporting both old and new schema)
     return {
       // Original fields
       ...cdr,
       
-      // Standardized fields for our system
+      // Standardized fields for our system (old schema names)
       id,
       callere164: callerNumber,
       calleee164: calleeNumber,
       starttime: isoStartTime,
       duration: callDuration,
       status: callStatus,
-      call_type: determineCallType(cdr.callertype || cdr.calleetype || 'VOICE'),
+      call_type: determineCallType(cdr.call_type || cdr.callertype || cdr.calleetype || 'VOICE'),
       call_direction: callDirection,
       customer_id: customerId,
       customer_name: customerName,
@@ -178,14 +188,32 @@ export const validateCDRs = (cdrs) => {
       tax: parseFloat(tax.toFixed(4)),
       total: parseFloat(total.toFixed(4)),
       
+      // New schema field names
+      caller_e164: callerNumber,
+      callee_e164: calleeNumber,
+      duration_seconds: callDuration,
+      fee_amount: parseFloat(fee.toFixed(4)),
+      tax_amount: parseFloat(tax.toFixed(4)),
+      final_cost: parseFloat(total.toFixed(4)),
+      caller_customer: customerId,
+      caller_customer_name: customerName,
+      cost_per_minute: rate,
+      
       // Additional useful fields from your CDR
       stoptime: stopTime ? stopTime.toISOString() : '',
-      callerip: cdr.callerip || '',
-      calleeip: cdr.calleeip || '',
-      endreason: cdr.endreason || '',
-      flowid: cdr.flowno || cdr.flownofirst || '',
-      softswitch_id: cdr.softswitchname || '',
-      call_id: cdr.softswitchcallid || cdr.callercallid || '',
+      callerip: cdr.caller_ip || cdr.callerip || '',
+      caller_ip: cdr.caller_ip || cdr.callerip || '',
+      calleeip: cdr.callee_ip || cdr.calleeip || '',
+      callee_ip: cdr.callee_ip || cdr.calleeip || '',
+      endreason: cdr.end_reason_code || cdr.endreason || '',
+      end_reason_code: cdr.end_reason_code || cdr.endreason || '',
+      flowid: cdr.flowno || cdr.flownofirst || cdr.call_unique_id || '',
+      flowno: cdr.flowno || cdr.flownofirst || '',
+      call_unique_id: cdr.call_unique_id || cdr.softswitchcallid || '',
+      softswitch_id: cdr.switch_name || cdr.softswitchname || '',
+      softswitchname: cdr.switch_name || cdr.softswitchname || '',
+      switch_name: cdr.switch_name || cdr.softswitchname || '',
+      call_id: cdr.call_unique_id || cdr.softswitchcallid || cdr.callercallid || '',
       
       // Validation results
       errors: errors.length > 0 ? errors : null,
@@ -210,8 +238,28 @@ const calculateDuration = (startStr, stopStr) => {
   }
 };
 
-// Helper function to determine call status from endreason
-const determineCallStatus = (endreason) => {
+// Helper function to convert epoch timestamp to ISO string
+const convertEpochToISO = (epoch) => {
+  if (!epoch) return null;
+  try {
+    const timestamp = parseInt(epoch);
+    if (isNaN(timestamp)) return null;
+    const date = timestamp > 10000000000 ? new Date(timestamp) : new Date(timestamp * 1000);
+    return date.toISOString();
+  } catch (e) {
+    return null;
+  }
+};
+
+// Helper function to determine call status from endreason or answered_flag
+const determineCallStatus = (endreason, answeredFlag) => {
+  // First check answered_flag if available
+  if (answeredFlag) {
+    const flag = answeredFlag.toString().toUpperCase();
+    if (['YES', '1', 'TRUE'].includes(flag)) return 'ANSWERED';
+    if (['NO', '0', 'FALSE'].includes(flag)) return 'NO_ANSWER';
+  }
+  
   if (!endreason) return 'UNKNOWN';
   
   const reason = endreason.toString().toUpperCase();

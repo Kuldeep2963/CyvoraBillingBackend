@@ -25,8 +25,8 @@ export const getCDRSummary = (cdrs) => {
     };
   }
 
-  const successfulCalls = cdrs.filter(c => c.status === 'ANSWERED').length;
-  const totalDuration = cdrs.reduce((sum, c) => sum + (parseInt(c.duration) || 0), 0);
+  const successfulCalls = cdrs.filter(c => parseInt(c.feetime) > 0).length;
+  const totalDuration = cdrs.reduce((sum, c) => sum + (parseInt(c.feetime) || 0), 0);
   const totalRevenue = cdrs.reduce((sum, c) => sum + (parseFloat(c.fee) || 0), 0);
   const totalTax = cdrs.reduce((sum, c) => sum + (parseFloat(c.tax) || 0), 0);
 
@@ -48,15 +48,15 @@ export const calculateInvoice = (customerCdrs, customer) => {
   const taxRate = customer?.taxRate || 0.18;
   
   const callSummary = customerCdrs.reduce((summary, cdr) => {
-    const charges = calculateCallCharges(parseInt(cdr.duration), rate, taxRate);
+    const charges = calculateCallCharges(parseInt(cdr.feetime), rate, taxRate);
     
     return {
       totalCalls: summary.totalCalls + 1,
-      totalDuration: summary.totalDuration + parseInt(cdr.duration),
+      totalDuration: summary.totalDuration + parseInt(cdr.feetime),
       totalFee: summary.totalFee + charges.fee,
       totalTax: summary.totalTax + charges.tax,
       totalAmount: summary.totalAmount + charges.total,
-      answeredCalls: summary.answeredCalls + (cdr.status === 'ANSWERED' ? 1 : 0),
+      answeredCalls: summary.answeredCalls + (parseInt(cdr.feetime) > 0 ? 1 : 0),
     };
   }, {
     totalCalls: 0,
@@ -112,11 +112,11 @@ export const calculateTax = (amount, taxRate = 0.18) => {
 
 export const groupByCustomer = (cdrs) => {
   return cdrs.reduce((groups, cdr) => {
-    const customerId = cdr.customer_id || 'unknown';
+    const customerId = cdr.customeraccount || 'unknown';
     if (!groups[customerId]) {
       groups[customerId] = {
         customerId,
-        customerName: cdr.customer_name || 'Unknown Customer',
+        customerName: cdr.customername || 'Unknown Customer',
         cdrs: [],
         totalCalls: 0,
         totalDuration: 0,
@@ -126,7 +126,7 @@ export const groupByCustomer = (cdrs) => {
     
     groups[customerId].cdrs.push(cdr);
     groups[customerId].totalCalls++;
-    groups[customerId].totalDuration += parseInt(cdr.duration) || 0;
+    groups[customerId].totalDuration += parseInt(cdr.feetime) || 0;
     groups[customerId].totalRevenue += parseFloat(cdr.fee) || 0;
     
     return groups;

@@ -10,7 +10,7 @@ import {
   Box,
   useColorModeValue,
 } from '@chakra-ui/react';
-import { FiSearch, FiFilter, FiCalendar } from 'react-icons/fi';
+import { FiSearch, FiRefreshCw, FiCalendar } from 'react-icons/fi';
 
 const FilterBar = ({
   onSearch,
@@ -41,12 +41,7 @@ const FilterBar = ({
 
   return (
     <Box
-      p={4}
-      bg={bg}
-      borderRadius="lg"
-      borderWidth="1px"
-      borderColor={borderColor}
-      mb={4}
+        mb={2}
     >
       <HStack spacing={4} flexWrap="wrap">
         {/* Search Input */}
@@ -104,7 +99,7 @@ const FilterBar = ({
           {onRefresh && (
             <Button
               variant="outline"
-              leftIcon={<FiFilter />}
+              leftIcon={<FiRefreshCw />}
               onClick={onRefresh}
               size="sm"
             >
