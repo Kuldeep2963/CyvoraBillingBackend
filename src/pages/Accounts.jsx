@@ -75,6 +75,7 @@ import {
   deleteCustomer,
   fetchCDRs,
 } from "../utils/api";
+import { bg } from "date-fns/locale";
 
 const Accounts = () => {
   const [customers, setCustomers] = useState([]);
@@ -600,15 +601,15 @@ const Accounts = () => {
   };
 
   const authTypeOptions = [
-  { value: 'ip', label: 'IP Address', description: 'Match by source IP' },
-  { value: 'custom', label: 'Custom Field', description: 'Match by custom field' },
-];
+    { value: 'ip', label: 'IP Address', description: 'Match by source IP' },
+    { value: 'custom', label: 'Custom Field', description: 'Match by custom field' },
+  ];
 
 
   const columns = [
     {
       key: "accountId",
-      header: "Account #",
+      header: "Account ID",
       render: (value) => (
         <Badge colorScheme="blue" variant="subtle" fontSize="xs">
           {value}
@@ -664,7 +665,12 @@ const Accounts = () => {
     {
       key: "defaultRatePerSecond",
       header: "Rate/sec",
-      render: (value) => `$${parseFloat(value).toFixed(6)}`,
+      isNumeric: true,
+      render: (value) => (
+        <Text textAlign="right" fontFamily="mono">
+          ${parseFloat(value).toFixed(6)}
+        </Text>
+      ),
     },
     {
       key: "active",
@@ -672,7 +678,7 @@ const Accounts = () => {
       render: (value, row) => {
         const status = statusOptions.find((s) => s.value === row.accountStatus);
         return (
-          <Badge colorScheme={status?.color || (value ? "green" : "red")}>
+          <Badge colorScheme={status?.color || (value ? "green" : "red")} variant="subtle">
             {status?.label || (value ? "Active" : "Inactive")}
           </Badge>
         );
@@ -681,9 +687,11 @@ const Accounts = () => {
     {
       key: "balance",
       header: "Balance",
+      isNumeric: true,
       render: (value) => (
         <Text
           fontWeight="bold"
+          textAlign="right"
           color={parseFloat(value) < 0 ? "red.600" : "green.600"}
         >
           ${parseFloat(value).toFixed(2)}
@@ -693,7 +701,7 @@ const Accounts = () => {
   ];
 
   return (
-    <Container maxW="container.xl" py={2}>
+    <Container maxW="container.xl" py={4}>
       <VStack spacing={6} align="stretch">
         {/* Header */}
         <HStack justify="space-between" spacing={4}>
@@ -710,7 +718,7 @@ const Accounts = () => {
           <HStack spacing={4} flexWrap="wrap">
             {/* Role Filter */}
             <Select
-              borderRadius={"lg"}
+              borderRadius={"sm"}
               bg={"white"}
               size="sm"
               width="150px"
@@ -728,7 +736,7 @@ const Accounts = () => {
             {/* Status Filter */}
             <Select
               bg={"white"}
-              borderRadius={"lg"}
+              borderRadius={"sm"}
               size="sm"
               width="150px"
               value={statusFilter}
@@ -750,7 +758,7 @@ const Accounts = () => {
               position="relative"
               border="2px solid"
               borderColor="gray.200"
-              borderRadius="lg"
+              borderRadius="sm"
               _hover={{
                 borderColor: "blue.300",
                 boxShadow: "0 0 0 3px rgba(66, 153, 225, 0.1)",
@@ -803,6 +811,7 @@ const Accounts = () => {
             </InputGroup>
 
             <Button
+              borderRadius="4px"
               leftIcon={<FiPlus />}
               colorScheme="blue"
               onClick={handleAddNew}
@@ -822,27 +831,30 @@ const Accounts = () => {
           }}
           gap={4}
         >
-          <Box p={4} bg="blue.50" borderRadius="md">
-            <Text fontSize="sm" color="blue.600" fontWeight="medium">
+          <Box p={4} bg="white" borderRadius="md" display={"flex"} flexDirection={"row"} alignItems="center"
+            justifyContent="space-between">
+            <Text fontSize="sm"  fontWeight="bold">
               Total Accounts
             </Text>
-            <Text fontSize="2xl" fontWeight="bold">
+            <Text fontSize="2xl" color="blue.600" fontWeight="bold">
               {customers.length}
             </Text>
           </Box>
-          <Box p={4} bg="green.50" borderRadius="md">
-            <Text fontSize="sm" color="green.600" fontWeight="medium">
+          <Box p={4} bg="white" borderRadius="md" display={"flex"} flexDirection={"row"} alignItems="center"
+            justifyContent="space-between">
+            <Text fontSize="sm"  fontWeight="bold">
               Active Accounts
             </Text>
-            <Text fontSize="2xl" fontWeight="bold">
+            <Text fontSize="2xl" color="green.600" fontWeight="bold">
               {customers.filter((c) => c.active === true).length}
             </Text>
           </Box>
-          <Box p={4} bg="purple.50" borderRadius="md">
-            <Text fontSize="sm" color="purple.600" fontWeight="medium">
+          <Box p={4} bg="white" borderRadius="md" display={"flex"} flexDirection={"row"} alignItems="center"
+            justifyContent="space-between">
+            <Text fontSize="sm"  fontWeight="bold">
               Customers
             </Text>
-            <Text fontSize="2xl" fontWeight="bold">
+            <Text fontSize="2xl" color="purple.600" fontWeight="bold">
               {
                 customers.filter((c) =>
                   ["customer", "both"].includes(c.accountRole),
@@ -850,11 +862,12 @@ const Accounts = () => {
               }
             </Text>
           </Box>
-          <Box p={4} bg="orange.50" borderRadius="md">
-            <Text fontSize="sm" color="orange.600" fontWeight="medium">
+          <Box p={4} bg="white" borderRadius="md" display={"flex"} flexDirection={"row"} alignItems="center"
+            justifyContent="space-between">
+            <Text fontSize="sm"  fontWeight="bold">
               Vendors
             </Text>
-            <Text fontSize="2xl" fontWeight="bold">
+            <Text fontSize="2xl" color="orange.600" fontWeight="bold">
               {
                 customers.filter((c) =>
                   ["vendor", "both"].includes(c.accountRole),
@@ -876,6 +889,8 @@ const Accounts = () => {
             onEdit={handleEdit}
             onDelete={handleDelete}
             onView={handleView}
+            striped={true}
+            height="calc(100vh - 337px)"
           />
         )}
 
@@ -1023,71 +1038,71 @@ const Accounts = () => {
                           <SimpleGrid columns={2} spacing={4}>
                             {(formData.accountRole === "customer" ||
                               formData.accountRole === "both") && (
-                              <FormControl isRequired>
-                                <FormLabel>Customer Code</FormLabel>
-                                <Input
-                                  value={formData.customerCode}
-                                  onChange={(e) =>
-                                    setFormData({
-                                      ...formData,
-                                      customerCode: e.target.value,
-                                    })
-                                  }
-                                  placeholder="C_XXXXX"
-                                />
-                                <FormHelperText>
-                                  Maps to customeraccount in CDRs
-                                </FormHelperText>
-                              </FormControl>
-                            )}
+                                <FormControl isRequired>
+                                  <FormLabel>Customer Code</FormLabel>
+                                  <Input
+                                    value={formData.customerCode}
+                                    onChange={(e) =>
+                                      setFormData({
+                                        ...formData,
+                                        customerCode: e.target.value,
+                                      })
+                                    }
+                                    placeholder="C_XXXXX"
+                                  />
+                                  <FormHelperText>
+                                    Maps to customeraccount in CDRs
+                                  </FormHelperText>
+                                </FormControl>
+                              )}
 
                             {(formData.accountRole === "vendor" ||
                               formData.accountRole === "both") && (
-                              <FormControl isRequired>
-                                <FormLabel>Vendor Code</FormLabel>
-                                <Input
-                                  value={formData.vendorCode}
-                                  onChange={(e) =>
-                                    setFormData({
-                                      ...formData,
-                                      vendorCode: e.target.value,
-                                    })
-                                  }
-                                  placeholder="P_XXXXX"
-                                />
-                                <FormHelperText>
-                                  Maps to agentaccount in CDRs
-                                </FormHelperText>
-                              </FormControl>
-                            )}
+                                <FormControl isRequired>
+                                  <FormLabel>Vendor Code</FormLabel>
+                                  <Input
+                                    value={formData.vendorCode}
+                                    onChange={(e) =>
+                                      setFormData({
+                                        ...formData,
+                                        vendorCode: e.target.value,
+                                      })
+                                    }
+                                    placeholder="P_XXXXX"
+                                  />
+                                  <FormHelperText>
+                                    Maps to agentaccount in CDRs
+                                  </FormHelperText>
+                                </FormControl>
+                              )}
 
 
-<FormControl>
-  <FormLabel>Authentication Type</FormLabel>
-  <Select
-    value={formData.authenticationType}
-    onChange={(e) => setFormData({...formData, authenticationType: e.target.value})}
-  >
-    {authTypeOptions.map(opt => (
-      <option key={opt.value} value={opt.value}>{opt.label}</option>
-    ))}
-  </Select>
-  <FormHelperText>{authTypeOptions.find(o => o.value === formData.authenticationType)?.description}</FormHelperText>
-</FormControl>
+                            <FormControl>
+                              <FormLabel>Authentication Type</FormLabel>
+                              <Select
+                                value={formData.authenticationType}
+                                onChange={(e) => setFormData({ ...formData, authenticationType: e.target.value })}
+                              >
+                                {authTypeOptions.map(opt => (
+                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                              </Select>
+                              <FormHelperText>{authTypeOptions.find(o => o.value === formData.authenticationType)?.description}</FormHelperText>
+                            </FormControl>
 
-<FormControl>
-  <FormLabel>Authentication Value</FormLabel>
-  <Input
-    value={formData.authenticationValue}
-    onChange={(e) => setFormData({...formData, authenticationValue: e.target.value})}
-    placeholder={
-      formData.authenticationType === 'ip' ? '192.168.1.100' :
-      formData.authenticationType === 'gateway' ? 'GW-12345' :
-      formData.authenticationType === 'prefix' ? '91' :
-      'Enter value'
-    }
-  />
-</FormControl>
+                            <FormControl>
+                              <FormLabel>Authentication Value</FormLabel>
+                              <Input
+                                value={formData.authenticationValue}
+                                onChange={(e) => setFormData({ ...formData, authenticationValue: e.target.value })}
+                                placeholder={
+                                  formData.authenticationType === 'ip' ? '192.168.1.100' :
+                                    formData.authenticationType === 'gateway' ? 'GW-12345' :
+                                      formData.authenticationType === 'prefix' ? '91' :
+                                        'Enter value'
+                                }
+                              />
+                            </FormControl>
 
 
                             <FormControl>
@@ -1108,64 +1123,64 @@ const Accounts = () => {
 
                         {(formData.accountRole === "vendor" ||
                           formData.accountRole === "both") && (
-                          <>
-                            <Divider />
-                            <Box>
-                              <Heading size="sm" mb={4}>
-                                Vendor Cost Settings
-                              </Heading>
-                              <SimpleGrid columns={2} spacing={4}>
-                                <FormControl>
-                                  <FormLabel>Default Cost per Second</FormLabel>
-                                  <NumberInput
-                                    value={formData.defaultCostPerSecond}
-                                    onChange={(value) =>
-                                      setFormData({
-                                        ...formData,
-                                        defaultCostPerSecond: parseFloat(value),
-                                      })
-                                    }
-                                    min={0.000001}
-                                    step={0.000001}
-                                    precision={6}
-                                  >
-                                    <NumberInputField />
-                                    <NumberInputStepper>
-                                      <NumberIncrementStepper />
-                                      <NumberDecrementStepper />
-                                    </NumberInputStepper>
-                                  </NumberInput>
-                                  <FormHelperText>
-                                    Vendor cost per second for calls
-                                  </FormHelperText>
-                                </FormControl>
+                            <>
+                              <Divider />
+                              <Box>
+                                <Heading size="sm" mb={4}>
+                                  Vendor Cost Settings
+                                </Heading>
+                                <SimpleGrid columns={2} spacing={4}>
+                                  <FormControl>
+                                    <FormLabel>Default Cost per Second</FormLabel>
+                                    <NumberInput
+                                      value={formData.defaultCostPerSecond}
+                                      onChange={(value) =>
+                                        setFormData({
+                                          ...formData,
+                                          defaultCostPerSecond: parseFloat(value),
+                                        })
+                                      }
+                                      min={0.000001}
+                                      step={0.000001}
+                                      precision={6}
+                                    >
+                                      <NumberInputField />
+                                      <NumberInputStepper>
+                                        <NumberIncrementStepper />
+                                        <NumberDecrementStepper />
+                                      </NumberInputStepper>
+                                    </NumberInput>
+                                    <FormHelperText>
+                                      Vendor cost per second for calls
+                                    </FormHelperText>
+                                  </FormControl>
 
-                                <FormControl>
-                                  <FormLabel>Target Margin %</FormLabel>
-                                  <NumberInput
-                                    value={formData.marginPercentage}
-                                    onChange={(value) =>
-                                      setFormData({
-                                        ...formData,
-                                        marginPercentage: parseFloat(value),
-                                      })
-                                    }
-                                    min={0}
-                                    max={100}
-                                    step={0.1}
-                                    precision={2}
-                                  >
-                                    <NumberInputField />
-                                    <NumberInputStepper>
-                                      <NumberIncrementStepper />
-                                      <NumberDecrementStepper />
-                                    </NumberInputStepper>
-                                  </NumberInput>
-                                </FormControl>
-                              </SimpleGrid>
-                            </Box>
-                          </>
-                        )}
+                                  <FormControl>
+                                    <FormLabel>Target Margin %</FormLabel>
+                                    <NumberInput
+                                      value={formData.marginPercentage}
+                                      onChange={(value) =>
+                                        setFormData({
+                                          ...formData,
+                                          marginPercentage: parseFloat(value),
+                                        })
+                                      }
+                                      min={0}
+                                      max={100}
+                                      step={0.1}
+                                      precision={2}
+                                    >
+                                      <NumberInputField />
+                                      <NumberInputStepper>
+                                        <NumberIncrementStepper />
+                                        <NumberDecrementStepper />
+                                      </NumberInputStepper>
+                                    </NumberInput>
+                                  </FormControl>
+                                </SimpleGrid>
+                              </Box>
+                            </>
+                          )}
 
                         <Divider />
 
@@ -2066,10 +2081,10 @@ const Accounts = () => {
                               <Text fontSize="2xl" fontWeight="bold">
                                 {cdrStats.totalCalls > 0
                                   ? (
-                                      (cdrStats.answeredCalls /
-                                        cdrStats.totalCalls) *
-                                      100
-                                    ).toFixed(1)
+                                    (cdrStats.answeredCalls /
+                                      cdrStats.totalCalls) *
+                                    100
+                                  ).toFixed(1)
                                   : "0.0"}
                                 %
                               </Text>
@@ -2140,9 +2155,9 @@ const Accounts = () => {
                               <Text fontSize="2xl" fontWeight="bold">
                                 {cdrStats.totalCalls > 0
                                   ? Math.floor(
-                                      cdrStats.totalDuration /
-                                        cdrStats.totalCalls,
-                                    )
+                                    cdrStats.totalDuration /
+                                    cdrStats.totalCalls,
+                                  )
                                   : 0}
                                 s
                               </Text>

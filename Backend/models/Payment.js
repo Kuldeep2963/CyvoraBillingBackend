@@ -121,7 +121,7 @@ const Payment = sequelize.define('Payment', {
   tableName: 'payments',
   timestamps: true,
   indexes: [
-    { fields: ['customerId'] },
+    { fields: ['customerGatewayId'] },
     { fields: ['paymentNumber'], unique: true },
     { fields: ['status'] },
     { fields: ['paymentDate'] },

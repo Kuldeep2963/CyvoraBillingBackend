@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Table,
   Thead,
@@ -19,8 +19,18 @@ import {
   useColorModeValue,
   HStack,
   VStack,
+  Select,
 } from '@chakra-ui/react';
-import { FiMoreVertical, FiEdit2, FiTrash2, FiEye, FiChevronRight } from 'react-icons/fi';
+import { 
+  FiMoreVertical, 
+  FiEdit2, 
+  FiTrash2, 
+  FiEye, 
+  FiChevronRight,
+  FiChevronsRight,
+  FiChevronLeft,
+  FiChevronsLeft 
+} from 'react-icons/fi';
 
 const DataTable = ({
   columns,
@@ -31,11 +41,27 @@ const DataTable = ({
   actions = true,
   compact = false,
   striped = false,
-  height = '400px',
+  height = 'calc(100vh - 400px)',
 }) => {
-  const rowHoverBg = useColorModeValue('gray.50', 'gray.700');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const rowHoverBg = useColorModeValue('blue.50', 'gray.700');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
   const stripedBg = useColorModeValue('gray.50', 'gray.800');
+  const headerBg = useColorModeValue('gray.100', 'gray.200');
+
+  // Pagination logic
+  const totalItems = data.length;
+  const totalPages = Math.ceil(totalItems / pageSize);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedData = data.slice(startIndex, startIndex + pageSize);
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
+  };
 
   const renderCell = (item, column) => {
     if (column.render) {
@@ -112,201 +138,242 @@ const DataTable = ({
       borderWidth="1px" 
       borderRadius="lg" 
       borderColor={borderColor}
-      overflow="auto"
       bg={useColorModeValue('white', 'gray.800')}
-      height={height}
       width="100%"
-      position="relative"
+      boxShadow="sm"
+      overflow="hidden"
     >
-      <Table 
-        variant="simple" 
-        size={compact ? "sm" : "md"}
-        sx={{
-          '& th': {
-            py: compact ? 2 : 3,
-            px: compact ? 3 : 4,
-            fontWeight: '600',
-            fontSize: compact ? 'xs' : 'sm',
-            letterSpacing: 'wide',
-            textTransform: 'uppercase',
-            color: useColorModeValue('gray.600', 'gray.300'),
-            whiteSpace: 'nowrap',
-            bg: useColorModeValue('gray.50', 'gray.700'),
-            borderBottomWidth: '2px',
-            borderColor: borderColor,
-            position: 'sticky',
-            top: 0,
-            zIndex: 2,
-          },
-          '& td': {
-            py: compact ? 2 : 3,
-            px: compact ? 3 : 4,
-            whiteSpace: 'nowrap',
-            borderBottomWidth: '1px',
-            borderColor: useColorModeValue('gray.100', 'gray.700'),
-          },
-        }}
+      <Box 
+        overflow="auto"
+        height={height}
+        position="relative"
       >
-        <Thead bg={useColorModeValue('gray.50', 'gray.700')}>
-          <Tr>
-            {columns.map((column) => (
-              <Th key={column.key} minWidth={column.minWidth || "auto"}>
-                <Flex align="center">
-                  {column.header}
-                  {column.tooltip && (
-                    <Tooltip label={column.tooltip}>
-                      <Box as="span" ml={1} fontSize="xs" opacity={0.6}>ⓘ</Box>
-                    </Tooltip>
-                  )}
-                </Flex>
-              </Th>
-            ))}
-            {actions && (
-              <Th 
-                width="80px" 
-                textAlign="right"
-              >
-                Actions
-              </Th>
-            )}
-          </Tr>
-        </Thead>
-        <Tbody>
-          {data.length === 0 ? (
-            <Tr>
-              <Td 
-                colSpan={columns.length + (actions ? 1 : 0)} 
-                textAlign="center" 
-                py={8}
-              >
-                <VStack spacing={2}>
-                  <Text color="gray.500" fontSize="sm">
-                    No data available
-                  </Text>
-                  <Text color="gray.400" fontSize="xs">
-                    Add items to get started
-                  </Text>
-                </VStack>
-              </Td>
-            </Tr>
-          ) : (
-            data.map((item, index) => (
-              <Tr
-                key={item.id || index}
-                _hover={{ bg: rowHoverBg }}
-                transition="background 0.2s"
-                bg={striped && index % 2 === 0 ? stripedBg : 'transparent'}
-              >
-                {columns.map((column) => (
-                  <Td key={`${item.id}-${column.key}`} minWidth={column.minWidth || "auto"}>
-                    {renderCell(item, column)}
-                  </Td>
-                ))}
-                {actions && (
-                  <Td 
-                    width="80px" 
-                    textAlign="right"
-                  >
-                    <Flex justify="flex-end">
-                      <Menu placement="bottom-end">
-                        <MenuButton
-                          as={IconButton}
-                          icon={<FiMoreVertical />}
-                          variant="ghost"
-                          size="xs"
-                          aria-label="Actions"
-                        />
-                        <MenuList minW="160px" fontSize="sm">
-                          {onView && (
-                            <MenuItem 
-                              icon={<FiEye size={14} />} 
-                              onClick={() => onView(item)}
-                              fontSize="sm"
-                              py={2}
-                            >
-                              View Details
-                            </MenuItem>
-                          )}
-                          {onEdit && (
-                            <MenuItem 
-                              icon={<FiEdit2 size={14} />} 
-                              onClick={() => onEdit(item)}
-                              fontSize="sm"
-                              py={2}
-                            >
-                              Edit
-                            </MenuItem>
-                          )}
-                          {onDelete && (
-                            <MenuItem
-                              icon={<FiTrash2 size={14} />}
-                              onClick={() => onDelete(item)}
-                              color="red.500"
-                              fontSize="sm"
-                              py={2}
-                            >
-                              Delete
-                            </MenuItem>
-                          )}
-                        </MenuList>
-                      </Menu>
-                    </Flex>
-                  </Td>
-                )}
-              </Tr>
-            ))
-          )}
-        </Tbody>
-      </Table>
-
-      {/* Sticky Footer */}
-      {data.length > 0 && (
-        <Box 
-          flexShrink={0}
-          borderTopWidth="1px" 
-          borderColor={borderColor}
-          bg={useColorModeValue('gray.50', 'gray.700')}
-          position="sticky"
-          bottom={0}
-          zIndex={2}
-          overflowX="auto"
-          overflowY="hidden"
+        <Table 
+          variant="simple" 
+          size={compact ? "xs" : "sm"}
+          sx={{
+            'th': {
+              py: 3,
+              px: 4,
+              fontWeight: '600',
+              fontSize: 'xs',
+              textTransform: 'uppercase',
+              letterSpacing: 'wider',
+              color: useColorModeValue('gray.600', 'gray.400'),
+              bg: headerBg,
+              borderBottom: '2px solid',
+              borderColor: borderColor,
+              position: 'sticky',
+              top: 0,
+              zIndex: 2,
+            },
+            'td': {
+              py: 3,
+              px: 4,
+              fontSize: 'sm',
+              borderColor: useColorModeValue('gray.100', 'gray.700'),
+            },
+          }}
         >
-          <Box minWidth="min-content">
-            <Flex 
-              px={4} 
-              py={3}
-              justify="space-between"
-              align="center"
-              fontSize="sm"
-              color={useColorModeValue('gray.600', 'gray.300')}
-              minWidth="100%"
-            >
-              <Text>
-                Showing <b>{data.length}</b> {data.length === 1 ? 'item' : 'items'}
-              </Text>
-              <HStack spacing={2}>
-                <IconButton
-                  size="xs"
-                  icon={<FiChevronRight />}
-                  variant="ghost"
-                  aria-label="Next page"
-                  transform="rotate(180deg)"
-                  isDisabled
-                />
-                <Text fontSize="xs">Page 1 of 1</Text>
-                <IconButton
-                  size="xs"
-                  icon={<FiChevronRight />}
-                  variant="ghost"
-                  aria-label="Next page"
-                  isDisabled
-                />
-              </HStack>
-            </Flex>
-          </Box>
-        </Box>
-      )}
+          <Thead>
+            <Tr>
+              {columns.map((column) => (
+                <Th 
+                  key={column.key} 
+                  minWidth={column.minWidth || "auto"}
+                  isNumeric={column.isNumeric}
+                >
+                  <Flex align="center" justify={column.isNumeric ? "flex-end" : "flex-start"}>
+                    {column.header}
+                    {column.tooltip && (
+                      <Tooltip label={column.tooltip}>
+                        <Box as="span" ml={1} fontSize="xs" opacity={0.6} cursor="help">ⓘ</Box>
+                      </Tooltip>
+                    )}
+                  </Flex>
+                </Th>
+              ))}
+              {actions && (
+                <Th 
+                  width="80px" 
+                  textAlign="right"
+                >
+                  Actions
+                </Th>
+              )}
+            </Tr>
+          </Thead>
+          <Tbody>
+            {paginatedData.length === 0 ? (
+              <Tr>
+                <Td 
+                  colSpan={columns.length + (actions ? 1 : 0)} 
+                  textAlign="center" 
+                  py={20}
+                >
+                  <VStack spacing={3}>
+                    <Box 
+                      p={4} 
+                      borderRadius="full" 
+                      bg={useColorModeValue('gray.50', 'gray.700')}
+                      color="gray.400"
+                    >
+                      <FiEye size={24} />
+                    </Box>
+                    <Box>
+                      <Text color="gray.500" fontWeight="medium">
+                        No results found
+                      </Text>
+                      <Text color="gray.400" fontSize="xs">
+                        Try adjusting your filters or adding new items
+                      </Text>
+                    </Box>
+                  </VStack>
+                </Td>
+              </Tr>
+            ) : (
+              paginatedData.map((item, index) => (
+                <Tr
+                  key={item.id || index}
+                  _hover={{ bg: rowHoverBg }}
+                  transition="all 0.2s"
+                  bg={striped && index % 2 === 0 ? stripedBg : 'transparent'}
+                >
+                  {columns.map((column) => (
+                    <Td key={`${item.id}-${column.key}`} minWidth={column.minWidth || "auto"}>
+                      {renderCell(item, column)}
+                    </Td>
+                  ))}
+                  {actions && (
+                    <Td 
+                      width="80px" 
+                      textAlign="right"
+                    >
+                      <Flex justify="flex-end">
+                        <Menu placement="bottom-end" isLazy>
+                          <MenuButton
+                            as={IconButton}
+                            icon={<FiMoreVertical />}
+                            variant="ghost"
+                            size="sm"
+                            borderRadius="full"
+                            aria-label="Actions"
+                            _hover={{ bg: useColorModeValue('gray.100', 'gray.600') }}
+                          />
+                          <MenuList minW="160px" boxShadow="lg" py={2}>
+                            {onView && (
+                              <MenuItem 
+                                icon={<FiEye size={14} />} 
+                                onClick={() => onView(item)}
+                              >
+                                View Details
+                              </MenuItem>
+                            )}
+                            {onEdit && (
+                              <MenuItem 
+                                icon={<FiEdit2 size={14} />} 
+                                onClick={() => onEdit(item)}
+                              >
+                                Edit Record
+                              </MenuItem>
+                            )}
+                            {onDelete && (
+                              <MenuItem
+                                icon={<FiTrash2 size={14} />}
+                                onClick={() => onDelete(item)}
+                                color="red.500"
+                              >
+                                Delete Record
+                              </MenuItem>
+                            )}
+                          </MenuList>
+                        </Menu>
+                      </Flex>
+                    </Td>
+                  )}
+                </Tr>
+              ))
+            )}
+          </Tbody>
+        </Table>
+      </Box>
+
+      {/* Pagination Footer - Moved outside scrollable Box */}
+      <Flex 
+        px={6} 
+        py={4}
+        justify="space-between"
+        align="center"
+        bg={useColorModeValue('gray.100', 'gray.900')}
+        borderTop="1px solid"
+        borderColor={borderColor}
+        flexWrap="wrap"
+        gap={4}
+      >
+        <HStack spacing={4}>
+          <Text fontSize="sm" color="gray.500">
+            Showing <b>{Math.min(startIndex + 1, totalItems)}</b> to <b>{Math.min(startIndex + pageSize, totalItems)}</b> of <b>{totalItems}</b> items
+          </Text>
+          <Select
+            size="sm"
+            width="110px"
+            borderRadius="md"
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(parseInt(e.target.value));
+              setCurrentPage(1);
+            }}
+            bg={useColorModeValue('white', 'gray.800')}
+          >
+            <option value={10}>10 rows</option>
+            <option value={25}>25 rows</option>
+            <option value={50}>50 rows</option>
+            <option value={100}>100 rows</option>
+          </Select>
+        </HStack>
+
+        <HStack spacing={2}>
+          <IconButton
+            size="sm"
+            icon={<FiChevronsLeft />}
+            variant="outline"
+            onClick={() => handlePageChange(1)}
+            isDisabled={currentPage === 1}
+            aria-label="First page"
+          />
+          <IconButton
+            size="sm"
+            icon={<FiChevronLeft />}
+            variant="outline"
+            onClick={() => handlePageChange(currentPage - 1)}
+            isDisabled={currentPage === 1}
+            aria-label="Previous page"
+          />
+          
+          <Flex align="center" px={2}>
+            <Text fontSize="sm" fontWeight="medium">
+              Page {currentPage} of {totalPages || 1}
+            </Text>
+          </Flex>
+
+          <IconButton
+            size="sm"
+            icon={<FiChevronRight />}
+            variant="outline"
+            onClick={() => handlePageChange(currentPage + 1)}
+            isDisabled={currentPage === totalPages || totalPages === 0}
+            aria-label="Next page"
+          />
+          <IconButton
+            size="sm"
+            icon={<FiChevronsRight />}
+            variant="outline"
+            onClick={() => handlePageChange(totalPages)}
+            isDisabled={currentPage === totalPages || totalPages === 0}
+            aria-label="Last page"
+          />
+        </HStack>
+      </Flex>
     </Box>
   );
 };

@@ -1,5 +1,6 @@
 const { Op, fn, col } = require('sequelize');
 const sequelize = require('../config/database');
+const H = require('../utils/reportHelper');
 const Invoice = require('../models/Invoice');
 const InvoiceItem = require('../models/InvoiceItem');
 const Payment = require('../models/Payment');
@@ -11,8 +12,9 @@ const CountryCode = require('../models/CountryCode');
 /* ===================== HELPER: FORMAT TIME ===================== */
 const formatTime = (date, hour = 0, isEnd = false) => {
   const d = new Date(date);
+  if (isNaN(d.getTime())) return null;
   d.setHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
-  return d.getTime().toString();
+  return d.getTime();
 };
 
 /* ===================== HELPER: GET COUNTRY FROM NUMBER ===================== */
@@ -31,6 +33,54 @@ const getCountryFromNumber = (number, countryCodes, skipPrefix = false) => {
     }
   }
   return 'Unknown';
+};
+
+/* ===================== HELPER: BUILD ACCOUNT CONDITIONS ===================== */
+const buildAccountConditions = (account, vendorReport = false) => {
+  const or = [];
+
+  // 1️⃣ IP authentication
+  if (account.authenticationType === 'ip' && account.authenticationValue) {
+    // For vendor reports, check agentip; for customer reports, check callerip
+    if (vendorReport) {
+      or.push({ agentip: account.authenticationValue });
+    } else {
+      or.push({ callerip: account.authenticationValue });
+    }
+  }
+
+  // 2️⃣ Custom authentication → search entire CDR row
+  if (account.authenticationType === 'custom' && account.authenticationValue) {
+    const v = `${account.authenticationValue}`;
+    or.push(
+      { customeraccount: { [Op.like]: v } },
+      { agentaccount: { [Op.like]: v } },
+      { callere164: { [Op.like]: v } },
+      { calleee164: { [Op.like]: v } },
+      { customername: { [Op.like]: v } },
+      { agentname: { [Op.like]: v } }
+    );
+  }
+
+  // 3️⃣ Gateway authentication (explicit)
+  if (account.authenticationType === 'gateway' && account.authenticationValue) {
+    or.push(
+      vendorReport
+        ? { agentaccount: account.authenticationValue }
+        : { customeraccount: account.authenticationValue }
+    );
+  }
+
+  // 4️⃣ Fallback to gatewayId only if authenticationValue is not set but type is gateway
+  if (or.length === 0 && account.gatewayId) {
+    or.push(
+      vendorReport
+        ? { agentaccount: account.gatewayId }
+        : { customeraccount: account.gatewayId }
+    );
+  }
+
+  return or;
 };
 
 /* ===================== HELPER: GENERATE INVOICE NUMBER ===================== */
@@ -90,7 +140,7 @@ exports.generateInvoice = async (req, res) => {
       billingPeriodEnd,
       taxRate = 0,
       discountAmount = 0,
-      dueInDays = 30,
+      dueInDays = 7,
       notes,
       customerNotes
     } = req.body;
@@ -124,24 +174,36 @@ exports.generateInvoice = async (req, res) => {
     // Get country codes for mapping
     const countryCodes = await CountryCode.findAll({ raw: true });
 
-    // Fetch CDR data for the billing period using gatewayId
+    // ✅ Build CDR WHERE conditions using authentication logic
+    const authConditions = buildAccountConditions(customer, false); // false = customer report
+    
+    if (authConditions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Unable to build authentication conditions for this customer'
+      });
+    }
+
+    const cdrWhere = {
+      starttime: {
+        [Op.between]: [formatTime(billingPeriodStart), formatTime(billingPeriodEnd, 23, true)]
+      },
+      [Op.or]: authConditions
+    };
+
+    // Fetch CDR data for the billing period using authentication conditions
     const cdrs = await CDR.findAll({
       attributes: [
         'customeraccount',
         'customername',
         'callere164',
         [fn('COUNT', col('*')), 'totalCalls'],
-        [fn('SUM', fn('CASE', fn('WHEN', col('disposition'), '=', 'ANSWERED'), fn('THEN', 1), fn('ELSE', 0))), 'completedCalls'],
-        [fn('SUM', fn('CASE', fn('WHEN', col('disposition'), '!=', 'ANSWERED'), fn('THEN', 1), fn('ELSE', 0))), 'failedCalls'],
-        [fn('SUM', col('billsec')), 'duration'],
-        [fn('SUM', col('customerprice')), 'revenue']
+        [fn('SUM', H.completedCall), 'completedCalls'],
+        [fn('SUM', H.failedCall), 'failedCalls'],
+        [fn('SUM', H.durationSec), 'duration'],
+        [fn('SUM', H.revenue), 'revenue']
       ],
-      where: {
-        customeraccount: customer.gatewayId,
-        starttime: {
-          [Op.between]: [billingPeriodStart, billingPeriodEnd]
-        }
-      },
+      where: cdrWhere,
       group: ['customeraccount', 'customername', 'callere164'],
       raw: true
     });
@@ -178,12 +240,13 @@ exports.generateInvoice = async (req, res) => {
 
     // Generate invoice number
     const invoiceNumber = await generateInvoiceNumber();
-    const invoiceDate = Date.now().toString();
-    const dueDate = (Date.now() + (dueInDays * 24 * 60 * 60 * 1000)).toString();
+    const invoiceDate = Date.now();
+    const dueDate = (Date.now() + (dueInDays * 24 * 60 * 60 * 1000));
 
     // Calculate subtotal
     let subtotal = 0;
     const invoiceItems = Object.values(groupedByDestination).map((item, index) => {
+      
       const durationMinutes = (item.duration / 60).toFixed(2);
       const amount = Number(item.revenue);
       subtotal += amount;
@@ -195,6 +258,7 @@ exports.generateInvoice = async (req, res) => {
         quantity: item.totalCalls,
         duration: item.duration,
         durationMinutes: parseFloat(durationMinutes),
+        
         unitPrice: item.totalCalls > 0 ? (amount / item.totalCalls) : 0,
         amount: parseFloat(amount.toFixed(4)),
         totalCalls: item.totalCalls,
@@ -203,8 +267,8 @@ exports.generateInvoice = async (req, res) => {
         asr: item.totalCalls > 0 ? parseFloat(((item.completedCalls / item.totalCalls) * 100).toFixed(2)) : 0,
         acd: item.completedCalls > 0 ? parseFloat((item.duration / item.completedCalls).toFixed(2)) : 0,
         taxable: true,
-        periodStart: billingPeriodStart,
-        periodEnd: billingPeriodEnd,
+        periodStart: formatTime(billingPeriodStart),
+        periodEnd: formatTime(billingPeriodEnd, 23, true),
         sortOrder: index
       };
     });
@@ -213,17 +277,21 @@ exports.generateInvoice = async (req, res) => {
     const taxAmount = (subtotal * (taxRate / 100));
     const totalAmount = subtotal + taxAmount - discountAmount;
 
-    // Create invoice using gatewayId
+    // Create invoice
+    const customerGatewayId = (customer.authenticationType === 'gateway' && customer.authenticationValue) 
+      ? customer.authenticationValue 
+      : customer.gatewayId;
+
     const invoice = await Invoice.create({
       invoiceNumber,
-      customerGatewayId: customer.gatewayId,
+      customerGatewayId,
       customerName: customer.accountName,
       customerCode: customer.customerCode,
       customerEmail: customer.email,
       customerAddress: customer.address,
       customerPhone: customer.phone,
-      billingPeriodStart,
-      billingPeriodEnd,
+      billingPeriodStart: formatTime(billingPeriodStart),
+      billingPeriodEnd: formatTime(billingPeriodEnd, 23, true),
       invoiceDate,
       dueDate,
       subtotal: parseFloat(subtotal.toFixed(4)),
@@ -307,7 +375,7 @@ exports.getAllInvoices = async (req, res) => {
 
     if (startDate && endDate) {
       where.invoiceDate = {
-        [Op.between]: [startDate, endDate]
+        [Op.between]: [formatTime(startDate), formatTime(endDate, 23, true)]
       };
     }
 
@@ -407,6 +475,13 @@ exports.updateInvoice = async (req, res) => {
       });
     }
 
+    // Convert dates to timestamps if present
+    if (updateData.invoiceDate) updateData.invoiceDate = formatTime(updateData.invoiceDate);
+    if (updateData.dueDate) updateData.dueDate = formatTime(updateData.dueDate);
+    if (updateData.billingPeriodStart) updateData.billingPeriodStart = formatTime(updateData.billingPeriodStart);
+    if (updateData.billingPeriodEnd) updateData.billingPeriodEnd = formatTime(updateData.billingPeriodEnd, 23, true);
+    if (updateData.paymentDate) updateData.paymentDate = formatTime(updateData.paymentDate);
+
     await invoice.update(updateData);
 
     const updatedInvoice = await Invoice.findByPk(id, {
@@ -448,7 +523,7 @@ exports.deleteInvoice = async (req, res) => {
     }
 
     // Only allow deletion of draft or cancelled invoices
-    if (!['draft', 'cancelled', 'void'].includes(invoice.status)) {
+    if (!['draft','pending', 'cancelled', 'void'].includes(invoice.status)) {
       return res.status(400).json({
         success: false,
         error: 'Only draft, cancelled, or void invoices can be deleted'
@@ -547,7 +622,7 @@ exports.recordPayment = async (req, res) => {
       customerGatewayId: customer.gatewayId,
       customerName: customer.accountName,
       amount: parseFloat(amount),
-      paymentDate,
+      paymentDate: formatTime(paymentDate),
       paymentMethod,
       transactionId,
       referenceNumber,
@@ -556,7 +631,7 @@ exports.recordPayment = async (req, res) => {
       unappliedAmount: parseFloat(amount - totalAllocated),
       notes,
       recordedBy: req.user?.id || null,
-      recordedDate: Date.now().toString()
+      recordedDate: Date.now()
     }, { transaction });
 
     // Create allocations and update invoices
@@ -577,7 +652,7 @@ exports.recordPayment = async (req, res) => {
         paymentId: payment.id,
         invoiceId: allocation.invoiceId,
         allocatedAmount: parseFloat(allocation.amount),
-        allocationDate: paymentDate,
+        allocationDate: formatTime(paymentDate),
         allocatedBy: req.user?.id || null
       }, { transaction });
 
@@ -596,7 +671,7 @@ exports.recordPayment = async (req, res) => {
         paidAmount: parseFloat(newPaidAmount.toFixed(4)),
         balanceAmount: parseFloat(newBalance.toFixed(4)),
         status: newStatus,
-        paymentDate: newStatus === 'paid' ? paymentDate : invoice.paymentDate
+        paymentDate: newStatus === 'paid' ? formatTime(paymentDate) : invoice.paymentDate
       }, { transaction });
     }
 

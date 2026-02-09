@@ -74,6 +74,7 @@ import {
   InputGroup,
   CardHeader,
   Accordion,
+  Checkbox,
 } from "@chakra-ui/react";
 import {
   FiFileText,
@@ -96,6 +97,7 @@ import {
   FiCalendar,
   FiUser,
   FiChevronRight,
+  FiChevronLeft,
   FiChevronDown,
   FiBarChart2,
   FiTrendingUp,
@@ -107,21 +109,27 @@ import {
   FiMoreVertical,
   FiSettings,
   FiHome,
+  FiChevronsLeft,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
 import ExportButton from "../components/ExportButton";
+import ViewInvoiceModal from "../components/modals/ViewInvoiceModal";
+import GenerateInvoiceModal from "../components/modals/GenerateInvoiceModal";
+import RecordPaymentModal from "../components/modals/RecordPaymentModal";
 import {
-  getInvoices,
-  saveInvoices,
-  getCustomers,
-  getCDRs,
-} from "../utils/storage";
-import { calculateInvoice } from "../utils/calculations";
+  fetchInvoices,
+  generateInvoice as apiGenerateInvoice,
+  fetchReportAccounts,
+  deleteInvoice as apiDeleteInvoice,
+  updateInvoiceStatus,
+  recordPayment
+} from "../utils/api";
 import { format, differenceInDays, isBefore, subDays } from "date-fns";
 
 const Invoices = () => {
   const [invoices, setInvoices] = useState([]);
   const [filteredInvoices, setFilteredInvoices] = useState([]);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -133,6 +141,17 @@ const Invoices = () => {
     periodStart: format(new Date().setDate(1), "yyyy-MM-dd"),
     periodEnd: format(new Date(), "yyyy-MM-dd"),
     billingCycle: "monthly",
+  });
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({
+    customerId: "",
+    amount: "",
+    paymentDate: format(new Date(), "yyyy-MM-dd"),
+    paymentMethod: "bank_transfer",
+    transactionId: "",
+    referenceNumber: "",
+    notes: "",
+    invoiceId: "", // Optional, if recording for a specific invoice
   });
   
   const [dashboardStats, setDashboardStats] = useState({
@@ -159,15 +178,31 @@ const Invoices = () => {
 
   useEffect(() => {
     filterInvoices();
+    
     calculateDashboardStats();
   }, [invoices, searchTerm, statusFilter]);
 
-  const loadData = () => {
-    const storedInvoices = getInvoices();
-    const storedCustomers = getCustomers();
-    setInvoices(storedInvoices);
-    setFilteredInvoices(storedInvoices);
-    setCustomers(storedCustomers);
+  const loadData = async () => {
+    try {
+      const [invoicesRes, customersData] = await Promise.all([
+        fetchInvoices(),
+        fetchReportAccounts()
+      ]);
+      
+      const invoicesData = invoicesRes.success ? invoicesRes.data : [];
+      setInvoices(invoicesData);
+      setFilteredInvoices(invoicesData);
+      setCustomers(customersData.success ? customersData.customers : []);
+    } catch (error) {
+      console.error("Error loading data:", error);
+      toast({
+        title: "Error loading data",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
   };
 
   const filterInvoices = () => {
@@ -195,21 +230,25 @@ const Invoices = () => {
     const thirtyDaysAgo = subDays(now, 30);
     
     const paidInvoices = invoices.filter(inv => inv.status === "paid");
-    const pendingInvoices = invoices.filter(inv => inv.status === "sent" || inv.status === "generated");
+    const pendingInvoices = invoices.filter(inv => ["sent", "generated", "pending", "partial"].includes(inv.status));
     const overdueInvoices = invoices.filter(inv => inv.status === "overdue");
     
     const totalRevenue = invoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || 0), 0);
-    const pendingRevenue = pendingInvoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || 0), 0);
-    const collectedRevenue = paidInvoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || 0), 0);
-    const overdueAmount = overdueInvoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || 0), 0);
+    const pendingRevenue = pendingInvoices.reduce((sum, inv) => sum + parseFloat(inv.balanceAmount || 0), 0);
+    const collectedRevenue = invoices.reduce((sum, inv) => sum + parseFloat(inv.paidAmount || 0), 0);
+    const overdueAmount = overdueInvoices.reduce((sum, inv) => sum + parseFloat(inv.balanceAmount || 0), 0);
     
-    const totalCalls = invoices.reduce((sum, inv) => sum + (inv.totalCalls || 0), 0);
+    const totalCalls = invoices.reduce((sum, inv) => {
+      const itemsCalls = inv.items?.reduce((s, item) => s + (parseInt(item.totalCalls) || 0), 0) || 0;
+      return sum + itemsCalls;
+    }, 0);
+    
     const averageInvoice = invoices.length > 0 ? totalRevenue / invoices.length : 0;
     const collectionRate = totalRevenue > 0 ? (collectedRevenue / totalRevenue) * 100 : 0;
     
     // Recent activity (last 30 days)
     const recentInvoices = invoices.filter(inv => 
-      new Date(inv.generatedDate) >= thirtyDaysAgo
+      new Date(parseInt(inv.invoiceDate)) >= thirtyDaysAgo
     );
     
     setDashboardStats({
@@ -227,85 +266,56 @@ const Invoices = () => {
     });
   };
 
-  const handleGenerateInvoice = () => {
-    const customer = customers.find((c) => c.id === generateForm.customerId);
-    if (!customer) {
+  const handleGenerateInvoice = async () => {
+    try {
+      const customer = customers.find((c) => c.gatewayId === generateForm.customerId || c.customerCode === generateForm.customerId || c.accountId === generateForm.customerId);
+      if (!customer) {
+        toast({
+          title: "Customer not found",
+          description: "Please select a valid customer",
+          status: "error",
+          duration: 3000,
+          isClosable: true,
+        });
+        return;
+      }
+
+      const response = await apiGenerateInvoice({
+        customerId: generateForm.customerId,
+        billingPeriodStart: generateForm.periodStart,
+        billingPeriodEnd: generateForm.periodEnd,
+        notes: `Generated manually for period ${generateForm.periodStart} to ${generateForm.periodEnd}`
+      });
+
+      if (response.success) {
+        toast({
+          title: "Invoice generated",
+          description: `Invoice ${response.invoice.invoiceNumber} has been generated successfully`,
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+          position: "top-right",
+        });
+        
+        loadData();
+        setIsGenerateModalOpen(false);
+        setGenerateForm({
+          customerId: "",
+          periodStart: format(new Date().setDate(1), "yyyy-MM-dd"),
+          periodEnd: format(new Date(), "yyyy-MM-dd"),
+          billingCycle: "monthly",
+        });
+      }
+    } catch (error) {
+      console.error("Error generating invoice:", error);
       toast({
-        title: "Customer not found",
-        description: "Please select a valid customer",
+        title: "Error generating invoice",
+        description: error.message,
         status: "error",
         duration: 3000,
         isClosable: true,
       });
-      return;
     }
-
-    const cdrs = getCDRs();
-    const periodStart = new Date(generateForm.periodStart);
-    const periodEnd = new Date(generateForm.periodEnd);
-
-    const customerCdrs = cdrs.filter(
-      (cdr) =>
-        (cdr.customeraccount === generateForm.customerId || cdr.customer_id === generateForm.customerId) &&
-        new Date(cdr.starttime) >= periodStart &&
-        new Date(cdr.starttime) <= periodEnd
-    );
-
-    if (customerCdrs.length === 0) {
-      toast({
-        title: "No CDRs found",
-        description: "No call records found for the selected customer and period",
-        status: "warning",
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
-
-    const invoice = calculateInvoice(customerCdrs, customer);
-
-    const newInvoice = {
-      id: `INV${Date.now().toString().slice(-8)}`,
-      invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
-      ...invoice,
-      periodStart: generateForm.periodStart,
-      periodEnd: generateForm.periodEnd,
-      generatedDate: new Date().toISOString(),
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      status: "generated",
-      billingCycle: generateForm.billingCycle,
-      items: customerCdrs.map((cdr) => ({
-        callId: cdr.id,
-        date: cdr.starttime,
-        caller: cdr.callere164,
-        callee: cdr.calleee164,
-        duration: cdr.duration || cdr.duration_seconds,
-        rate: cdr.rate || cdr.cost_per_minute,
-        amount: cdr.fee || cdr.fee_amount,
-      })),
-    };
-
-    const storedInvoices = getInvoices();
-    const updatedInvoices = [...storedInvoices, newInvoice];
-    saveInvoices(updatedInvoices);
-
-    loadData();
-    setIsGenerateModalOpen(false);
-    setGenerateForm({
-      customerId: "",
-      periodStart: format(new Date().setDate(1), "yyyy-MM-dd"),
-      periodEnd: format(new Date(), "yyyy-MM-dd"),
-      billingCycle: "monthly",
-    });
-
-    toast({
-      title: "Invoice generated",
-      description: `Invoice ${newInvoice.invoiceNumber} has been generated successfully`,
-      status: "success",
-      duration: 3000,
-      isClosable: true,
-      position: "top-right",
-    });
   };
 
   const handleViewInvoice = (invoice) => {
@@ -313,89 +323,378 @@ const Invoices = () => {
     setIsViewModalOpen(true);
   };
 
+  const onRecordPaymentClick = (invoice) => {
+    setPaymentForm({
+      ...paymentForm,
+      customerId: invoice.customerGatewayId || invoice.customerCode,
+      invoiceId: invoice.id,
+      amount: invoice.balanceAmount,
+    });
+    setIsPaymentModalOpen(true);
+  };
+
   const handleDownloadInvoice = (invoice) => {
-    // Implementation remains the same
     const invoiceHtml = `
       <html>
         <head>
           <title>Invoice ${invoice.invoiceNumber}</title>
           <style>
-            body { font-family: Arial, sans-serif; margin: 40px; }
-            .header { text-align: center; margin-bottom: 40px; }
-            .details { margin-bottom: 30px; }
-            .details table { width: 100%; border-collapse: collapse; }
-            .details td { padding: 8px; border: 1px solid #ddd; }
-            .items { margin-bottom: 30px; }
-            .items table { width: 100%; border-collapse: collapse; }
-            .items th, .items td { padding: 12px; border: 1px solid #ddd; text-align: left; }
-            .total { text-align: right; font-size: 18px; font-weight: bold; }
-            .footer { margin-top: 50px; text-align: center; color: #666; }
+            body { 
+              font-family: Arial, sans-serif; 
+              margin: 20px; 
+              font-size: 12px;
+              line-height: 1.4;
+            }
+            .invoice-header {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 30px;
+              border-bottom: 2px solid #000;
+              padding-bottom: 20px;
+            }
+            .from-address, .to-address {
+              width: 48%;
+            }
+            .invoice-title {
+              font-size: 24px;
+              font-weight: bold;
+              margin-bottom: 5px;
+            }
+            .company-name {
+              font-weight: bold;
+              margin-bottom: 10px;
+              font-size: 16px;
+            }
+            .invoice-details {
+              margin-bottom: 30px;
+              border: 1px solid #ddd;
+              padding: 15px;
+              background-color: #f9f9f9;
+            }
+            .invoice-details table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+            .invoice-details td {
+              padding: 5px;
+              vertical-align: top;
+            }
+            .invoice-details td:first-child {
+              font-weight: bold;
+              width: 25%;
+            }
+            .summary-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 30px;
+              border: 1px solid #000;
+            }
+            .summary-table td, .summary-table th {
+              padding: 12px;
+              border: 1px solid #000;
+              text-align: left;
+            }
+            .summary-table th {
+              background-color: #f0f0f0;
+              font-weight: bold;
+            }
+            .summary-table .total-row {
+              font-weight: bold;
+              background-color: #f0f0f0;
+            }
+            .detail-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 40px;
+              font-size: 11px;
+            }
+            .detail-table td, .detail-table th {
+              padding: 8px 5px;
+              border: 1px solid #ddd;
+              text-align: left;
+            }
+            .detail-table th {
+              background-color: #f5f5f5;
+              font-weight: bold;
+            }
+            .detail-table .section-header {
+              background-color: #e9e9e9;
+              font-weight: bold;
+            }
+            .bank-details {
+              margin-top: 40px;
+              padding: 15px;
+              border: 1px solid #ddd;
+              background-color: #f9f9f9;
+            }
+            .bank-details table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+            .bank-details td {
+              padding: 5px;
+              vertical-align: top;
+            }
+            .bank-details td:first-child {
+              font-weight: bold;
+              width: 30%;
+            }
+            .office-address {
+              margin-top: 30px;
+              font-style: italic;
+              color: #666;
+            }
+            .page-break {
+              page-break-before: always;
+            }
+            @media print {
+              body { margin: 0; padding: 10px; }
+              .page-break { page-break-before: always; }
+            }
           </style>
         </head>
         <body>
-          <div class="header">
-            <h1>INVOICE</h1>
-            <h2>${invoice.invoiceNumber}</h2>
+          <!-- Page 1: Invoice Header and Summary -->
+          <div class="invoice-header">
+            <div class="from-address">
+              <div class="invoice-title">Invoice From</div>
+              <div class="company-name">PAI Telecommunications</div>
+              <div>ROOM D5, 5 FLOOR, KING YIP FACTORY BUILDING,</div>
+              <div>NO. 59 KING YIP STREET,</div>
+              <div>KWUNG TONG, KOWLOON,</div>
+              <div>HONG KONG</div>
+            </div>
+            <div class="to-address">
+              <div class="invoice-title">Invoice To</div>
+              <div class="company-name">${invoice.customerName || 'Dial Tel PTE. LTD.'}</div>
+              <div>${invoice.customerAddress || '2 Kallang Ave., #07-31 CT Hub, Singapore 339407'}</div>
+              <div>${invoice.customerCountry || 'SINGAPORE'}</div>
+            </div>
           </div>
-          <div class="details">
+          
+          <div class="invoice-details">
             <table>
               <tr>
-                <td><strong>Customer:</strong> ${invoice.customerName}</td>
-                <td><strong>Invoice Date:</strong> ${format(
-                  new Date(invoice.generatedDate),
-                  "dd/MM/yyyy"
-                )}</td>
+                <td>Invoice No:</td>
+                <td>${invoice.invoiceNumber || 'INVHK155565'}</td>
+                <td>Invoice Date:</td>
+                <td>${format(new Date(parseInt(invoice.invoiceDate)), "dd-MM-yyyy") || '09-02-2026'}</td>
               </tr>
               <tr>
-                <td><strong>Period:</strong> ${format(
-                  new Date(invoice.periodStart),
-                  "dd/MM/yyyy"
-                )} - ${format(new Date(invoice.periodEnd), "dd/MM/yyyy")}</td>
-                <td><strong>Due Date:</strong> ${format(
-                  new Date(invoice.dueDate),
-                  "dd/MM/yyyy"
-                )}</td>
+                <td>Due Date:</td>
+                <td>${format(new Date(parseInt(invoice.dueDate)), "dd-MM-yyyy") || '12-02-2026'}</td>
+                <td>Invoice Period:</td>
+                <td>${format(new Date(parseInt(invoice.billingPeriodStart)), "dd-MM-yyyy") || '02-02-2026'} - ${format(new Date(parseInt(invoice.billingPeriodEnd)), "dd-MM-yyyy") || '08-02-2026'}</td>
               </tr>
             </table>
           </div>
-          <div class="items">
+          
+          <table class="summary-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Usage</th>
+                <th>Recurring</th>
+                <th>TOTAL</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Traffic Summary</td>
+                <td>$${(parseFloat(invoice.subtotal) || 837096.4158).toFixed(4)}</td>
+                <td>$0.0000</td>
+                <td>$${(parseFloat(invoice.subtotal) || 837096.4158).toFixed(4)}</td>
+              </tr>
+              <tr class="total-row">
+                <td>Sub Total</td>
+                <td></td>
+                <td></td>
+                <td>$${(parseFloat(invoice.subtotal) || 837096.4158).toFixed(4)}</td>
+              </tr>
+              <tr class="total-row">
+                <td>Grand Total</td>
+                <td></td>
+                <td></td>
+                <td>$${(parseFloat(invoice.totalAmount) || 837096.4158).toFixed(4)}</td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <div class="office-address">
+            <div>Office Address: ROOM D5, 5 FLOOR, KING YIP FACTORY BUILDING, NO. 59 KING YIP STREET, KWUNG TONG, KOWLOON, HONG KONG</div>
+          </div>
+          
+          <div class="bank-details">
             <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Caller</th>
-                  <th>Callee</th>
-                  <th>Duration</th>
-                  <th>Rate</th>
-                  <th>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${invoice.items
-                  .map(
-                    (item) => `
+              <tr>
+                <td>Account Name:</td>
+                <td>Pai Telecommunications Limited</td>
+              </tr>
+              <tr>
+                <td>Billing Address:</td>
+                <td>accounts@paitelecomm.com</td>
+              </tr>
+              <tr>
+                <td>Bank Name:</td>
+                <td>Bank Of ChinaBank</td>
+              </tr>
+              <tr>
+                <td>Bank Address:</td>
+                <td>BANK OF CHINA, BANK OF CHINA TOWER, 1 GARDEN ROAD, CENTRAL, HONG KONG</td>
+              </tr>
+              <tr>
+                <td>Account/IBAN Number:</td>
+                <td>012-687-2-011894-5 (USD)</td>
+              </tr>
+              <tr>
+                <td>Swift Code:</td>
+                <td>BKCHHKHHXXX</td>
+              </tr>
+              <tr>
+                <td>Bank Code:</td>
+                <td>012</td>
+              </tr>
+            </table>
+          </div>
+          
+          <!-- Page 2: Simple Summary -->
+          <div class="page-break"></div>
+          <div style="text-align: center; margin-top: 100px; font-size: 72px;">
+            ${(parseFloat(invoice.totalAmount) || 837096.4158).toFixed(4)}
+          </div>
+          
+          <table style="width: 100%; margin-top: 50px; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 10px;">Title</td>
+              <td style="padding: 10px;">Description</td>
+              <td style="padding: 10px;">Date From</td>
+              <td style="padding: 10px;">Date To</td>
+              <td style="padding: 10px;">Price</td>
+              <td style="padding: 10px;">Quantity</td>
+              <td style="padding: 10px;">TOTAL</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px;">Usage From ${format(new Date(parseInt(invoice.billingPeriodStart)), "dd-MM-yyyy") || '02-02-2026'}</td>
+              <td style="padding: 10px;">To ${format(new Date(parseInt(invoice.billingPeriodEnd)), "dd-MM-yyyy") || '08-02-2026'}</td>
+              <td style="padding: 10px;">${format(new Date(parseInt(invoice.billingPeriodEnd)), "dd-MM-yyyy") || '08-02-2026'}</td>
+              <td style="padding: 10px;"></td>
+              <td style="padding: 10px;">${(parseFloat(invoice.totalAmount) || 837096.4158).toFixed(4)}</td>
+              <td style="padding: 10px;">1</td>
+              <td style="padding: 10px;">${(parseFloat(invoice.totalAmount) || 837096.4158).toFixed(4)}</td>
+            </tr>
+          </table>
+          
+          <div class="office-address" style="margin-top: 100px;">
+            <div>Office Address: ROOM D5, 5 FLOOR, KING YIP FACTORY BUILDING, NO. 59 KING YIP STREET, KWUNG TONG, KOWLOON, HONG KONG</div>
+          </div>
+          
+          <!-- Page 3: Detailed Call Logs -->
+          <div class="page-break"></div>
+          <h2>Usage</h2>
+          
+          <table class="detail-table">
+            <thead>
+              <tr>
+                <th>Trunk</th>
+                <th>Prefix</th>
+                <th>Country</th>
+                <th>Description</th>
+                <th>No of calls</th>
+                <th>Duration</th>
+                <th>Billed Duration</th>
+                <th>Avg Rate/Min</th>
+                <th>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${invoice.items && invoice.items.length > 0 ? 
+                invoice.items.map(item => `
                   <tr>
-                    <td>${format(new Date(item.date), "dd/MM/yyyy HH:mm")}</td>
-                    <td>${item.caller}</td>
-                    <td>${item.callee}</td>
-                    <td>${item.duration}s</td>
-                    <td>$${item.rate}/sec</td>
-                    <td>$${item.amount.toFixed(4)}</td>
+                    <td>${item.trunk || 'CLI216'}</td>
+                    <td>${item.prefix || ''}</td>
+                    <td>${item.country || 'TUNISIA'}</td>
+                    <td>${item.description || 'TUNISIA MOBILE'}</td>
+                    <td>${item.totalCalls || '0'}</td>
+                    <td>${formatDuration(item.duration) || '0:00'}</td>
+                    <td>${formatDuration(item.billedDuration) || '0:00'}</td>
+                    <td>$${parseFloat(item.avgRate).toFixed(4) || '0.7001'}</td>
+                    <td>$${parseFloat(item.amount).toFixed(4) || '0.0000'}</td>
                   </tr>
+                `).join('') : 
+                // Sample data if no items provided
                 `
-                  )
-                  .join("")}
-              </tbody>
+                <tr>
+                  <td>CLI216</td>
+                  <td></td>
+                  <td>TUNISIA</td>
+                  <td>TUNISIA</td>
+                  <td>1</td>
+                  <td>121935718:11</td>
+                  <td>121935718:11</td>
+                  <td>$0.7001</td>
+                  <td>$25,006.3039</td>
+                </tr>
+                <tr>
+                  <td>CLI2162</td>
+                  <td></td>
+                  <td>TUNISIA</td>
+                  <td>TUNISIA MOBILE ORASCOM</td>
+                  <td>4</td>
+                  <td>1433134577:40</td>
+                  <td>1433134577:40</td>
+                  <td>$0.7001</td>
+                  <td>$94,217.8383</td>
+                </tr>
+                `
+              }
+              <tr class="section-header">
+                <td colspan="4">TOTAL</td>
+                <td>${invoice.totalCalls || '372268'}</td>
+                <td>${formatTotalDuration(invoice.totalDuration) || '1195681:2'}</td>
+                <td>${formatTotalDuration(invoice.totalDuration) || '1195681:2'}</td>
+                <td></td>
+                <td>$${(parseFloat(invoice.totalAmount) || 837096.4158).toFixed(4)}</td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <div class="bank-details">
+            <table>
+              <tr>
+                <td>Account Name:</td>
+                <td>Pai Telecommunications Limited</td>
+              </tr>
+              <tr>
+                <td>Billing Address:</td>
+                <td>accounts@paitelecomm.com</td>
+              </tr>
+              <tr>
+                <td>Bank Name:</td>
+                <td>Bank Of ChinaBank</td>
+              </tr>
+              <tr>
+                <td>Bank Address:</td>
+                <td>BANK OF CHINA, BANK OF CHINA TOWER, 1 GARDEN ROAD, CENTRAL, HONG KONG</td>
+              </tr>
+              <tr>
+                <td>Account/IBAN Number:</td>
+                <td>012-687-2-011894-5 (USD)</td>
+              </tr>
+              <tr>
+                <td>Swift Code:</td>
+                <td>BKCHHKHHXXX</td>
+              </tr>
+              <tr>
+                <td>Bank Code:</td>
+                <td>012</td>
+              </tr>
             </table>
           </div>
-          <div class="total">
-            <p>Subtotal: $${invoice.totalFee.toFixed(2)}</p>
-            <p>Tax (${(invoice.taxRate * 100).toFixed(0)}%): $${invoice.totalTax.toFixed(2)}</p>
-            <p>Total Amount: $${invoice.totalAmount.toFixed(2)}</p>
-          </div>
-          <div class="footer">
-            <p>Thank you for your business!</p>
-            <p>This is a computer-generated invoice. No signature required.</p>
+          
+          <!-- Page 4: Empty Page (like in the PDF) -->
+          <div class="page-break"></div>
+          <div style="text-align: center; margin-top: 200px; font-size: 48px;">
+            0
           </div>
         </body>
       </html>
@@ -416,6 +715,23 @@ const Invoices = () => {
     });
   };
 
+// Helper function to format duration (you may need to adjust this based on your data structure)
+const formatDuration = (seconds) => {
+  if (!seconds) return '0:00';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}:${minutes.toString().padStart(2, '0')}`;
+};
+
+// Helper function to format total duration
+const formatTotalDuration = (seconds) => {
+  if (!seconds) return '0:00';
+  const totalMinutes = Math.floor(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}:${minutes.toString().padStart(2, '0')}`;
+};
+
   const handleSendEmail = (invoice) => {
     const customer = customers.find((c) => c.id === invoice.customerId);
     if (!customer?.email) {
@@ -435,8 +751,8 @@ const Invoices = () => {
       invoice.customerName
     },\n\nPlease find attached your invoice ${
       invoice.invoiceNumber
-    }.\n\nTotal Amount: $${invoice.totalAmount.toFixed(2)}\nDue Date: ${format(
-      new Date(invoice.dueDate),
+    }.\n\nTotal Amount: $${parseFloat(invoice.totalAmount).toFixed(4)}\nDue Date: ${format(
+      new Date(parseInt(invoice.dueDate)),
       "dd/MM/yyyy"
     )}\n\nThank you for your business!\n\nThis is a test email from the CDR Billing System.`;
 
@@ -455,22 +771,114 @@ const Invoices = () => {
     });
   };
 
-  const handleUpdateStatus = (invoiceId, newStatus) => {
-    const storedInvoices = getInvoices();
-    const updatedInvoices = storedInvoices.map((inv) =>
-      inv.id === invoiceId ? { ...inv, status: newStatus } : inv
-    );
-    saveInvoices(updatedInvoices);
-    loadData();
+  const handleUpdateStatus = async (invoiceId, newStatus) => {
+    try {
+      await updateInvoiceStatus(invoiceId, { status: newStatus });
+      loadData();
 
-    toast({
-      title: "Status updated",
-      description: `Invoice status updated to ${newStatus}`,
-      status: "success",
-      duration: 3000,
-      isClosable: true,
-      position: "top-right",
-    });
+      toast({
+        title: "Status updated",
+        description: `Invoice status updated to ${newStatus}`,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+        position: "top-right",
+      });
+    } catch (error) {
+      console.error("Error updating status:", error);
+      toast({
+        title: "Error updating status",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
+  };
+
+  const handleDeleteInvoice = async (invoiceId) => {
+    if (!window.confirm("Are you sure you want to delete this invoice?")) return;
+    
+    try {
+      await apiDeleteInvoice(invoiceId);
+      loadData();
+      toast({
+        title: "Invoice deleted",
+        description: "Invoice has been deleted successfully",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+        position: "top-right",
+      });
+      if (isViewModalOpen) setIsViewModalOpen(false);
+    } catch (error) {
+      console.error("Error deleting invoice:", error);
+      toast({
+        title: "Error deleting invoice",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
+  };
+
+  const handleRecordPayment = async () => {
+    try {
+      const paymentData = {
+        customerId: paymentForm.customerId,
+        amount: parseFloat(paymentForm.amount),
+        paymentDate: paymentForm.paymentDate,
+        paymentMethod: paymentForm.paymentMethod,
+        transactionId: paymentForm.transactionId,
+        referenceNumber: paymentForm.referenceNumber,
+        notes: paymentForm.notes,
+      };
+
+      if (paymentForm.invoiceId) {
+        paymentData.invoiceAllocations = [
+          {
+            invoiceId: paymentForm.invoiceId,
+            amount: parseFloat(paymentForm.amount),
+          },
+        ];
+      }
+
+      const response = await recordPayment(paymentData);
+
+      if (response.success) {
+        toast({
+          title: "Payment recorded",
+          description: `Payment ${response.payment.paymentNumber} has been recorded successfully`,
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+          position: "top-right",
+        });
+
+        loadData();
+        setIsPaymentModalOpen(false);
+        setPaymentForm({
+          customerId: "",
+          amount: "",
+          paymentDate: format(new Date(), "yyyy-MM-dd"),
+          paymentMethod: "bank_transfer",
+          transactionId: "",
+          referenceNumber: "",
+          notes: "",
+          invoiceId: "",
+        });
+      }
+    } catch (error) {
+      console.error("Error recording payment:", error);
+      toast({
+        title: "Error recording payment",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
   };
 
   // Get status color
@@ -553,26 +961,41 @@ const Invoices = () => {
     });
   };
 
-  const handlePrintSelected = () => {
-    toast({
-      title: "Print initiated",
-      description: "Preparing selected invoices for printing",
-      status: "info",
-      duration: 3000,
-      isClosable: true,
-      position: "top-right",
-    });
-  };
+  
 
-  const handleBulkStatusChange = (status) => {
-    toast({
-      title: "Bulk status update",
-      description: `Marking selected invoices as ${status}`,
-      status: "info",
-      duration: 3000,
-      isClosable: true,
-      position: "top-right",
-    });
+  const handleBulkStatusChange = async (status) => {
+    if (selectedInvoiceIds.length === 0) {
+      toast({
+        title: "No invoices selected",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    try {
+      await Promise.all(selectedInvoiceIds.map(id => updateInvoiceStatus(id, { status })));
+      loadData();
+      setSelectedInvoiceIds([]);
+      toast({
+        title: "Bulk status update complete",
+        description: `Marked ${selectedInvoiceIds.length} invoices as ${status}`,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+        position: "top-right",
+      });
+    } catch (error) {
+      console.error("Error in bulk status update:", error);
+      toast({
+        title: "Error in bulk update",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
   };
 
   const handleRegenerateSelected = () => {
@@ -586,21 +1009,47 @@ const Invoices = () => {
     });
   };
 
-  const handleDeleteSelected = () => {
-    toast({
-      title: "Delete selected",
-      description: "Deleting selected invoices",
-      status: "warning",
-      duration: 3000,
-      isClosable: true,
-      position: "top-right",
-    });
+  const handleDeleteSelected = async () => {
+    if (selectedInvoiceIds.length === 0) {
+      toast({
+        title: "No invoices selected",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${selectedInvoiceIds.length} invoices?`)) return;
+
+    try {
+      await Promise.all(selectedInvoiceIds.map(id => apiDeleteInvoice(id)));
+      loadData();
+      setSelectedInvoiceIds([]);
+      toast({
+        title: "Invoices deleted",
+        description: `Successfully deleted ${selectedInvoiceIds.length} invoices`,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+        position: "top-right",
+      });
+    } catch (error) {
+      console.error("Error deleting selected invoices:", error);
+      toast({
+        title: "Error deleting invoices",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    }
   };
 
   return (
-    <Container maxW="100%" px={8} py={6}>
+    <Container maxW="100%" px={4} py={6}>
       {/* Breadcrumb Navigation */}
-      <Breadcrumb spacing={2} mb={8} separator={<FiChevronRight />}>
+      {/* <Breadcrumb spacing={2} mb={8} separator={<FiChevronRight />}>
         <BreadcrumbItem>
           <BreadcrumbLink href="/" display="flex" alignItems="center">
             <FiHome />
@@ -610,15 +1059,15 @@ const Invoices = () => {
         <BreadcrumbItem isCurrentPage>
           <BreadcrumbLink>Invoices</BreadcrumbLink>
         </BreadcrumbItem>
-      </Breadcrumb>
+      </Breadcrumb> */}
 
       {/* Header Section */}
       <Flex justify="space-between" align="center" mb={8}>
         <Box>
-          <Heading size="xl" color="gray.800" mb={2}>
+          <Heading size="lg" color="gray.800" mb={2}>
             Invoice Management
           </Heading>
-          <Text color="gray.600" fontSize="md">
+          <Text color="gray.600" fontSize="sm">
             Manage customer invoices, track payments, and generate reports
           </Text>
         </Box>
@@ -629,7 +1078,7 @@ const Invoices = () => {
               as={Button}
               leftIcon={<FiPlus />}
               colorScheme="blue"
-              size="md"
+              size="sm"
               px={6}
               _hover={{ transform: 'translateY(-2px)', boxShadow: 'lg' }}
               transition="all 0.2s"
@@ -664,11 +1113,18 @@ const Invoices = () => {
               as={Button}
               leftIcon={<FiSettings />}
               variant="outline"
-              size="md"
+              size="sm"
             >
               Actions
             </MenuButton>
             <MenuList>
+              <MenuItem
+                icon={<FiCreditCard />}
+                onClick={() => setIsPaymentModalOpen(true)}
+              >
+                Record Payment
+              </MenuItem>
+              <MenuDivider />
               {/* Send Invoice Section */}
               <MenuItem
                 icon={<FiMail />}
@@ -700,12 +1156,7 @@ const Invoices = () => {
                   </Text>
                 </Box>
               </MenuItem>
-              <MenuItem
-                icon={<FiPrinter />}
-                onClick={handlePrintSelected}
-              >
-                Print Selected
-              </MenuItem>
+              
 
               <MenuDivider />
 
@@ -759,9 +1210,9 @@ const Invoices = () => {
       </Flex>
 
       {/* Enhanced Dashboard Stats */}
-      <Grid templateColumns={{ base: "1fr", md: "2fr 1fr" }} gap={8} mb={8}>
+      <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={4} mb={8}>
         {/* Main Stats Cards */}
-        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 2 }} spacing={4}>
           <Card bg="white" shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius={"12px"}>
             <CardBody>
               <Stat>
@@ -821,7 +1272,7 @@ const Invoices = () => {
         </SimpleGrid>
 
         {/* Quick Insights Panel */}
-        <Card bg="blue.50" shadow="md">
+        <Card bg="green.50" shadow="md">
           <CardBody>
             <VStack align="stretch" spacing={4}>
               <Heading size="md" color="blue.700">Quick Insights</Heading>
@@ -843,7 +1294,8 @@ const Invoices = () => {
                   <Badge colorScheme="blue">{dashboardStats.recentInvoices}</Badge>
                 </Flex>
               </VStack>
-              <Button
+              <Button 
+                w={{base:"full",md:"30%"}}
                 size="sm"
                 colorScheme="blue"
                 variant="outline"
@@ -871,69 +1323,29 @@ const Invoices = () => {
           <Tab>
             <FiFileText style={{ marginRight: "8px" }} />
             <HStack spacing={2}>
-           <Text> All Invoices</Text> <Badge colorScheme={"blue"}>{invoices.length}</Badge>
+           <Text> All Invoices</Text> <Badge borderRadius={"full"} colorScheme={"blue"}>{invoices.length}</Badge>
             </HStack>
           </Tab>
           <Tab>
             <FiClock style={{ marginRight: "8px" }} />
             <HStack>
-            <Text>Pending</Text> <Badge colorScheme="yellow">{dashboardStats.pendingInvoices}</Badge>
+            <Text>Pending</Text> <Badge borderRadius={"full"} colorScheme="yellow">{dashboardStats.pendingInvoices}</Badge>
             </HStack>
           </Tab>
           <Tab>
             <FiCheckCircle style={{ marginRight: "8px" }} />
             <HStack>
-            <Text>Paid</Text><Badge colorScheme="green">{dashboardStats.paidInvoices}</Badge>
+            <Text>Paid</Text><Badge borderRadius={"full"} colorScheme="green">{dashboardStats.paidInvoices}</Badge>
             </HStack>
           </Tab>
           <Tab>
             <FiAlertTriangle style={{ marginRight: "8px" }} />
             <HStack>
-            <Text> Overdue</Text> <Badge colorScheme="red">{dashboardStats.overdueInvoices}</Badge>
+            <Text> Overdue</Text> <Badge borderRadius={"full"} colorScheme="red">{dashboardStats.overdueInvoices}</Badge>
             </HStack>
           </Tab>
         </TabList>
       </Tabs>
-
-      {/* Search and Filter Bar */}
-      {/* <Card mb={6} shadow="sm" borderWidth="1px" borderColor={borderColor}>
-        <CardBody>
-          <Flex direction={{ base: "column", md: "row" }} gap={4} align="center">
-            <InputGroup flex={1}>
-              <InputLeftElement pointerEvents="none">
-                <FiSearch color="gray.400" />
-              </InputLeftElement>
-              <Input
-                placeholder="Search invoices by ID, customer, or amount..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                size="lg"
-                borderRadius="md"
-              />
-            </InputGroup>
-            
-            <Flex gap={3} align="center" w={{ base: "100%", md: "auto" }}>
-              <Select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                size="lg"
-                w={{ base: "100%", md: "200px" }}
-              >
-                <option value="all">All Status</option>
-                <option value="generated">Generated</option>
-                <option value="sent">Sent</option>
-                <option value="paid">Paid</option>
-                <option value="overdue">Overdue</option>
-                <option value="cancelled">Cancelled</option>
-              </Select>
-              
-              <ExportButton data={filteredInvoices} fileName="invoices" />
-            </Flex>
-          </Flex>
-        </CardBody>
-      </Card>
-
-      Enhanced Invoice Table */}
       <Card shadow="lg" borderWidth="1px" borderColor={borderColor}>
         <CardHeader bg="gray.50" borderBottomWidth="1px">
           <Flex justify="space-between" align="center">
@@ -948,6 +1360,34 @@ const Invoices = () => {
           <Table variant="simple">
             <Thead bg="gray.200">
               <Tr>
+                <Th width="40px">
+                  <Checkbox
+                  sx={{
+                            "& .chakra-checkbox__control": {
+                              borderRadius: "6px",
+                              border: "2px solid", // Use separate border properties
+                              borderColor: "blue.500", // Use theme color
+                              _checked: {
+                                bg: "blue.500",
+                                borderColor: "blue.500",
+                              },
+                            },
+                            "& .chakra-checkbox__label": {
+                              fontSize: "16px",
+                              fontWeight: "medium",
+                            },
+                          }}
+                    isChecked={selectedInvoiceIds.length === filteredInvoices.length && filteredInvoices.length > 0}
+                    isIndeterminate={selectedInvoiceIds.length > 0 && selectedInvoiceIds.length < filteredInvoices.length}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedInvoiceIds(filteredInvoices.map(inv => inv.id));
+                      } else {
+                        setSelectedInvoiceIds([]);
+                      }
+                    }}
+                  />
+                </Th>
                 <Th >Invoice #</Th>
                 <Th>Customer</Th>
                 <Th>Period</Th>
@@ -967,31 +1407,57 @@ const Invoices = () => {
                 return (
                   <Tr key={invoice.id} _hover={{ bg: "gray.50" }} transition="background-color 0.2s">
                     <Td>
+                      <Checkbox
+                      sx={{
+                            "& .chakra-checkbox__control": {
+                              borderRadius: "6px",
+                              border: "2px solid", // Use separate border properties
+                              borderColor: "blue.500", // Use theme color
+                              _checked: {
+                                bg: "blue.500",
+                                borderColor: "blue.500",
+                              },
+                            },
+                            "& .chakra-checkbox__label": {
+                              fontSize: "16px",
+                              fontWeight: "medium",
+                            },
+                          }}
+                        isChecked={selectedInvoiceIds.includes(invoice.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedInvoiceIds([...selectedInvoiceIds, invoice.id]);
+                          } else {
+                            setSelectedInvoiceIds(selectedInvoiceIds.filter(id => id !== invoice.id));
+                          }
+                        }}
+                      />
+                    </Td>
+                    <Td>
                       <VStack align="start" spacing={1}>
                         <Text fontWeight="bold" color="blue.600">
                           {invoice.invoiceNumber}
                         </Text>
                         <Text fontSize="xs" color="gray.500">
-                          {format(new Date(invoice.generatedDate), "MMM dd, yyyy")}
+                          {format(new Date(parseInt(invoice.invoiceDate)), "MMM dd, yyyy")}
                         </Text>
                       </VStack>
                     </Td>
-                    <Td>
+                    <Td maxW="170px" overflowX="auto">
                       <HStack>
-                        <Avatar size="sm" name={invoice.customerName} />
                         <Box>
                           <Text fontWeight="medium">{invoice.customerName}</Text>
-                          <Text fontSize="sm" color="gray.600">{invoice.customerId}</Text>
+                          <Text fontSize="sm" color="gray.600">{invoice.customerGatewayId || invoice.customerCode}</Text>
                         </Box>
                       </HStack>
                     </Td>
                     <Td>
                       <VStack align="start" spacing={1}>
                         <Text fontSize="sm">
-                          {format(new Date(invoice.periodStart), "MMM dd")}
+                          {format(new Date(parseInt(invoice.billingPeriodStart)), "MMM dd")}
                         </Text>
                         <Text fontSize="xs" color="gray.500">
-                          to {format(new Date(invoice.periodEnd), "MMM dd, yyyy")}
+                          to {format(new Date(parseInt(invoice.billingPeriodEnd)), "MMM dd, yyyy")}
                         </Text>
                       </VStack>
                     </Td>
@@ -1001,18 +1467,18 @@ const Invoices = () => {
                           ${parseFloat(invoice.totalAmount || 0).toFixed(2)}
                         </Text>
                         <Text fontSize="xs" color="gray.500">
-                          {invoice.totalCalls || 0} calls
+                          {invoice.items?.length || 0} destinations
                         </Text>
                       </VStack>
                     </Td>
                     <Td>
                       <VStack align="start" spacing={1}>
                         <Text color={isOverdue ? "red.500" : "inherit"}>
-                          {format(new Date(invoice.dueDate), "MMM dd, yyyy")}
+                          {format(new Date(parseInt(invoice.dueDate)), "MMM dd, yyyy")}
                         </Text>
                         {isOverdue && (
                           <Badge colorScheme="red" variant="subtle" size="sm">
-                            {differenceInDays(new Date(), new Date(invoice.dueDate))}d overdue
+                            {differenceInDays(new Date(), new Date(parseInt(invoice.dueDate)))}d overdue
                           </Badge>
                         )}
                       </VStack>
@@ -1098,7 +1564,7 @@ const Invoices = () => {
                             <MenuItem
                               icon={<FiTrash2 />}
                               color="red.500"
-                              onClick={() => handleDeleteSelected()}
+                              onClick={() => handleDeleteInvoice(invoice.id)}
                             >
                               Delete Invoice
                             </MenuItem>
@@ -1129,13 +1595,13 @@ const Invoices = () => {
 
         {/* Pagination/Footer */}
         {filteredInvoices.length > 0 && (
-          <CardFooter borderTopWidth="1px" py={4}>
+          <CardFooter borderTopWidth="1px" px={4} py={4}>
             <Flex justify="space-between" align="center" w="100%">
               <Text color="gray.600" fontSize="sm">
                 Showing {Math.min(filteredInvoices.length, 10)} of {filteredInvoices.length} invoices
               </Text>
               <HStack spacing={2}>
-                <Button size="sm" variant="outline" leftIcon={<FiChevronRight />} isDisabled>
+                <Button size="sm" variant="outline" leftIcon={<FiChevronsLeft />} isDisabled>
                   Previous
                 </Button>
                 <Button size="sm" variant="outline" rightIcon={<FiChevronRight />}>
@@ -1147,353 +1613,35 @@ const Invoices = () => {
         )}
       </Card>
 
-      {/* View Invoice Modal (Enhanced) */}
-      <Modal
+      <ViewInvoiceModal
         isOpen={isViewModalOpen}
         onClose={() => setIsViewModalOpen(false)}
-        size="6xl"
-      >
-        <ModalOverlay />
-        <ModalContent maxH="90vh" overflow="hidden">
-          <ModalHeader borderBottomWidth="1px">
-            <Flex justify="space-between" align="center">
-              <Box>
-                <Heading size="md">Invoice Details</Heading>
-                <Text color="gray.600" fontSize="sm">
-                  {selectedInvoice?.invoiceNumber} • {selectedInvoice?.customerName}
-                </Text>
-              </Box>
-              <Badge
-                colorScheme={getStatusColor(selectedInvoice?.status)}
-                fontSize="md"
-                px={3}
-                py={1}
-                borderRadius="full"
-              >
-                {selectedInvoice?.status?.toUpperCase()}
-              </Badge>
-            </Flex>
-          </ModalHeader>
-          <ModalCloseButton />
-          
-          <ModalBody overflowY="auto">
-            {selectedInvoice && (
-              <Grid templateColumns={{ base: "1fr", lg: "2fr 1fr" }} gap={8}>
-                {/* Left Column - Invoice Details */}
-                <Box>
-                  {/* Customer & Invoice Info */}
-                  <Card mb={4}>
-                    <CardBody>
-                      <SimpleGrid columns={2} spacing={6}>
-                        <Box>
-                          <Text fontSize="sm" color="gray.600" mb={1}>Bill To</Text>
-                          <Text fontSize="lg" fontWeight="bold">{selectedInvoice.customerName}</Text>
-                          <Text color="gray.600">{selectedInvoice.customerId}</Text>
-                        </Box>
-                        <Box>
-                          <Text fontSize="sm" color="gray.600" mb={1}>Invoice Details</Text>
-                          <VStack align="start" spacing={1}>
-                            <Text><strong>Invoice #:</strong> {selectedInvoice.invoiceNumber}</Text>
-                            <Text><strong>Generated:</strong> {format(new Date(selectedInvoice.generatedDate), "MMMM dd, yyyy")}</Text>
-                            <Text><strong>Due Date:</strong> {format(new Date(selectedInvoice.dueDate), "MMMM dd, yyyy")}</Text>
-                            <Text><strong>Period:</strong> {format(new Date(selectedInvoice.periodStart), "MMM dd")} - {format(new Date(selectedInvoice.periodEnd), "MMM dd, yyyy")}</Text>
-                          </VStack>
-                        </Box>
-                      </SimpleGrid>
-                    </CardBody>
-                  </Card>
+        selectedInvoice={selectedInvoice}
+        getStatusColor={getStatusColor}
+        onRecordPayment={onRecordPaymentClick}
+        onDownload={handleDownloadInvoice}
+        onSendEmail={handleSendEmail}
+        onUpdateStatus={handleUpdateStatus}
+      />
 
-                  {/* Call Items Table */}
-                  <Card mb={4}>
-                    <CardHeader bg="gray.50" borderBottomWidth="1px">
-                      <Heading size="sm">Call Details</Heading>
-                    </CardHeader>
-                    <CardBody>
-                      <TableContainer>
-                        <Table size="sm">
-                          <Thead>
-                            <Tr>
-                              <Th>Date & Time</Th>
-                              <Th>From</Th>
-                              <Th>To</Th>
-                              <Th isNumeric>Duration</Th>
-                              <Th isNumeric>Rate</Th>
-                              <Th isNumeric>Amount</Th>
-                            </Tr>
-                          </Thead>
-                          <Tbody>
-                            {selectedInvoice.items?.map((item, index) => (
-                              <Tr key={index} _hover={{ bg: "gray.50" }}>
-                                <Td>{format(new Date(item.date), "MMM dd, HH:mm")}</Td>
-                                <Td>{item.caller}</Td>
-                                <Td>{item.callee}</Td>
-                                <Td isNumeric>{item.duration}s</Td>
-                                <Td isNumeric>${item.rate}/sec</Td>
-                                <Td isNumeric>${item.amount.toFixed(4)}</Td>
-                              </Tr>
-                            ))}
-                          </Tbody>
-                        </Table>
-                      </TableContainer>
-                    </CardBody>
-                  </Card>
-                </Box>
-
-                {/* Right Column - Summary & Actions */}
-                <Box>
-                  {/* Summary Card */}
-                  <Card mb={4} position="sticky" top="20px">
-                    <CardHeader bg="blue.50" borderBottomWidth="1px">
-                      <Heading size="sm">Invoice Summary</Heading>
-                    </CardHeader>
-                    <CardBody>
-                      <VStack spacing={3} align="stretch">
-                        <Flex justify="space-between">
-                          <Text color="gray.600">Subtotal</Text>
-                          <Text fontWeight="bold">${selectedInvoice.totalFee.toFixed(2)}</Text>
-                        </Flex>
-                        <Flex justify="space-between">
-                          <Text color="gray.600">Tax ({(selectedInvoice.taxRate * 100).toFixed(0)}%)</Text>
-                          <Text color="orange.600">${selectedInvoice.totalTax.toFixed(2)}</Text>
-                        </Flex>
-                        <Flex justify="space-between">
-                          <Text color="gray.600">Discount</Text>
-                          <Text color="green.600">$0.00</Text>
-                        </Flex>
-                        <Divider />
-                        <Flex justify="space-between" fontSize="xl">
-                          <Text fontWeight="bold">Total Amount</Text>
-                          <Text fontWeight="bold" color="green.600">
-                            ${selectedInvoice.totalAmount.toFixed(2)}
-                          </Text>
-                        </Flex>
-                      </VStack>
-                    </CardBody>
-                  </Card>
-
-                  {/* Actions Card */}
-                  <Card>
-                    <CardHeader bg="gray.50" borderBottomWidth="1px">
-                      <Heading size="sm">Quick Actions</Heading>
-                    </CardHeader>
-                    <CardBody>
-                      <VStack spacing={3}>
-                        <Button
-                          leftIcon={<FiPrinter />}
-                          colorScheme="blue"
-                          w="100%"
-                          onClick={() => handleDownloadInvoice(selectedInvoice)}
-                        >
-                          Print Invoice
-                        </Button>
-                        <Button
-                          leftIcon={<FiMail />}
-                          colorScheme="orange"
-                          w="100%"
-                          onClick={() => handleSendEmail(selectedInvoice)}
-                        >
-                          Send via Email
-                        </Button>
-                        <Button
-                          leftIcon={<FiDownload />}
-                          variant="outline"
-                          w="100%"
-                          onClick={() => handleDownloadInvoice(selectedInvoice)}
-                        >
-                          Download PDF
-                        </Button>
-                        <Menu>
-                          <MenuButton
-                            as={Button}
-                            leftIcon={<FiMoreVertical />}
-                            variant="ghost"
-                            w="100%"
-                          >
-                            More Actions
-                          </MenuButton>
-                          <MenuList>
-                            <MenuItem
-                              icon={<FiCheckCircle />}
-                              onClick={() => handleUpdateStatus(selectedInvoice.id, "paid")}
-                            >
-                              Mark as Paid
-                            </MenuItem>
-                            <MenuItem
-                              icon={<FiClock />}
-                              onClick={() => handleUpdateStatus(selectedInvoice.id, "sent")}
-                            >
-                              Mark as Sent
-                            </MenuItem>
-                            <MenuItem
-                              icon={<FiAlertTriangle />}
-                              onClick={() => handleUpdateStatus(selectedInvoice.id, "overdue")}
-                            >
-                              Mark as Overdue
-                            </MenuItem>
-                          </MenuList>
-                        </Menu>
-                      </VStack>
-                    </CardBody>
-                  </Card>
-                </Box>
-              </Grid>
-            )}
-          </ModalBody>
-          <ModalFooter borderTopWidth="1px">
-            <Button variant="ghost" mr={3} onClick={() => setIsViewModalOpen(false)}>
-              Close
-            </Button>
-            <Button
-              colorScheme="blue"
-              onClick={() => {
-                handleUpdateStatus(selectedInvoice.id, "paid");
-                setIsViewModalOpen(false);
-              }}
-            >
-              Mark as Paid & Close
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      {/* Generate Invoice Modal (Enhanced) */}
-      <Modal
+      <GenerateInvoiceModal
         isOpen={isGenerateModalOpen}
         onClose={() => setIsGenerateModalOpen(false)}
-        size="xl"
-      >
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader borderTopRadius={"md"} bg={"blue.500"} borderBottomWidth="1px">
-            <Heading size="md" color={"white"}>Generate New Invoice</Heading>
-          </ModalHeader>
-          <ModalCloseButton color={"white"} />
-          
-          <ModalBody>
-            <VStack spacing={6} align="stretch">
-              {/* Customer Selection */}
-              <FormControl isRequired>
-                <FormLabel>Select Customer</FormLabel>
-                <Select
-                  placeholder="Choose a customer..."
-                  value={generateForm.customerId}
-                  onChange={(e) =>
-                    setGenerateForm({
-                      ...generateForm,
-                      customerId: e.target.value,
-                    })
-                  }
-                  size="md"
-                >
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name} ({customer.id}) - {customer.email}
-                    </option>
-                  ))}
-                </Select>
-              </FormControl>
+        generateForm={generateForm}
+        setGenerateForm={setGenerateForm}
+        customers={customers}
+        onGenerate={handleGenerateInvoice}
+      />
 
-              {/* Billing Period */}
-              <Box>
-                <FormLabel>Billing Period</FormLabel>
-                <HStack spacing={4}>
-                  <FormControl isRequired>
-                    <Input
-                      type="date"
-                      value={generateForm.periodStart}
-                      onChange={(e) =>
-                        setGenerateForm({
-                          ...generateForm,
-                          periodStart: e.target.value,
-                        })
-                      }
-                      size="md"
-                    />
-                  </FormControl>
-                  <Text>to</Text>
-                  <FormControl isRequired>
-                    <Input
-                      type="date"
-                      value={generateForm.periodEnd}
-                      onChange={(e) =>
-                        setGenerateForm({
-                          ...generateForm,
-                          periodEnd: e.target.value,
-                        })
-                      }
-                      size="md"
-                    />
-                  </FormControl>
-                </HStack>
-              </Box>
-
-              {/* Billing Cycle */}
-              <FormControl>
-                <FormLabel>Billing Cycle</FormLabel>
-                <Select
-                  value={generateForm.billingCycle}
-                  onChange={(e) =>
-                    setGenerateForm({
-                      ...generateForm,
-                      billingCycle: e.target.value,
-                    })
-                  }
-                  size="md"
-                >
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="quarterly">Quarterly</option>
-                  <option value="annually">Annually</option>
-                </Select>
-              </FormControl>
-
-              {/* Customer Preview */}
-              {generateForm.customerId && (
-                <Alert status="info" borderRadius="md">
-                  <AlertIcon />
-                  <Box>
-                    <AlertTitle>Selected Customer</AlertTitle>
-                    <AlertDescription>
-                      {(() => {
-                        const customer = customers.find(
-                          (c) => c.id === generateForm.customerId
-                        );
-                        return customer ? (
-                          <VStack align="start" spacing={1}>
-                            <Text><strong>Name:</strong> {customer.name}</Text>
-                            <Text><strong>Rate:</strong> ${customer.rate}/sec</Text>
-                            <Text><strong>Tax Rate:</strong> {(customer.taxRate * 100).toFixed(0)}%</Text>
-                            <Text><strong>Email:</strong> {customer.email}</Text>
-                          </VStack>
-                        ) : null;
-                      })()}
-                    </AlertDescription>
-                  </Box>
-                </Alert>
-              )}
-            </VStack>
-          </ModalBody>
-          <ModalFooter borderTopWidth="1px">
-            <Button
-              variant="outline"
-              mr={3}
-              onClick={() => setIsGenerateModalOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              colorScheme="blue"
-              onClick={handleGenerateInvoice}
-              isDisabled={!generateForm.customerId}
-              leftIcon={<FiFileText />}
-              size="md"
-            >
-              Generate Invoice
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
+      <RecordPaymentModal
+        isOpen={isPaymentModalOpen}
+        onClose={() => setIsPaymentModalOpen(false)}
+        paymentForm={paymentForm}
+        setPaymentForm={setPaymentForm}
+        customers={customers}
+        invoices={invoices}
+        onRecordPayment={handleRecordPayment}
+      />
     </Container>
   );
 };

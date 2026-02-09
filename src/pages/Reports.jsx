@@ -10,7 +10,6 @@ import {
   CardBody,
   CardHeader,
   SimpleGrid,
-  Checkbox,
   Select,
   Input,
   Table,
@@ -240,7 +239,8 @@ const Reports = () => {
     if (daysDiff > 90) {
       toast({
         title: "Large date range",
-        description: "For better performance, please select a date range under 90 days",
+        description:
+          "For better performance, please select a date range under 90 days",
         status: "warning",
         duration: 5000,
         isClosable: true,
@@ -289,21 +289,47 @@ const Reports = () => {
         } else {
           const summary = {
             totalAttempts: data.reduce((sum, r) => sum + (r.attempts || 0), 0),
-            totalCompleted: data.reduce((sum, r) => sum + (r.completed || 0), 0),
+            totalCompleted: data.reduce(
+              (sum, r) => sum + (r.completed || 0),
+              0,
+            ),
             totalRevenue: data.reduce((sum, r) => sum + (r.revenue || 0), 0),
             totalCost: data.reduce((sum, r) => sum + (r.cost || 0), 0),
             totalMargin: data.reduce((sum, r) => sum + (r.margin || 0), 0),
-            avgASR: data.length > 0 ? data.reduce((sum, r) => sum + (r.asr || 0), 0) / data.length : 0,
-            avgMarginPercent: data.length > 0 ? data.reduce((sum, r) => sum + (r.marginPercent || 0), 0) / data.length : 0,
-            totalCustomers: [...new Set(data.map((r) => r.customer || r.accountName))].filter(Boolean).length,
+            avgASR:
+              data.length > 0
+                ? data.reduce((sum, r) => sum + (r.asr || 0), 0) / data.length
+                : 0,
+            avgMarginPercent:
+              data.length > 0
+                ? data.reduce((sum, r) => sum + (r.marginPercent || 0), 0) /
+                  data.length
+                : 0,
+            totalCustomers: [
+              ...new Set(data.map((r) => r.customer || r.accountName)),
+            ].filter(Boolean).length,
             negativeMarginCalls: data.filter((r) => (r.margin || 0) < 0).length,
-            totalLoss: data.filter((r) => (r.margin || 0) < 0).reduce((sum, r) => sum + r.margin, 0),
-            affectedCustomers: [...new Set(data.filter((r) => (r.margin || 0) < 0).map((r) => r.customer || r.accountName || r.accountCode))].filter(Boolean).length,
-            affectedDestinations: [...new Set(data.filter((r) => (r.margin || 0) < 0).map((r) => r.destination))].filter(Boolean).length,
+            totalLoss: data
+              .filter((r) => (r.margin || 0) < 0)
+              .reduce((sum, r) => sum + r.margin, 0),
+            affectedCustomers: [
+              ...new Set(
+                data
+                  .filter((r) => (r.margin || 0) < 0)
+                  .map((r) => r.customer || r.accountName || r.accountCode),
+              ),
+            ].filter(Boolean).length,
+            affectedDestinations: [
+              ...new Set(
+                data
+                  .filter((r) => (r.margin || 0) < 0)
+                  .map((r) => r.destination),
+              ),
+            ].filter(Boolean).length,
           };
           setReportSummary(summary);
         }
-        
+
         setIsModalOpen(false);
         setPage(1);
         setSelectedRows([]);
@@ -413,8 +439,12 @@ const Reports = () => {
     }
 
     data = data.filter((row) => {
-      const asr = parseFloat(row.asr || row.ASR || row.marginPercent || row.MarginPercent || 0);
-      const margin = parseFloat(row.margin || row.Margin || row.marPercent || row.MarPercent || 0);
+      const asr = parseFloat(
+        row.asr || row.ASR || row.marginPercent || row.MarginPercent || 0,
+      );
+      const margin = parseFloat(
+        row.margin || row.Margin || row.marPercent || row.MarPercent || 0,
+      );
 
       return (
         asr >= filters.minASR &&
@@ -467,14 +497,6 @@ const Reports = () => {
     }
   };
 
-  const handleSelectAll = () => {
-    if (selectedRows.length === paginatedData.length) {
-      setSelectedRows([]);
-    } else {
-      setSelectedRows(paginatedData.map((_, index) => index));
-    }
-  };
-
   const dashboardMetrics = useMemo(() => {
     if (!reportData.length) return null;
 
@@ -493,23 +515,37 @@ const Reports = () => {
     const destinationMap = {};
 
     reportData.forEach((row) => {
-      metrics.totalRevenue += parseFloat(row.revenue || row.Revenue || row.TotalRevenue || 0);
+      metrics.totalRevenue += parseFloat(
+        row.revenue || row.Revenue || row.TotalRevenue || 0,
+      );
       metrics.totalCost += parseFloat(row.cost || row.Cost || 0);
-      metrics.totalCalls += parseInt(row.attempts || row.Attempts || row.TotalCalls || 0);
-      metrics.totalMargin += parseFloat(row.margin || row.Margin || row.TotalMargin || 0);
+      metrics.totalCalls += parseInt(
+        row.attempts || row.Attempts || row.TotalCalls || 0,
+      );
+      metrics.totalMargin += parseFloat(
+        row.margin || row.Margin || row.TotalMargin || 0,
+      );
       metrics.avgASR += parseFloat(row.asr || row.ASR || 0);
       metrics.avgACD += parseFloat(row.acd || row.ACD || 0);
 
-      const customer = row.customer || row.Customer || row.accountName || row.customername;
+      const customer =
+        row.customer || row.Customer || row.accountName || row.customername;
       if (customer) {
         if (!customerMap[customer]) customerMap[customer] = 0;
         customerMap[customer] += parseFloat(row.revenue || row.Revenue || 0);
       }
 
-      const destination = row.destination || row.Destination || row.custDestination || row.CustDestination || row.calleeareacode;
+      const destination =
+        row.destination ||
+        row.Destination ||
+        row.custDestination ||
+        row.CustDestination ||
+        row.calleeareacode;
       if (destination) {
         if (!destinationMap[destination]) destinationMap[destination] = 0;
-        destinationMap[destination] += parseInt(row.attempts || row.Attempts || 0);
+        destinationMap[destination] += parseInt(
+          row.attempts || row.Attempts || 0,
+        );
       }
     });
 
@@ -545,7 +581,11 @@ const Reports = () => {
             <FiFilter />
             <Text>
               Generate{" "}
-              {["Hourly", "Margin", "Negative Margin", "Customer Traffic"][activeTab]}{" "}
+              {
+                ["Hourly", "Margin", "Negative Margin", "Customer Traffic"][
+                  activeTab
+                ]
+              }{" "}
               Report
             </Text>
           </HStack>
@@ -588,7 +628,9 @@ const Reports = () => {
                   <FormLabel fontSize="sm">Start Date</FormLabel>
                   <DatePicker
                     selected={dateRange.startDate}
-                    onChange={(date) => setDateRange({ ...dateRange, startDate: date })}
+                    onChange={(date) =>
+                      setDateRange({ ...dateRange, startDate: date })
+                    }
                     selectsStart
                     startDate={dateRange.startDate}
                     endDate={dateRange.endDate}
@@ -601,7 +643,9 @@ const Reports = () => {
                   <FormLabel fontSize="sm">End Date</FormLabel>
                   <DatePicker
                     selected={dateRange.endDate}
-                    onChange={(date) => setDateRange({ ...dateRange, endDate: date })}
+                    onChange={(date) =>
+                      setDateRange({ ...dateRange, endDate: date })
+                    }
                     selectsEnd
                     startDate={dateRange.startDate}
                     endDate={dateRange.endDate}
@@ -623,7 +667,9 @@ const Reports = () => {
                       {[...Array(24).keys()].map((hour) => (
                         <MenuItem
                           key={hour}
-                          onClick={() => setDateRange({ ...dateRange, startHour: hour })}
+                          onClick={() =>
+                            setDateRange({ ...dateRange, startHour: hour })
+                          }
                         >
                           {hour.toString().padStart(2, "0")}:00
                         </MenuItem>
@@ -641,7 +687,9 @@ const Reports = () => {
                       {[...Array(24).keys()].map((hour) => (
                         <MenuItem
                           key={hour}
-                          onClick={() => setDateRange({ ...dateRange, endHour: hour })}
+                          onClick={() =>
+                            setDateRange({ ...dateRange, endHour: hour })
+                          }
                         >
                           {hour.toString().padStart(2, "0")}:59
                         </MenuItem>
@@ -651,7 +699,11 @@ const Reports = () => {
                 </Box>
               </HStack>
               <Text fontSize="xs" color="gray.500" mt={2}>
-                {Math.ceil((dateRange.endDate - dateRange.startDate) / (1000 * 60 * 60 * 24))} days selected
+                {Math.ceil(
+                  (dateRange.endDate - dateRange.startDate) /
+                    (1000 * 60 * 60 * 24),
+                )}{" "}
+                days selected
               </Text>
             </Box>
 
@@ -662,20 +714,28 @@ const Reports = () => {
               <Select
                 value={selectedAccount}
                 onChange={(e) => setSelectedAccount(e.target.value)}
-                placeholder={accountsLoading ? "Loading accounts..." : "Select an account"}
+                placeholder={
+                  accountsLoading ? "Loading accounts..." : "Select an account"
+                }
                 isDisabled={accountsLoading}
               >
                 <option value="all">All Accounts</option>
                 <option value="top10">Top 10 Accounts by Revenue</option>
                 <option value="active">Active Accounts Only</option>
-                {(isVendorReport ? accounts.vendors : accounts.customers).map((account) => (
-                  <option
-                    key={account.id || account._id}
-                    value={isVendorReport ? account.vendorCode : account.customerCode}
-                  >
-                    {account.accountName} ({account.authenticationValue})
-                  </option>
-                ))}
+                {(isVendorReport ? accounts.vendors : accounts.customers).map(
+                  (account) => (
+                    <option
+                      key={account.id || account._id}
+                      value={
+                        isVendorReport
+                          ? account.vendorCode
+                          : account.customerCode
+                      }
+                    >
+                      {account.customerCode} ({account.accountName})
+                    </option>
+                  ),
+                )}
               </Select>
             </FormControl>
 
@@ -763,7 +823,9 @@ const Reports = () => {
                       <FormLabel>Result Limit</FormLabel>
                       <Select
                         value={rowsPerPage}
-                        onChange={(e) => setRowsPerPage(parseInt(e.target.value))}
+                        onChange={(e) =>
+                          setRowsPerPage(parseInt(e.target.value))
+                        }
                       >
                         <option value={50}>50 rows</option>
                         <option value={100}>100 rows</option>
@@ -928,17 +990,22 @@ const Reports = () => {
             <CardBody>
               <HStack justify="space-between" mb={2}>
                 <Box p={2} bg={`${stat.color}.100`} borderRadius="md">
-                  <Icon as={stat.icon} color={`${stat.color}.500`} boxSize={5} />
+                  <Icon
+                    as={stat.icon}
+                    color={`${stat.color}.500`}
+                    boxSize={5}
+                  />
                 </Box>
+
+                <Stat>
+                  <StatLabel color={mutedColor} fontSize="sm">
+                    {stat.label}
+                  </StatLabel>
+                  <StatNumber fontSize="xl" color={`${stat.color}`}>
+                    {stat.value}
+                  </StatNumber>
+                </Stat>
               </HStack>
-              <Stat>
-                <StatLabel color={mutedColor} fontSize="sm">
-                  {stat.label}
-                </StatLabel>
-                <StatNumber fontSize="xl" color={textColor}>
-                  {stat.value}
-                </StatNumber>
-              </Stat>
             </CardBody>
           </Card>
         ))}
@@ -960,34 +1027,55 @@ const Reports = () => {
               <Text fontSize="sm" color={mutedColor}>
                 Profit Margin
               </Text>
-              <Heading size="lg" color={dashboardMetrics.totalMargin >= 0 ? "green.500" : "red.500"}>
+              <Heading
+                size="lg"
+                color={
+                  dashboardMetrics.totalMargin >= 0 ? "green.500" : "red.500"
+                }
+              >
                 {formatCurrency(dashboardMetrics.totalMargin)}
               </Heading>
               <Text fontSize="xs">
                 {dashboardMetrics.totalRevenue > 0
-                  ? ((dashboardMetrics.totalMargin / dashboardMetrics.totalRevenue) * 100).toFixed(6)
-                  : 0}% margin
+                  ? (
+                      (dashboardMetrics.totalMargin /
+                        dashboardMetrics.totalRevenue) *
+                      100
+                    ).toFixed(6)
+                  : 0}
+                % margin
               </Text>
             </Box>
             <Box>
               <Text fontSize="sm" color={mutedColor}>
                 Call Success Rate
               </Text>
-              <Heading size="lg">{formatPercentage(dashboardMetrics.avgASR)}</Heading>
-              <Progress value={dashboardMetrics.avgASR} colorScheme="green" size="sm" mt={1} />
+              <Heading size="lg">
+                {formatPercentage(dashboardMetrics.avgASR)}
+              </Heading>
+              <Progress
+                value={dashboardMetrics.avgASR}
+                colorScheme="green"
+                size="sm"
+                mt={1}
+              />
             </Box>
             <Box>
               <Text fontSize="sm" color={mutedColor}>
                 Avg Call Duration
               </Text>
-              <Heading size="lg">{formatDuration(dashboardMetrics.avgACD)}</Heading>
+              <Heading size="lg">
+                {formatDuration(dashboardMetrics.avgACD)}
+              </Heading>
               <Text fontSize="xs">per call</Text>
             </Box>
             <Box>
               <Text fontSize="sm" color={mutedColor}>
                 Total Calls
               </Text>
-              <Heading size="lg">{formatNumber(dashboardMetrics.totalCalls)}</Heading>
+              <Heading size="lg">
+                {formatNumber(dashboardMetrics.totalCalls)}
+              </Heading>
               <Text fontSize="xs">in selected period</Text>
             </Box>
           </SimpleGrid>
@@ -999,7 +1087,11 @@ const Reports = () => {
   const EnhancedTableView = () => {
     const getSortIcon = (key) => {
       if (sortConfig.key !== key) return null;
-      return sortConfig.direction === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />;
+      return sortConfig.direction === "asc" ? (
+        <ArrowUpIcon />
+      ) : (
+        <ArrowDownIcon />
+      );
     };
 
     if (loading) {
@@ -1013,7 +1105,12 @@ const Reports = () => {
                 Processing your data...
               </Text>
             </VStack>
-            <Progress size="xs" width="200px" isIndeterminate colorScheme="blue" />
+            <Progress
+              size="xs"
+              width="200px"
+              isIndeterminate
+              colorScheme="blue"
+            />
           </VStack>
         </Center>
       );
@@ -1022,6 +1119,7 @@ const Reports = () => {
     if (!reportData || reportData.length === 0) {
       return (
         <Alert
+          bg={"gray.200"}
           status="info"
           borderRadius="md"
           variant="subtle"
@@ -1029,18 +1127,17 @@ const Reports = () => {
           alignItems="center"
           justifyContent="center"
           textAlign="center"
-          height="200px"
+          height="auto"
         >
-          <AlertIcon boxSize="40px" mr={0} />
-          <AlertTitle mt={4} mb={1} fontSize="lg">
-            No Report Data
-          </AlertTitle>
-          <AlertDescription maxWidth="sm">
+          <HStack spacing={4} align={"center"}>
+            <AlertIcon boxSize="40px" mr={0} />
+            <AlertTitle mb={1} fontSize="lg">
+              No Report Data
+            </AlertTitle>
+          </HStack>
+          <AlertDescription maxWidth="lg" fontSize={"sm"}>
             Generate a report to view analytics and insights from your CDR data.
           </AlertDescription>
-          <Button mt={4} colorScheme="blue" onClick={() => setIsModalOpen(true)}>
-            Generate Report
-          </Button>
         </Alert>
       );
     }
@@ -1049,161 +1146,235 @@ const Reports = () => {
       switch (activeTab) {
         case 0:
           return (
-            <Box overflowX="auto">
-              <Box
-                position="relative"
-                maxHeight="580px"
-                overflow="hidden"
-                border="1px solid"
-                borderColor={borderColor}
-                borderRadius="md"
-              >
-                <Box position="sticky" top={0} zIndex={10} bg="gray.200" borderBottom="1px solid" borderColor={borderColor}>
-                  <Table variant="simple" size="sm">
-                    <Thead>
-                      <Tr>
-                        <Th width="50px">
-                          <Checkbox
-                            isChecked={selectedRows.length === paginatedData.length}
-                            onChange={handleSelectAll}
-                          />
-                        </Th>
-                        <Th cursor="pointer" onClick={() => handleSort("hour")}>
-                          <HStack>
-                            <Text>Time Range</Text>
-                            {getSortIcon("hour")}
-                          </HStack>
-                        </Th>
-                        <Th isNumeric cursor="pointer" onClick={() => handleSort("attempts")}>
-                          <HStack justify="flex-end">
-                            <Text>Attempts</Text>
-                            {getSortIcon("attempts")}
-                          </HStack>
-                        </Th>
-                        <Th isNumeric>Completed</Th>
-                        <Th isNumeric cursor="pointer" onClick={() => handleSort("asr")}>
-                          <HStack justify="flex-end">
-                            <Text>ASR %</Text>
-                            {getSortIcon("asr")}
-                          </HStack>
-                        </Th>
-                        <Th isNumeric>ACD (sec)</Th>
-                        <Th isNumeric>Duration(sec)</Th>
-                        <Th isNumeric cursor="pointer" onClick={() => handleSort("revenue")}>
-                          <HStack justify="flex-end">
-                            <Text>Revenue</Text>
-                            {getSortIcon("revenue")}
-                          </HStack>
-                        </Th>
-                        <Th isNumeric cursor="pointer" onClick={() => handleSort("cost")}>
-                          <HStack justify="flex-end">
-                            <Text>Cost</Text>
-                            {getSortIcon("cost")}
-                          </HStack>
-                        </Th>
-                        <Th isNumeric cursor="pointer" onClick={() => handleSort("margin")}>
-                          <HStack justify="flex-end">
-                            <Text>Margin</Text>
-                            {getSortIcon("margin")}
-                          </HStack>
-                        </Th>
-                      </Tr>
-                    </Thead>
-                  </Table>
-                </Box>
-
-                <Box maxHeight="500px" overflowY="auto">
-                  <Table variant="simple" size="sm">
-                    <Tbody>
-                      {paginatedData.map((row, index) => (
-                        <Tr key={index}>
-                          <Td width="50px">
-                            <Checkbox
-                              isChecked={selectedRows.includes(index)}
-                              onChange={() => handleRowSelect(index)}
-                            />
-                          </Td>
-                          <Td>{row.hour}</Td>
-                          <Td isNumeric>{formatNumber(row.attempts)}</Td>
-                          <Td isNumeric>{formatNumber(row.completed)}</Td>
-                          <Td isNumeric>
-                            <Badge colorScheme={row.asr > 50 ? "green" : row.asr > 20 ? "yellow" : "red"}>
-                              {row.asr}%
-                            </Badge>
-                          </Td>
-                          <Td isNumeric>{row.acd}</Td>
-                          <Td isNumeric>{formatNumber(row.duration)}</Td>
-                          <Td isNumeric>{formatCurrency(row.revenue)}</Td>
-                          <Td isNumeric>{formatCurrency(row.cost)}</Td>
-                          <Td isNumeric>
-                            <Text fontWeight={"semibold"} color={row.margin >= 0 ? "green.600" : "red.500"}>
-                              {formatCurrency(row.margin)}
-                            </Text>
-                          </Td>
-                        </Tr>
-                      ))}
-                    </Tbody>
-                  </Table>
-                </Box>
-              </Box>
-            </Box>
-          );
-
-        case 1:
-          return (
-            <Box maxH="500px" overflowY="auto" border="1px solid" borderColor="gray.200">
+            <Box
+              maxH="580px"
+              overflowY="auto"
+              border="1px solid"
+              borderColor={borderColor}
+              borderRadius="md"
+            >
               <Table variant="simple" size="sm">
-                <Thead position="sticky" top={0} zIndex={1} bg="gray.50">
+                <Thead position="sticky" top={0} zIndex={10} bg="gray.200">
                   <Tr>
-                    <Th cursor="pointer" onClick={() => handleSort("accountCode")}>
+                    <Th cursor="pointer" onClick={() => handleSort("hour")}>
                       <HStack>
-                        <Text>Account ID</Text>
-                        {getSortIcon("accountCode")}
+                        <Text>Time Range</Text>
+                        {getSortIcon("hour")}
                       </HStack>
                     </Th>
-                    <Th cursor="pointer" onClick={() => handleSort("accountName")}>
-                      <HStack>
-                        <Text>Customer</Text>
-                        {getSortIcon("accountName")}
-                      </HStack>
-                    </Th>
-                    <Th cursor="pointer" onClick={() => handleSort("destination")}>
-                      <HStack>
-                        <Text>Destination</Text>
-                        {getSortIcon("destination")}
-                      </HStack>
-                    </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("attempts")}>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("attempts")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Attempts</Text>
                         {getSortIcon("attempts")}
                       </HStack>
                     </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("revenue")}>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("completed")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Completed</Text>
+                        {getSortIcon("completed")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("asr")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>ASR %</Text>
+                        {getSortIcon("asr")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("acd")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>ACD (sec)</Text>
+                        {getSortIcon("acd")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("duration")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Duration(sec)</Text>
+                        {getSortIcon("duration")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("revenue")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Revenue</Text>
                         {getSortIcon("revenue")}
                       </HStack>
                     </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("cost")}>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("cost")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Cost</Text>
                         {getSortIcon("cost")}
                       </HStack>
                     </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("margin")}>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("margin")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Margin</Text>
                         {getSortIcon("margin")}
                       </HStack>
                     </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("marginPercent")}>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {paginatedData.map((row, index) => (
+                    <Tr key={index}>
+                      <Td>{row.hour}</Td>
+                      <Td isNumeric>{formatNumber(row.attempts)}</Td>
+                      <Td isNumeric>{formatNumber(row.completed)}</Td>
+                      <Td isNumeric>
+                        <Badge
+                          colorScheme={
+                            row.asr > 50
+                              ? "green"
+                              : row.asr > 20
+                                ? "yellow"
+                                : "red"
+                          }
+                        >
+                          {row.asr}%
+                        </Badge>
+                      </Td>
+                      <Td isNumeric>{row.acd}</Td>
+                      <Td isNumeric>{formatNumber(row.duration)}</Td>
+                      <Td isNumeric>{formatCurrency(row.revenue)}</Td>
+                      <Td isNumeric>{formatCurrency(row.cost)}</Td>
+                      <Td isNumeric>
+                        <Text
+                          fontWeight={"semibold"}
+                          color={row.margin >= 0 ? "green.600" : "red.500"}
+                        >
+                          {formatCurrency(row.margin)}
+                        </Text>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </Box>
+          );
+
+        case 1:
+          return (
+            <Box
+              maxH="500px"
+              overflowY="auto"
+              border="1px solid"
+              borderColor="gray.200"
+            >
+              <Table variant="simple" size="sm">
+                <Thead position="sticky" top={0} zIndex={1} bg="gray.200">
+                  <Tr>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("accountCode")}
+                    >
+                      <HStack>
+                        <Text>Account ID</Text>
+                        {getSortIcon("accountCode")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("accountName")}
+                    >
+                      <HStack>
+                        <Text>Customer</Text>
+                        {getSortIcon("accountName")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("destination")}
+                    >
+                      <HStack>
+                        <Text>Destination</Text>
+                        {getSortIcon("destination")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("attempts")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Attempts</Text>
+                        {getSortIcon("attempts")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("revenue")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Revenue</Text>
+                        {getSortIcon("revenue")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("cost")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Cost</Text>
+                        {getSortIcon("cost")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("margin")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Margin</Text>
+                        {getSortIcon("margin")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("marginPercent")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Margin %</Text>
                         {getSortIcon("marginPercent")}
                       </HStack>
                     </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("duration")}>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("duration")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Duration (Sec)</Text>
                         {getSortIcon("duration")}
@@ -1225,12 +1396,17 @@ const Reports = () => {
                       <Td isNumeric>{formatCurrency(row.revenue)}</Td>
                       <Td isNumeric>{formatCurrency(row.cost)}</Td>
                       <Td isNumeric>
-                        <Text color={row.margin >= 0 ? "green.500" : "red.500"} fontWeight="bold">
+                        <Text
+                          color={row.margin >= 0 ? "green.500" : "red.500"}
+                          fontWeight="bold"
+                        >
                           {formatCurrency(row.margin)}
                         </Text>
                       </Td>
                       <Td isNumeric>
-                        <Badge colorScheme={row.marginPercent >= 0 ? "green" : "red"}>
+                        <Badge
+                          colorScheme={row.marginPercent >= 0 ? "green" : "red"}
+                        >
                           {row.marginPercent}%
                         </Badge>
                       </Td>
@@ -1244,53 +1420,87 @@ const Reports = () => {
 
         case 2:
           return (
-            <Box maxH="500px" overflowY="auto" border="1px solid" borderColor="red.200">
+            <Box
+              maxH="500px"
+              overflowY="auto"
+              border="1px solid"
+              borderColor="red.200"
+            >
               <Table variant="simple" size="sm">
                 <Thead position="sticky" top={0} zIndex={1} bg="red.50">
                   <Tr>
-                    <Th cursor="pointer" onClick={() => handleSort("accountCode")}>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("accountCode")}
+                    >
                       <HStack>
                         <Text>Account ID</Text>
                         {getSortIcon("accountCode")}
                       </HStack>
                     </Th>
-                    <Th cursor="pointer" onClick={() => handleSort("accountName")}>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("accountName")}
+                    >
                       <HStack>
                         <Text>Customer</Text>
                         {getSortIcon("accountName")}
                       </HStack>
                     </Th>
-                    <Th cursor="pointer" onClick={() => handleSort("destination")}>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("destination")}
+                    >
                       <HStack>
                         <Text>Destination</Text>
                         {getSortIcon("destination")}
                       </HStack>
                     </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("attempts")}>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("attempts")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Attempts</Text>
                         {getSortIcon("attempts")}
                       </HStack>
                     </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("revenue")}>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("revenue")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Revenue</Text>
                         {getSortIcon("revenue")}
                       </HStack>
                     </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("cost")}>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("cost")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Cost</Text>
                         {getSortIcon("cost")}
                       </HStack>
                     </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("margin")}>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("margin")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Margin</Text>
                         {getSortIcon("margin")}
                       </HStack>
                     </Th>
-                    <Th isNumeric cursor="pointer" onClick={() => handleSort("marginPercent")}>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("marginPercent")}
+                    >
                       <HStack justify="flex-end">
                         <Text>Margin %</Text>
                         {getSortIcon("marginPercent")}
@@ -1322,19 +1532,101 @@ const Reports = () => {
 
         case 3:
           return (
-            <Box maxH="500px" overflowY="auto" border="1px solid" borderColor="gray.200">
+            <Box
+              maxH="500px"
+              overflowY="auto"
+              border="1px solid"
+              borderColor="gray.200"
+              borderRadius="md"
+            >
               <Table variant="simple" size="sm">
-                <Thead position="sticky" top={0} zIndex={1} bg="gray.50">
+                <Thead position="sticky" top={0} zIndex={1} bg="gray.200">
                   <Tr>
-                    <Th>Customer</Th>
-                    <Th>Dest</Th>
-                    <Th>Vendor</Th>
-                    <Th isNumeric>Attempts</Th>
-                    <Th isNumeric>Comp</Th>
-                    <Th isNumeric>ASR%</Th>
-                    <Th isNumeric>ACD</Th>
-                    <Th isNumeric>Revenue</Th>
-                    <Th isNumeric>Margin</Th>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("customer")}
+                      fontSize={"12px"}
+                    >
+                      <HStack>
+                        <Text>Customer</Text>
+                        {getSortIcon("customer")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      cursor="pointer"
+                      onClick={() => handleSort("custDestination")}
+                    >
+                      <HStack>
+                        <Text>Dest</Text>
+                        {getSortIcon("custDestination")}
+                      </HStack>
+                    </Th>
+                    <Th cursor="pointer" onClick={() => handleSort("vendor")}>
+                      <HStack>
+                        <Text>Vendor</Text>
+                        {getSortIcon("vendor")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("attempts")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Attempts</Text>
+                        {getSortIcon("attempts")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("completed")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Comp</Text>
+                        {getSortIcon("completed")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("asr")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>ASR%</Text>
+                        {getSortIcon("asr")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("acd")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>ACD</Text>
+                        {getSortIcon("acd")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("revenue")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Revenue</Text>
+                        {getSortIcon("revenue")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("margin")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Margin</Text>
+                        {getSortIcon("margin")}
+                      </HStack>
+                    </Th>
                   </Tr>
                 </Thead>
                 <Tbody>
@@ -1344,7 +1636,9 @@ const Reports = () => {
                       <Td>{row.custDestination}</Td>
                       <Td fontSize="xs">{row.vendor}</Td>
                       <Td isNumeric>{formatNumber(row.attempts)}</Td>
-                      <Td isNumeric>{formatNumber(row.completed)}</Td>
+                      <Td color={"green"} isNumeric>
+                        {formatNumber(row.completed)}
+                      </Td>
                       <Td isNumeric>
                         <Badge colorScheme={row.asr > 40 ? "green" : "orange"}>
                           {row.asr}%
@@ -1352,7 +1646,10 @@ const Reports = () => {
                       </Td>
                       <Td isNumeric>{row.acd}</Td>
                       <Td isNumeric>{formatCurrency(row.revenue)}</Td>
-                      <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>
+                      <Td
+                        isNumeric
+                        color={row.margin >= 0 ? "green.600" : "red.500"}
+                      >
                         {formatCurrency(row.margin)}
                       </Td>
                     </Tr>
@@ -1372,10 +1669,32 @@ const Reports = () => {
         {renderTable()}
 
         <Flex justify="space-between" align="center" mt={4} py={2}>
-          <Text fontSize="sm" color={mutedColor}>
-            Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, filteredData.length)} of{" "}
-            {filteredData.length} entries
-          </Text>
+          <HStack spacing={3}>
+            <Menu>
+              <MenuButton as={Button} size="sm" variant="outline">
+                <HStack spacing={2}>
+                  <FiEye /><Text>{rowsPerPage}</Text> 
+                  <ChevronDownIcon ml={1} />
+                </HStack>
+              </MenuButton>
+              <MenuList>
+                <MenuItem onClick={() => setRowsPerPage(50)}>
+                  50 per page
+                </MenuItem>
+                <MenuItem onClick={() => setRowsPerPage(100)}>
+                  100 per page
+                </MenuItem>
+                <MenuItem onClick={() => setRowsPerPage(250)}>
+                  250 per page
+                </MenuItem>
+              </MenuList>
+            </Menu>
+            <Text fontSize="sm" color={mutedColor}>
+              Showing {(page - 1) * rowsPerPage + 1} to{" "}
+              {Math.min(page * rowsPerPage, filteredData.length)} of{" "}
+              {filteredData.length} entries
+            </Text>
+          </HStack>
 
           <HStack spacing={2}>
             <IconButton
@@ -1426,12 +1745,22 @@ const Reports = () => {
     if (!reportData || reportData.length === 0) return null;
 
     const chartData = reportData.slice(0, 20).map((item) => ({
-      name: item.hour || item.customer || item.Customer || item.accountName || item.AccountID || "Unknown",
-      revenue: parseFloat(item.revenue || item.Revenue || item.TotalRevenue || 0),
+      name:
+        item.hour ||
+        item.customer ||
+        item.Customer ||
+        item.accountName ||
+        item.AccountID ||
+        "Unknown",
+      revenue: parseFloat(
+        item.revenue || item.Revenue || item.TotalRevenue || 0,
+      ),
       cost: parseFloat(item.cost || item.Cost || 0),
       margin: parseFloat(item.margin || item.Margin || item.TotalMargin || 0),
       asr: parseFloat(item.asr || item.ASR || 0),
-      attempts: parseInt(item.attempts || item.Attempts || item.TotalAttempts || 0),
+      attempts: parseInt(
+        item.attempts || item.Attempts || item.TotalAttempts || 0,
+      ),
     }));
 
     const renderChart = () => {
@@ -1440,7 +1769,13 @@ const Reports = () => {
           return (
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} fontSize={12} />
+              <XAxis
+                dataKey="name"
+                angle={-45}
+                textAnchor="end"
+                height={80}
+                fontSize={12}
+              />
               <YAxis />
               <RechartsTooltip
                 formatter={(value) => [formatCurrency(value), ""]}
@@ -1457,7 +1792,13 @@ const Reports = () => {
           return (
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} fontSize={12} />
+              <XAxis
+                dataKey="name"
+                angle={-45}
+                textAnchor="end"
+                height={80}
+                fontSize={12}
+              />
               <YAxis />
               <RechartsTooltip
                 formatter={(value, name) => {
@@ -1466,8 +1807,20 @@ const Reports = () => {
                 }}
               />
               <Legend />
-              <Line type="monotone" dataKey="revenue" stroke="#3182CE" strokeWidth={2} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="margin" stroke="#38A169" strokeWidth={2} dot={{ r: 4 }} />
+              <Line
+                type="monotone"
+                dataKey="revenue"
+                stroke="#3182CE"
+                strokeWidth={2}
+                dot={{ r: 4 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="margin"
+                stroke="#38A169"
+                strokeWidth={2}
+                dot={{ r: 4 }}
+              />
             </LineChart>
           );
 
@@ -1475,18 +1828,49 @@ const Reports = () => {
           return (
             <AreaChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} fontSize={12} />
+              <XAxis
+                dataKey="name"
+                angle={-45}
+                textAnchor="end"
+                height={80}
+                fontSize={12}
+              />
               <YAxis />
-              <RechartsTooltip formatter={(value) => [formatCurrency(value), ""]} />
+              <RechartsTooltip
+                formatter={(value) => [formatCurrency(value), ""]}
+              />
               <Legend />
-              <Area type="monotone" dataKey="revenue" stroke="#3182CE" fill="#3182CE" fillOpacity={0.3} />
-              <Area type="monotone" dataKey="margin" stroke="#38A169" fill="#38A169" fillOpacity={0.3} />
+              <Area
+                type="monotone"
+                dataKey="revenue"
+                stroke="#3182CE"
+                fill="#3182CE"
+                fillOpacity={0.3}
+              />
+              <Area
+                type="monotone"
+                dataKey="margin"
+                stroke="#38A169"
+                fill="#38A169"
+                fillOpacity={0.3}
+              />
             </AreaChart>
           );
 
         case "pie":
-          const pieData = chartData.slice(0, 8).map((item) => ({ name: item.name, value: item.revenue }));
-          const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D", "#FFC658", "#FF6B6B"];
+          const pieData = chartData
+            .slice(0, 8)
+            .map((item) => ({ name: item.name, value: item.revenue }));
+          const COLORS = [
+            "#0088FE",
+            "#00C49F",
+            "#FFBB28",
+            "#FF8042",
+            "#8884D8",
+            "#82CA9D",
+            "#FFC658",
+            "#FF6B6B",
+          ];
 
           return (
             <PieChart>
@@ -1495,16 +1879,23 @@ const Reports = () => {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }) =>
+                  `${name}: ${(percent * 100).toFixed(0)}%`
+                }
                 outerRadius={150}
                 fill="#8884d8"
                 dataKey="value"
               >
                 {pieData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={COLORS[index % COLORS.length]}
+                  />
                 ))}
               </Pie>
-              <RechartsTooltip formatter={(value) => [formatCurrency(value), "Revenue"]} />
+              <RechartsTooltip
+                formatter={(value) => [formatCurrency(value), "Revenue"]}
+              />
               <Legend />
             </PieChart>
           );
@@ -1520,13 +1911,23 @@ const Reports = () => {
           <Flex justify="space-between" align="center">
             <Heading size="md">Data Visualization</Heading>
             <HStack spacing={3}>
-              <Select size="sm" w="150px" value={chartType} onChange={(e) => setChartType(e.target.value)}>
+              <Select
+                size="sm"
+                w="150px"
+                value={chartType}
+                onChange={(e) => setChartType(e.target.value)}
+              >
                 <option value="bar">Bar Chart</option>
                 <option value="line">Line Chart</option>
                 <option value="area">Area Chart</option>
                 <option value="pie">Pie Chart</option>
               </Select>
-              <Select size="sm" w="150px" value={viewType} onChange={(e) => setViewType(e.target.value)}>
+              <Select
+                size="sm"
+                w="150px"
+                value={viewType}
+                onChange={(e) => setViewType(e.target.value)}
+              >
                 <option value="table">Table View</option>
                 <option value="chart">Chart View</option>
                 <option value="both">Both</option>
@@ -1543,40 +1944,6 @@ const Reports = () => {
         </CardBody>
       </Card>
     );
-  };
-
-  const testAPI = async () => {
-    try {
-      const testParams = {
-        startDate: "2024-01-01",
-        endDate: "2024-01-02",
-        startHour: 0,
-        endHour: 23,
-        accountId: "all",
-        vendorReport: false
-      };
-      
-      console.log("🧪 Testing API with:", testParams);
-      const result = await generateReport("hourly-report", testParams);
-      console.log("🧪 Test result:", result);
-      
-      if (result.success) {
-        toast({
-          title: "API Test Successful",
-          description: `Got ${result.data?.length || 0} records`,
-          status: "success",
-          duration: 3000,
-        });
-      }
-    } catch (error) {
-      console.error("🧪 Test failed:", error);
-      toast({
-        title: "API Test Failed",
-        description: error.message,
-        status: "error",
-        duration: 5000,
-      });
-    }
   };
 
   return (
@@ -1601,37 +1968,7 @@ const Reports = () => {
           >
             Refresh
           </Button>
-          
-          {/* <Button
-            size="sm"
-            colorScheme="yellow"
-            onClick={() => {
-              console.log("🔍 Current state:", {
-                dateRange,
-                selectedAccount,
-                isVendorReport,
-                activeTab,
-                accounts
-              });
-              toast({
-                title: "Debug Info Logged",
-                description: "Check browser console for details",
-                status: "info",
-                duration: 3000,
-              });
-            }}
-          >
-            Debug
-          </Button> */}
-          
-          {/* <Button
-            size="sm"
-            colorScheme="purple"
-            onClick={testAPI}
-          >
-            Test API
-          </Button>
-           */}
+
           <Button
             size="sm"
             leftIcon={<CalendarIcon />}
@@ -1654,10 +1991,16 @@ const Reports = () => {
               Export
             </MenuButton>
             <MenuList>
-              <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("csv")}>
+              <MenuItem
+                icon={<DownloadIcon />}
+                onClick={() => handleExport("csv")}
+              >
                 Export as CSV
               </MenuItem>
-              <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("excel")}>
+              <MenuItem
+                icon={<DownloadIcon />}
+                onClick={() => handleExport("excel")}
+              >
                 Export as Excel
               </MenuItem>
               <Divider />
@@ -1672,7 +2015,7 @@ const Reports = () => {
       {dashboardMetrics && <DashboardMetrics />}
 
       <Tabs
-        variant={{ base: "line", md: "soft-rounded" }}
+        variant={{ base: "line", md: "line" }}
         colorScheme="blue"
         mb={8}
         index={activeTab}
@@ -1733,31 +2076,26 @@ const Reports = () => {
                   <Flex justify="space-between" align="center">
                     <VStack align="start" spacing={1}>
                       <Heading size="md">
-                        {["Hourly Report", "Margin Report", "Negative Margin Report", "Customer Traffic Report"][tabIndex]}
+                        {
+                          [
+                            "Hourly Report",
+                            "Margin Report",
+                            "Negative Margin Report",
+                            "Customer Traffic Report",
+                          ][tabIndex]
+                        }
                       </Heading>
                       <Text fontSize="sm" color={mutedColor}>
-                        Generated on {new Date().toLocaleDateString()} | Data range:{" "}
-                        {dateRange.startDate.toLocaleDateString()} to {dateRange.endDate.toLocaleDateString()}
+                        Generated on {new Date().toLocaleDateString()} | Data
+                        range: {dateRange.startDate.toLocaleDateString()} to{" "}
+                        {dateRange.endDate.toLocaleDateString()}
                       </Text>
                     </VStack>
 
                     <HStack spacing={2}>
-                      <Badge colorScheme="yellow" fontSize="sm" px={2} py={1}>
+                      <Badge colorScheme="yellow" fontSize="sm" px={3} py={1}>
                         {filteredData.length} records
                       </Badge>
-                      <Menu>
-                        <MenuButton as={Button} size="sm" variant="outline">
-                          <HStack spacing={1}>
-                            <FiEye />
-                            <ChevronDownIcon ml={1} />
-                          </HStack>
-                        </MenuButton>
-                        <MenuList>
-                          <MenuItem onClick={() => setRowsPerPage(50)}>50 per page</MenuItem>
-                          <MenuItem onClick={() => setRowsPerPage(100)}>100 per page</MenuItem>
-                          <MenuItem onClick={() => setRowsPerPage(250)}>250 per page</MenuItem>
-                        </MenuList>
-                      </Menu>
                     </HStack>
                   </Flex>
                 </CardHeader>
@@ -1767,47 +2105,12 @@ const Reports = () => {
               </Card>
 
               <ChartVisualization />
-
-              
             </TabPanel>
           ))}
         </TabPanels>
       </Tabs>
 
       <ReportModal />
-
-      <Flex justify="space-between" align="center" mt={8} pt={6} borderTop="1px" borderColor={borderColor}>
-        <VStack align="start" spacing={1}>
-          <Text color={mutedColor} fontSize="sm">
-            Data last updated: {new Date().toLocaleString()}
-          </Text>
-          <Text color={mutedColor} fontSize="xs">
-            Report ID: REP-{new Date().getTime()}
-          </Text>
-        </VStack>
-
-        <HStack spacing={3}>
-          <Button
-            variant="ghost"
-            size="sm"
-            leftIcon={<InfoIcon />}
-            onClick={() => {
-              toast({
-                title: "About this report",
-                description: "This report shows detailed CDR analytics with various metrics and visualizations.",
-                status: "info",
-                duration: 5000,
-                isClosable: true,
-              });
-            }}
-          >
-            Help
-          </Button>
-          <Button size="sm" onClick={() => setIsModalOpen(true)} leftIcon={<FiFilter />} colorScheme="blue">
-            New Report
-          </Button>
-        </HStack>
-      </Flex>
     </Container>
   );
 };

@@ -81,7 +81,7 @@ const Layout = ({ children }) => {
               <Icon as={item.icon} mr={3} />
               {item.label}
               {item.path === '/invoices' && (
-                <Badge ml="auto" colorScheme="red" variant="subtle" size="sm">
+                <Badge ml="auto" colorScheme="red"  variant="subtle" size="sm" borderRadius={"full"}>
                   3  
                 </Badge>      //will be replaced by the actual number of pending invoices
               )}

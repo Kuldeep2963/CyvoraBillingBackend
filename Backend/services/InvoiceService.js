@@ -10,7 +10,15 @@ const sequelize = require('../config/database');
 const Invoice = require('../models/Invoice');
 const InvoiceItem = require('../models/InvoiceItem');
 const Account = require('../models/Account');
-const billingConfig = require('../config/billing.config');
+const billingConfig = require('../config/billingconfig');
+
+/* ===================== HELPER: FORMAT TIME ===================== */
+const formatTime = (date, hour = 0, isEnd = false) => {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return null;
+  d.setHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
+  return d.getTime();
+};
 
 class InvoiceService {
   
@@ -64,9 +72,9 @@ class InvoiceService {
    * Calculate invoice dates
    */
   calculateInvoiceDates(dueInDays = null) {
-    const invoiceDate = Date.now().toString();
+    const invoiceDate = Date.now();
     const days = dueInDays || billingConfig.payment.defaultDueInDays;
-    const dueDate = (Date.now() + (days * 24 * 60 * 60 * 1000)).toString();
+    const dueDate = (Date.now() + (days * 24 * 60 * 60 * 1000));
     
     return { invoiceDate, dueDate };
   }
@@ -164,7 +172,7 @@ class InvoiceService {
     
     // Update sent date and status
     await invoice.update({
-      sentDate: Date.now().toString(),
+      sentDate: Date.now(),
       status: invoice.status === 'draft' ? 'sent' : invoice.status
     });
 
@@ -222,7 +230,7 @@ class InvoiceService {
 
     if (filters.startDate && filters.endDate) {
       where.invoiceDate = {
-        [Op.between]: [filters.startDate, filters.endDate]
+        [Op.between]: [formatTime(filters.startDate), formatTime(filters.endDate, 23, true)]
       };
     }
 
@@ -263,7 +271,7 @@ class InvoiceService {
         [Op.in]: ['pending', 'sent', 'partial', 'overdue']
       },
       dueDate: {
-        [Op.lt]: Date.now().toString()
+        [Op.lt]: Date.now()
       },
       balanceAmount: {
         [Op.gt]: 0

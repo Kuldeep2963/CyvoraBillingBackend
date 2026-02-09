@@ -170,7 +170,7 @@ const Invoice = sequelize.define('Invoice', {
   tableName: 'invoices',
   timestamps: true,
   indexes: [
-    { fields: ['customerId'] },
+    { fields: ['customerGatewayId'] },
     { fields: ['invoiceNumber'], unique: true },
     { fields: ['status'] },
     { fields: ['billingPeriodStart', 'billingPeriodEnd'] },

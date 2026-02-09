@@ -15,6 +15,7 @@ import {
   StatHelpText,
   Badge,
   Progress,
+  Center,
   Icon,
   useColorModeValue,
   useToast,
@@ -38,7 +39,7 @@ import {
   Button,
   Spinner,
   Divider,
-  Center,
+  Select,
 } from "@chakra-ui/react";
 import {
   FiPhoneCall,
@@ -81,19 +82,28 @@ import {
   RadialBar,
   PolarAngleAxis,
 } from "recharts";
-import { fetchCDRs, fetchCustomers } from "../utils/api";
+import { fetchDashboardStats, fetchCustomers } from "../utils/api";
 import { useNavigate } from "react-router-dom";
+import { format } from "date-fns";
 
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [chartData, setChartData] = useState({});
-  const [recentActivity, setRecentActivity] = useState([]);
+  const [financialData, setFinancialData] = useState({});
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState("today");
+  const [currentTime, setCurrentTime] = useState(new Date());
   const navigate = useNavigate();
   const toast = useToast();
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+  
   // Modern color palette
   const COLORS = {
     primary: "#6366F1",
@@ -118,26 +128,48 @@ const Dashboard = () => {
   ];
 
   useEffect(() => {
-    loadDashboardData();
-  }, []);
+    loadDashboardData(timeRange);
+  }, [timeRange]);
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (range = "today") => {
     try {
       setLoading(true);
-      const [cdrsData, customersData] = await Promise.all([
-        fetchCDRs(),
+      const [dashData, customersData] = await Promise.all([
+        fetchDashboardStats({ range }),
         fetchCustomers(),
       ]);
 
       setCustomers(customersData);
-      calculateDashboardStats(cdrsData);
-      prepareChartData(cdrsData);
-      prepareRecentActivity(cdrsData);
+
+      if (dashData.success) {
+        const {
+          stats: s,
+          hourlyDistribution,
+          topDestinations,
+          customerDistribution,
+          financialSummary,
+        } = dashData.data;
+
+        setStats(s);
+        setFinancialData(financialSummary);
+
+        setChartData({
+          hourlyCalls: hourlyDistribution.map((h) => ({
+            hour: `${h.hour}:00`,
+            calls: h.callsCount,
+          })),
+          customerDistribution: customerDistribution.map((c) => ({
+            name: c.customerName,
+            value: c.totalCalls,
+          })),
+          topDestinations: topDestinations,
+        });
+      }
     } catch (error) {
       console.error("Error loading dashboard data:", error);
       toast({
         title: "Error loading data",
-        description: "Failed to fetch CDR data from server.",
+        description: "Failed to fetch dashboard data from server.",
         status: "error",
         duration: 5000,
         isClosable: true,
@@ -150,231 +182,13 @@ const Dashboard = () => {
 
   const getDefaultStats = () => ({
     totalCalls: 0,
-    answeredCalls: 0,
-    successRate: 0,
-    totalDuration: 0,
     totalRevenue: 0,
-    totalTax: 0,
-    uniqueCustomers: 0,
-    todayCalls: 0,
-    todayRevenue: 0,
-    totalCustomers: 0,
-    avgCallDuration: 0,
-    avgCallRevenue: 0,
-    totalAgents: 0,
-    totalIncomeFee: 0,
-    totalAgentFee: 0,
+    totalDuration: 0,
+    activeCustomers: 0,
   });
 
-  const calculateDashboardStats = (cdrs) => {
-    if (!cdrs || cdrs.length === 0) {
-      setStats(getDefaultStats());
-      return;
-    }
-
-    const totalCalls = cdrs.length;
-    
-    // Calculate answered calls based on endreason (0 = successful call)
-    const answeredCalls = cdrs.filter((c) => parseInt(c.endreason) === 0).length;
-    
-    // Calculate total duration from feetime (in seconds)
-    const totalDuration = cdrs.reduce(
-      (sum, c) => sum + (parseInt(c.feetime) || 0),
-      0
-    );
-    
-    // Calculate revenue from fee field
-    const totalRevenue = cdrs.reduce(
-      (sum, c) => sum + (parseFloat(c.fee) || 0),
-      0
-    );
-    
-    // Calculate tax from tax field
-    const totalTax = cdrs.reduce(
-      (sum, c) => sum + (parseFloat(c.tax) || 0),
-      0
-    );
-    
-    // Calculate total income from incomefee field
-    const totalIncomeFee = cdrs.reduce(
-      (sum, c) => sum + (parseFloat(c.incomefee) || 0),
-      0
-    );
-    
-    // Calculate total agent fee from agentfee field
-    const totalAgentFee = cdrs.reduce(
-      (sum, c) => sum + (parseFloat(c.agentfee) || 0),
-      0
-    );
-    
-    // Get unique customers from customername field
-    const uniqueCustomers = [...new Set(cdrs.map((c) => c.customername || c.customeraccount).filter(Boolean))].length;
-    
-    // Calculate unique agents from agentname field
-    const uniqueAgents = [...new Set(cdrs.map((c) => c.agentname).filter(Boolean))].length;
-    
-    // Filter today's calls
-    const today = new Date().toDateString();
-    const todayCalls = cdrs.filter(
-      (c) => {
-        const cdrDate = new Date(parseInt(c.starttime));
-        return cdrDate.toDateString() === today;
-      }
-    ).length;
-    
-    // Calculate today's revenue
-    const todayRevenue = cdrs
-      .filter((c) => {
-        const cdrDate = new Date(parseInt(c.starttime));
-        return cdrDate.toDateString() === today;
-      })
-      .reduce((sum, c) => sum + (parseFloat(c.fee) || 0), 0);
-
-    setStats({
-      totalCalls,
-      answeredCalls,
-      successRate: totalCalls > 0 ? ((answeredCalls / totalCalls) * 100).toFixed(1) : 0,
-      totalDuration,
-      totalRevenue,
-      totalTax,
-      totalIncomeFee,
-      totalAgentFee,
-      uniqueCustomers,
-      uniqueAgents,
-      todayCalls,
-      todayRevenue,
-      avgCallDuration: totalCalls > 0 ? Math.floor(totalDuration / totalCalls) : 0,
-      avgCallRevenue: totalCalls > 0 ? (totalRevenue / totalCalls).toFixed(4) : 0,
-    });
-  };
-
-  const prepareChartData = (cdrs) => {
-    if (!cdrs || cdrs.length === 0) {
-      setChartData({
-        callTypes: [],
-        hourlyCalls: [],
-        topCustomers: [],
-        dailyTrend: [],
-        gatewayDistribution: [],
-      });
-      return;
-    }
-
-    // Gateway distribution
-    const gatewayData = {};
-    const customerRevenueMap = {};
-    
-    cdrs.forEach((cdr) => {
-      // Group by originating gateway
-      const gateway = cdr.callergatewayid || "Unknown Gateway";
-      gatewayData[gateway] = (gatewayData[gateway] || 0) + 1;
-      
-      // Calculate customer revenue
-      const customer = cdr.customername || cdr.customeraccount;
-      if (customer) {
-        customerRevenueMap[customer] = (customerRevenueMap[customer] || 0) + (parseFloat(cdr.fee) || 0);
-      }
-    });
-
-    // Prepare gateway distribution for pie chart
-    const gatewayDistribution = Object.entries(gatewayData)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 6);
-
-    // Hourly call volume
-    const hourlyData = Array(24)
-      .fill(0)
-      .map((_, hour) => ({
-        hour: `${hour}:00`,
-        calls: 0,
-        revenue: 0,
-        duration: 0,
-      }));
-
-    cdrs.forEach((cdr) => {
-      const hour = new Date(parseInt(cdr.starttime)).getHours();
-      if (hourlyData[hour]) {
-        hourlyData[hour].calls++;
-        hourlyData[hour].revenue += parseFloat(cdr.fee) || 0;
-        hourlyData[hour].duration += parseInt(cdr.feetime) || 0;
-      }
-    });
-
-    // Top customers by revenue
-    const topCustomers = Object.entries(customerRevenueMap)
-      .map(([name, revenue]) => ({
-        name,
-        revenue: parseFloat(revenue.toFixed(2)),
-      }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 8);
-
-    // Last 7 days trend
-    const last7Days = Array(7)
-      .fill(0)
-      .map((_, i) => {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        return {
-          date: date.toLocaleDateString("en-US", { weekday: "short" }),
-          calls: 0,
-          revenue: 0,
-        };
-      })
-      .reverse();
-
-    cdrs.forEach((cdr) => {
-      const cdrDate = new Date(parseInt(cdr.starttime));
-      const dayDiff = Math.floor((new Date() - cdrDate) / (1000 * 60 * 60 * 24));
-      if (dayDiff >= 0 && dayDiff < 7) {
-        const index = 6 - dayDiff;
-        if (last7Days[index]) {
-          last7Days[index].calls++;
-          last7Days[index].revenue += parseFloat(cdr.fee) || 0;
-        }
-      }
-    });
-
-    // Call status distribution
-    const statusData = cdrs.reduce((acc, cdr) => {
-      const status = parseInt(cdr.endreason) === 0 ? "SUCCESS" : "FAILED";
-      acc[status] = (acc[status] || 0) + 1;
-      return acc;
-    }, {});
-
-    const statusDistribution = Object.entries(statusData)
-      .map(([name, value]) => ({ name, value }));
-
-    setChartData({
-      gatewayDistribution,
-      hourlyCalls: hourlyData,
-      topCustomers,
-      dailyTrend: last7Days,
-      statusDistribution,
-    });
-  };
-
-  const prepareRecentActivity = (cdrs) => {
-    if (!cdrs || cdrs.length === 0) {
-      setRecentActivity([]);
-      return;
-    }
-
-    const sortedCdrs = [...cdrs]
-      .sort((a, b) => parseInt(b.starttime) - parseInt(a.starttime))
-      .slice(0, 5)
-      .map(cdr => ({
-        ...cdr,
-        starttime: new Date(parseInt(cdr.starttime)).toLocaleString(),
-        status: parseInt(cdr.endreason) === 0 ? "ANSWERED" : "FAILED",
-      }));
-
-    setRecentActivity(sortedCdrs);
-  };
-
   const refreshData = () => {
-    loadDashboardData();
+    loadDashboardData(timeRange);
     toast({
       title: "Refreshing data",
       description: "Dashboard data is being refreshed...",
@@ -384,15 +198,13 @@ const Dashboard = () => {
     });
   };
 
-  const formatDuration = (seconds) => {
-    if (!seconds) return "0s";
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    if (minutes > 0) return `${minutes}m ${secs}s`;
-    return `${secs}s`;
+  const formatDuration = (minutes) => {
+    if (!minutes) return "0m";
+    const hours = Math.floor(minutes / 60);
+    const mins = Math.floor(minutes % 60);
+
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
   };
 
   if (loading || !stats) {
@@ -413,7 +225,7 @@ const Dashboard = () => {
 
   return (
     <Container maxW="container.xl" py={2}>
-      <VStack spacing={8} align="stretch">
+      <VStack spacing={4} align="stretch">
         {/* Header with title and refresh */}
         <Flex justify="space-between" align="center">
           <Box>
@@ -430,32 +242,78 @@ const Dashboard = () => {
               Real-time insights into call data records and billing
             </Text>
           </Box>
-          <Button
-            leftIcon={<FiRefreshCw />}
-            colorScheme="purple"
-            variant="outline"
-            onClick={refreshData}
-            size="sm"
-            _hover={{
-              bg: "purple.50",
-              transform: "translateX(-10px)",
-              transition: "transform 0.3s",
-            }}
-            transition="all 0.3s"
-          >
-            Refresh Data
-          </Button>
+          <HStack spacing={4}>
+            <Box
+              px={4}
+              py={2}
+              bg="white"
+              borderRadius="md"
+              border="1px solid"
+              borderColor="gray.100"
+              boxShadow="sm"
+            >
+              <HStack spacing={3}>
+                <HStack spacing={2}>
+                  <Icon as={FiCalendar} color="purple.500" />
+                  <Text fontSize="sm" fontWeight="bold" color="gray.700">
+                    {format(currentTime, "MMM dd, yyyy")}
+                  </Text>
+                </HStack>
+                <Divider orientation="vertical" height="20px" />
+                <HStack spacing={2}>
+                  <Icon as={FiClock} color="blue.500" />
+                  <Text
+                    fontSize="sm"
+                    fontWeight="bold"
+                    color="gray.700"
+                    minW="80px"
+                  >
+                    {format(currentTime, "HH:mm:ss")}
+                  </Text>
+                </HStack>
+              </HStack>
+            </Box>
+            <Select
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value)}
+              width="150px"
+              size="sm"
+              borderRadius="md"
+              bg="white"
+            >
+              <option value="today">Today</option>
+              <option value="week">Weekly</option>
+              <option value="biweekly">Biweekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="3month">3 Months</option>
+            </Select>
+            <Button
+              leftIcon={<FiRefreshCw />}
+              colorScheme="purple"
+              variant="outline"
+              onClick={refreshData}
+              size="sm"
+              _hover={{
+                bg: "purple.50",
+                transform: "translateX(-3px)",
+                transition: "transform 0.3s",
+              }}
+              transition="all 0.3s"
+            >
+              Refresh Data
+            </Button>
+          </HStack>
         </Flex>
 
         {/* Main Stats Grid */}
-        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
           <StatCard
             title="Total Calls"
             value={stats.totalCalls.toLocaleString()}
-            change={`${stats.successRate}% success`}
+            change={`Live`}
             icon={FiPhoneCall}
             color={COLORS.primary}
-            helpText={`${stats.answeredCalls} answered calls`}
+            helpText={`Total calls processed`}
             trend="up"
             bgGradient="linear(to-br, purple.50, blue.50)"
           />
@@ -465,48 +323,47 @@ const Dashboard = () => {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}`}
-            change={`$${stats.todayRevenue.toFixed(2)} today`}
+            change={`Cumulative`}
             icon={FiDollarSign}
             color={COLORS.success}
-            helpText={`${stats.totalIncomeFee.toFixed(2)} income fee`}
+            helpText={`Total billing revenue`}
             trend="up"
             bgGradient="linear(to-br, green.50, teal.50)"
           />
           <StatCard
             title="Active Customers"
-            value={stats.uniqueCustomers}
-            change={`${stats.uniqueAgents} agents`}
+            value={stats.activeCustomers}
+            change={`Unique`}
             icon={FiUsers}
             color={COLORS.secondary}
-            helpText={`${stats.todayCalls} calls today`}
+            helpText={`Customer accounts`}
             trend="up"
             bgGradient="linear(to-br, purple.50, pink.50)"
           />
           <StatCard
             title="Total Duration"
             value={formatDuration(stats.totalDuration)}
-            change={`${stats.avgCallDuration}s avg call`}
+            change={`Total Minutes`}
             icon={FiClock}
             color={COLORS.warning}
-            helpText={`${stats.avgCallRevenue}/call avg revenue`}
+            helpText={`Call time aggregate`}
             trend="up"
             bgGradient="linear(to-br, orange.50, yellow.50)"
           />
         </SimpleGrid>
 
         {/* Detailed Charts Grid */}
-        <Grid templateColumns={{ base: "1fr", lg: "repeat(2, 1fr)" }} gap={6}>
-          {/* Hourly Call Volume - Area Chart */}
+        <Grid templateColumns={{ base: "1fr", lg: "3fr 1fr" }} gap={4}>
+          {/* Top Destinations Table */}
           <GridItem>
             <Card
+              h={"490px"}
               bg="white"
               border="1px solid"
               borderColor="gray.100"
               borderRadius="2xl"
               boxShadow="0 10px 40px rgba(0, 0, 0, 0.05)"
               overflow="hidden"
-              _hover={{ boxShadow: "0 20px 60px rgba(0, 0, 0, 0.08)" }}
-              transition="all 0.3s ease"
             >
               <CardBody p={6}>
                 <HStack
@@ -521,194 +378,75 @@ const Dashboard = () => {
                     bgGradient="linear(to-r, blue.100, cyan.100)"
                     borderRadius="lg"
                   >
-                    <Icon as={FiActivity} w={5} h={5} color="blue.600" />
+                    <Icon as={FiGlobe} w={5} h={5} color="blue.600" />
                   </Box>
                   <VStack align="start" spacing={0}>
                     <Heading size="md" color="gray.800" fontWeight="semibold">
-                      Hourly Call Distribution
+                      Top Destinations
                     </Heading>
                     <Text fontSize="sm" color="gray.500">
-                      24-hour call volume
+                      Performance by country
                     </Text>
                   </VStack>
                 </HStack>
 
-                <Box height="300px">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData.hourlyCalls}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                      <XAxis dataKey="hour" stroke="#6B7280" fontSize={12} />
-                      <YAxis stroke="#6B7280" fontSize={12} />
-                      <Tooltip
-                        formatter={(value) => [value, "Calls"]}
-                        contentStyle={{
-                          backgroundColor: "white",
-                          border: "1px solid #E5E7EB",
-                          borderRadius: "8px",
-                          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                        }}
-                      />
-                      <Bar
-                        dataKey="calls"
-                        fill="#6366F1"
-                        radius={[4, 4, 0, 0]}
-                        name="Calls"
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </Box>
-
-                <HStack
-                  justify="space-between"
-                  mt={4}
-                  pt={4}
-                  borderTop="1px solid"
-                  borderColor="gray.100"
-                >
-                  <VStack align="start" spacing={1}>
-                    <Text fontSize="xs" color="gray.500" fontWeight="medium">
-                      Peak Hour
-                    </Text>
-                    <Text fontSize="sm" fontWeight="semibold" color="gray.800">
-                      {chartData.hourlyCalls?.reduce(
-                        (max, hour) => (hour.calls > max.calls ? hour : max),
-                        { calls: 0, hour: "N/A" }
-                      ).hour}
-                    </Text>
-                  </VStack>
-                  <VStack align="start" spacing={1}>
-                    <Text fontSize="xs" color="gray.500" fontWeight="medium">
-                      Total Hours
-                    </Text>
-                    <Text fontSize="sm" fontWeight="semibold" color="gray.800">
-                      {chartData.hourlyCalls?.reduce(
-                        (sum, hour) => sum + hour.calls,
-                        0
-                      )}
-                    </Text>
-                  </VStack>
-                </HStack>
+                <TableContainer>
+                  <Table variant="simple" size="sm">
+                    <Thead bg="gray.100">
+                      <Tr>
+                        <Th>Destination</Th>
+                        <Th isNumeric>Calls</Th>
+                        <Th isNumeric>Minutes</Th>
+                        <Th isNumeric>ASR (%)</Th>
+                        <Th isNumeric>ACD (m)</Th>
+                        <Th isNumeric>Revenue</Th>
+                        <Th isNumeric>Margin</Th>
+                        <Th isNumeric>Margin (%)</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {chartData.topDestinations?.map((d, i) => (
+                        <Tr key={i}>
+                          <Td fontWeight="medium">{d.destination}</Td>
+                          <Td isNumeric>{d.totalCalls}</Td>
+                          <Td isNumeric>{d.minutes}</Td>
+                          <Td isNumeric>
+                            <Badge
+                              colorScheme={d.ASR > 50 ? "green" : "orange"}
+                            >
+                              {d.ASR}%
+                            </Badge>
+                          </Td>
+                          <Td isNumeric>{d.ACD}</Td>
+                          <Td isNumeric fontWeight="semibold">
+                            ${d.revenue.toFixed(2)}
+                          </Td>
+                          <Td
+                            isNumeric
+                            color={d.margin >= 0 ? "green.600" : "red.600"}
+                          >
+                            ${d.margin.toFixed(2)}
+                          </Td>
+                          <Td
+                            isNumeric
+                            color={
+                              d.marginPercentage >= 0 ? "green.600" : "red.600"
+                            }
+                          >
+                            {d.marginPercentage}%
+                          </Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
+                </TableContainer>
               </CardBody>
             </Card>
           </GridItem>
-
-          {/* Gateway Distribution */}
-          <GridItem>
-            <Card
-              bg="white"
-              border="1px solid"
-              borderColor="gray.100"
-              borderRadius="2xl"
-              boxShadow="0 10px 40px rgba(0, 0, 0, 0.05)"
-              overflow="hidden"
-              _hover={{ boxShadow: "0 20px 60px rgba(0, 0, 0, 0.08)" }}
-              transition="all 0.3s ease"
-            >
-              <CardBody p={6}>
-                <HStack
-                  spacing={3}
-                  mb={6}
-                  pb={4}
-                  borderBottom="1px solid"
-                  borderColor="gray.100"
-                >
-                  <Box
-                    p={2}
-                    bgGradient="linear(to-r, purple.100, pink.100)"
-                    borderRadius="lg"
-                  >
-                    <Icon as={FiServer} w={5} h={5} color="purple.600" />
-                  </Box>
-                  <VStack align="start" spacing={0}>
-                    <Heading size="md" color="gray.800" fontWeight="semibold">
-                      Gateway Distribution
-                    </Heading>
-                    <Text fontSize="sm" color="gray.500">
-                      Calls by originating gateway
-                    </Text>
-                  </VStack>
-                </HStack>
-
-                <Box position="relative" height="300px">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={chartData.gatewayDistribution || []}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={70}
-                        outerRadius={110}
-                        paddingAngle={2}
-                        dataKey="value"
-                        nameKey="name"
-                        label={({ name, percent }) =>
-                          `${name.substring(2,10)}.. :- ${(percent * 100).toFixed(0)}%`
-                        }
-                        labelLine={false}
-                      >
-                        {(chartData.gatewayDistribution || []).map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={CHART_COLORS[index % CHART_COLORS.length]}
-                            stroke="#fff"
-                            strokeWidth={2}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value, name, props) => [
-                          value,
-                          props.payload.name,
-                        ]}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </Box>
-
-                <Box mt={6} pt={6} borderTop="1px solid" borderColor="gray.100" maxH={"200px"} overflowY={"auto"}>
-                  <VStack align="stretch" spacing={2}>
-                    {(chartData.gatewayDistribution || []).map((item, index) => (
-                      <HStack key={index} justify="space-between">
-                        <HStack spacing={2}>
-                          <Box
-                            w={3}
-                            h={3}
-                            borderRadius="sm"
-                            bg={CHART_COLORS[index % CHART_COLORS.length]}
-                          />
-                          <Text fontSize="sm" color="gray.700">
-                            {item.name.length > 20
-                              ? `${item.name}`
-                              : item.name}
-                          </Text>
-                        </HStack>
-                        <HStack spacing={4}>
-                          <Text fontSize="sm" fontWeight="semibold" color="gray.800">
-                            {item.value}
-                          </Text>
-                          <Text fontSize="xs" color="gray.500" minW="40px" textAlign="right">
-                            {(
-                              (item.value /
-                                (chartData.gatewayDistribution?.reduce(
-                                  (a, b) => a + b.value,
-                                  0
-                                ) || 1)) *
-                              100
-                            ).toFixed(2)}
-                            %
-                          </Text>
-                        </HStack>
-                      </HStack>
-                    ))}
-                  </VStack>
-                </Box>
-              </CardBody>
-            </Card>
-          </GridItem>
-
           {/* Financial Metrics Card */}
           <GridItem>
             <Card
+              w={{ base: "full", lg: "300px" }}
               bg="white"
               border="1px solid"
               borderColor="gray.100"
@@ -743,10 +481,10 @@ const Dashboard = () => {
                   </VStack>
                 </HStack>
 
-                <VStack spacing={4} align="stretch">
+                <VStack spacing={3} align="stretch">
                   <MetricItem
                     label="Total Revenue"
-                    value={`$${stats.totalRevenue.toFixed(2)}`}
+                    value={`$${financialData.totalRevenue?.toFixed(2) || "0.00"}`}
                     icon={FiDollarSign}
                     color="green"
                     subtext="From all calls"
@@ -756,7 +494,7 @@ const Dashboard = () => {
 
                   <MetricItem
                     label="Tax Collected"
-                    value={`$${stats.totalTax.toFixed(2)}`}
+                    value={`$${financialData.taxCollected?.toFixed(2) || "0.00"}`}
                     icon={FiPercent}
                     color="purple"
                     subtext="Total tax amount"
@@ -766,7 +504,7 @@ const Dashboard = () => {
 
                   <MetricItem
                     label="Income Fee"
-                    value={`$${stats.totalIncomeFee.toFixed(2)}`}
+                    value={`$${financialData.incomeFee?.toFixed(2) || "0.00"}`}
                     icon={FiTrendingUp}
                     color="blue"
                     subtext="Service income"
@@ -776,7 +514,7 @@ const Dashboard = () => {
 
                   <MetricItem
                     label="Agent Fees"
-                    value={`$${stats.totalAgentFee.toFixed(2)}`}
+                    value={`$${financialData.agentFee?.toFixed(2) || "0.00"}`}
                     icon={FiUsers}
                     color="orange"
                     subtext="Total agent commission"
@@ -785,8 +523,10 @@ const Dashboard = () => {
               </CardBody>
             </Card>
           </GridItem>
+        </Grid>
 
-          
+        <Grid templateColumns={{ base: "1fr", lg: "2fr 1fr" }} gap={4}>
+          {/* Hourly Call Volume - Area Chart */}
           <GridItem>
             <Card
               bg="white"
@@ -808,171 +548,172 @@ const Dashboard = () => {
                 >
                   <Box
                     p={2}
-                    bgGradient="linear(to-r, orange.100, red.100)"
+                    bgGradient="linear(to-r, blue.100, cyan.100)"
                     borderRadius="lg"
                   >
-                    <Icon as={FiUsers} w={5} h={5} color="orange.600" />
+                    <Icon as={FiActivity} w={5} h={5} color="blue.600" />
+                  </Box>
+                  <VStack align="start" spacing={0}>
+                    <Heading size="md" color="gray.800" fontWeight="semibold">
+                      Hourly Call Distribution
+                    </Heading>
+                    <Text fontSize="sm" color="gray.500">
+                      Call volume by hour
+                    </Text>
+                  </VStack>
+                </HStack>
+
+                <Box height="300px">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData.hourlyCalls}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                      <XAxis dataKey="hour" stroke="#6B7280" fontSize={12} />
+                      <YAxis stroke="#6B7280" fontSize={12} />
+                      <Tooltip
+                        formatter={(value) => [value, "Calls"]}
+                        contentStyle={{
+                          backgroundColor: "white",
+                          border: "1px solid #E5E7EB",
+                          borderRadius: "8px",
+                          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                        }}
+                      />
+                      <Bar
+                        dataKey="calls"
+                        fill="#6366F1"
+                        radius={[4, 4, 0, 0]}
+                        name="Calls"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </Box>
+              </CardBody>
+            </Card>
+          </GridItem>
+
+          {/* Top Customers - Pie Chart */}
+          <GridItem>
+            <Card
+              bg="white"
+              border="1px solid"
+              borderColor="gray.100"
+              borderRadius="2xl"
+              boxShadow="0 10px 40px rgba(0, 0, 0, 0.05)"
+              overflow="hidden"
+              _hover={{ boxShadow: "0 20px 60px rgba(0, 0, 0, 0.08)" }}
+              transition="all 0.3s ease"
+            >
+              <CardBody p={6}>
+                <HStack
+                  spacing={3}
+                  mb={6}
+                  pb={2}
+                  borderBottom="1px solid"
+                  borderColor="gray.100"
+                >
+                  <Box
+                    p={2}
+                    bgGradient="linear(to-r, purple.100, pink.100)"
+                    borderRadius="lg"
+                  >
+                    <Icon as={FiUsers} w={5} h={5} color="purple.600" />
                   </Box>
                   <VStack align="start" spacing={0}>
                     <Heading size="md" color="gray.800" fontWeight="semibold">
                       Top Customers
                     </Heading>
                     <Text fontSize="sm" color="gray.500">
-                      By revenue generated
+                      Distribution by Total Calls
                     </Text>
                   </VStack>
                 </HStack>
 
-                <VStack spacing={3} align="stretch">
-                  {chartData.topCustomers && chartData.topCustomers.length > 0 ? (
-                    chartData.topCustomers.slice(0, 4).map((customer, index) => (
-                      <HStack
-                        key={customer.name}
-                        justify="space-between"
-                        p={3}
-                        _hover={{ bg: "gray.50" }}
-                        borderRadius="md"
-                        align="start"
+                <Box position="relative" height="200px">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={chartData.customerDistribution || []}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={5}
+                        dataKey="value"
+                        nameKey="name"
                       >
-                        <HStack spacing={3} flex="1">
-                          <Avatar
-                            size="md"
-                            name={customer.name}
-                            bg={CHART_COLORS[index % CHART_COLORS.length]}
-                          />
-                          <VStack align="start" spacing={0} flex="1">
-                            <Text fontWeight="semibold" fontSize="sm" color="gray.800">
-                              {customer.name}
-                            </Text>
-                            <Text fontSize="xs" color="gray.500">
-                              Customer Account
-                            </Text>
-                          </VStack>
-                        </HStack>
-                        <VStack align="end" spacing={0}>
-                          <Text fontWeight="bold" color="green.600" fontSize="md">
-                            ${customer.revenue.toFixed(2)}
-                          </Text>
-                          <Text fontSize="xs" color="gray.500">
-                            revenue
-                          </Text>
-                        </VStack>
-                      </HStack>
-                    ))
-                  ) : (
-                    <Text color="gray.500" textAlign="center" py={4}>
-                      No customer data available
-                    </Text>
-                  )}
+                        {(chartData.customerDistribution || []).map(
+                          (entry, index) => (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={CHART_COLORS[index % CHART_COLORS.length]}
+                            />
+                          ),
+                        )}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </Box>
 
-                  <Button
-                    rightIcon={<FiChevronRight />}
-                    variant="ghost"
-                    onClick={() => navigate('/accounts')}
-                    size="sm"
-                    colorScheme="purple"
-                    mt={2}
+                <VStack
+                  mt={6}
+                  spacing={2}
+                  align="stretch"
+                  maxH="200px"
+                  overflowY="auto"
+                >
+                  {/* Sticky Header */}
+                  <HStack
+                    justify="space-between"
+                    p={2}
+                    position="sticky"
+                    top={0}
+                    bg="white" // or gray.100 / your theme bg
+                    zIndex={1}
+                    borderBottom="1px solid"
+                    borderColor="gray.200"
                   >
-                    View All Customers
-                  </Button>
+                    <Text fontSize="sm" fontWeight="bold">
+                      CUSTOMER
+                    </Text>
+                    <Text fontSize="sm" fontWeight="bold">
+                      CALLS
+                    </Text>
+                  </HStack>
+
+                  {/* Scrollable Rows */}
+                  {chartData.customerDistribution?.map((item, index) => (
+                    <HStack
+                      key={index}
+                      justify="space-between"
+                      borderRadius="md"
+                      _hover={{ bg: "gray.50" }}
+                    >
+                      <HStack spacing={3}>
+                        <Box
+                          w={3}
+                          h={3}
+                          borderRadius="full"
+                          bg={CHART_COLORS[index % CHART_COLORS.length]}
+                        />
+                        <Text
+                          fontSize="sm"
+                          fontWeight="medium"
+                          color="gray.700"
+                        >
+                          {item.name}
+                        </Text>
+                      </HStack>
+                      <Text fontSize="sm" fontWeight="bold" color="gray.800">
+                        {item.value} calls
+                      </Text>
+                    </HStack>
+                  ))}
                 </VStack>
               </CardBody>
             </Card>
           </GridItem>
         </Grid>
-
-        {/* Additional Cards Grid */}
-        {/* <Grid templateColumns={{ base: "1fr", lg: "repeat(2, 1fr)" }} gap={6}>
-         
-          <GridItem>
-            <Card
-              bg="white"
-              border="1px solid"
-              borderColor="gray.100"
-              borderRadius="2xl"
-              boxShadow="0 10px 40px rgba(0, 0, 0, 0.05)"
-              overflow="hidden"
-              _hover={{ boxShadow: "0 20px 60px rgba(0, 0, 0, 0.08)" }}
-              transition="all 0.3s ease"
-            >
-              <CardBody p={6}>
-                <HStack
-                  spacing={3}
-                  mb={6}
-                  pb={4}
-                  borderBottom="1px solid"
-                  borderColor="gray.100"
-                >
-                  <Box
-                    p={2}
-                    bgGradient="linear(to-r, pink.100, rose.100)"
-                    borderRadius="lg"
-                  >
-                    <Icon as={FiActivity} w={5} h={5} color="pink.600" />
-                  </Box>
-                  <VStack align="start" spacing={0}>
-                    <Heading size="md" color="gray.800" fontWeight="semibold">
-                      Recent Activity
-                    </Heading>
-                    <Text fontSize="sm" color="gray.500">
-                      Latest CDR entries
-                    </Text>
-                  </VStack>
-                </HStack>
-
-                <VStack spacing={3} align="stretch">
-                  {recentActivity.length > 0 ? (
-                    recentActivity.map((cdr, index) => (
-                      <HStack
-                        key={index}
-                        justify="space-between"
-                        p={2}
-                        _hover={{ bg: "gray.50" }}
-                        borderRadius="md"
-                      >
-                        <HStack spacing={3}>
-                          <Icon as={FiPhoneCall} color="blue.500" />
-                          <Box>
-                            <Text fontWeight="medium" fontSize="sm" color="gray.800">
-                              {cdr.callere164} → {cdr.calleee164}
-                            </Text>
-                            <Text fontSize="xs" color="gray.500">
-                              {cdr.starttime}
-                            </Text>
-                            <Text fontSize="xs" color="gray.500">
-                              {cdr.customername || cdr.customeraccount}
-                            </Text>
-                          </Box>
-                        </HStack>
-                        <VStack align="end" spacing={0}>
-                          <Badge
-                            colorScheme={cdr.status === "ANSWERED" ? "green" : "red"}
-                            variant="subtle"
-                            size="sm"
-                            borderRadius="full"
-                            px={2}
-                          >
-                            {cdr.status}
-                          </Badge>
-                          <Text fontSize="xs" fontWeight="bold" color="green.600">
-                            ${parseFloat(cdr.fee || 0).toFixed(2)}
-                          </Text>
-                          <Text fontSize="xs" color="gray.500">
-                            {parseInt(cdr.feetime || 0)}s
-                          </Text>
-                        </VStack>
-                      </HStack>
-                    ))
-                  ) : (
-                    <Text color="gray.500" textAlign="center" py={4}>
-                      No recent activity
-                    </Text>
-                  )}
-                </VStack>
-              </CardBody>
-            </Card>
-          </GridItem>
-        </Grid> */}
       </VStack>
     </Container>
   );

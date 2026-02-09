@@ -184,3 +184,116 @@ export const exportReport = async (data, format, fileName) => {
   }
 };
 
+// Billing APIs
+export const fetchInvoices = async (params = {}) => {
+  try {
+    const query = new URLSearchParams(params).toString();
+    const url = query
+      ? `${API_BASE_URL}/billing/invoices?${query}`
+      : `${API_BASE_URL}/billing/invoices`;
+
+    const response = await fetch(url);
+    console.log("responseData",response.data )
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching invoices:', error);
+    throw error;
+  }
+};
+
+
+export const fetchInvoiceById = async (id) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}`);
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error fetching invoice ${id}:`, error);
+    throw error;
+  }
+};
+
+export const generateInvoice = async (invoiceData) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/invoices/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(invoiceData),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error generating invoice:', error);
+    throw error;
+  }
+};
+
+export const updateInvoiceStatus = async (id, statusData) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(statusData),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error updating invoice ${id}:`, error);
+    throw error;
+  }
+};
+
+export const deleteInvoice = async (id) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}`, {
+      method: 'DELETE',
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error deleting invoice ${id}:`, error);
+    throw error;
+  }
+};
+
+export const recordPayment = async (paymentData) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/payments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(paymentData),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error recording payment:', error);
+    throw error;
+  }
+};
+
+export const fetchCustomerOutstanding = async (customerId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/customers/${customerId}/outstanding`);
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error fetching outstanding for customer ${customerId}:`, error);
+    throw error;
+  }
+};
+
+// Dashboard APIs
+export const fetchDashboardStats = async (params = {}) => {
+  try {
+    const query = new URLSearchParams(params).toString();
+    const url = query
+      ? `${API_BASE_URL}/dashboard/stats?${query}`
+      : `${API_BASE_URL}/dashboard/stats`;
+    const response = await fetch(url);
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    throw error;
+  }
+};
+

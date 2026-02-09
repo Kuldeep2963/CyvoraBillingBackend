@@ -10,7 +10,7 @@ const sequelize = require('../config/database');
 const Invoice = require('../models/Invoice');
 const InvoiceItem = require('../models/InvoiceItem');
 const Account = require('../models/Account');
-const billingConfig = require('../config/billing.config');
+const billingConfig = require('../config/billingconfig');
 
 class InvoiceService {
   

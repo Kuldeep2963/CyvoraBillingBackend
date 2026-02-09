@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const billingController = require('../controllers/BillingController');
+const billingController = require('../controllers/Billingcontroller');
 
 // Middleware for authentication (add your auth middleware)
 // const { authenticate } = require('../middleware/auth');

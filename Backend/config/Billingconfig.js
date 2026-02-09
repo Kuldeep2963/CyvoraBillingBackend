@@ -92,11 +92,11 @@ module.exports = {
     template: 'default', // Template name
     logo: '/assets/logo.png',
     companyInfo: {
-      name: 'Your Company Name',
+      name: 'Pai Telecomm',
       address: '123 Business Street\nCity, State 12345',
       phone: '+1-234-567-8900',
-      email: 'billing@yourcompany.com',
-      website: 'www.yourcompany.com',
+      email: 'billing@paitelecomm.com',
+      website: 'www.paitelecomm.com',
       taxId: 'TAX-123456789'
     },
     footer: 'Thank you for your business!',

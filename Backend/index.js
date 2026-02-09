@@ -6,6 +6,8 @@ require('dotenv').config();
 const accountRoutes = require('./routes/accounts');
 const cdrRoutes = require('./routes/cdr');
 const reportRoutes = require('./routes/reports');
+const billingRoutes = require('./routes/billing');
+const dashboardRoutes = require('./routes/dashboard');
 const uploadCdr = require('./api/upload-cdr');
 const CDRAutoFetcher = require('./services/cdr-auto-fetch');
 
@@ -35,6 +37,8 @@ app.use('/api/customers', accountRoutes);
 app.use('/api/customer', accountRoutes);
 app.use('/api/cdr', cdrRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/billing', billingRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.post('/api/upload-cdr', uploadCdr);
 
 // 404 Handler
@@ -44,6 +48,7 @@ app.use((req, res) => {
 });
 
 // DB + Server
+require('./models/Allocation');
 sequelize.sync().then(() => {
   console.log('Database synced successfully');
 

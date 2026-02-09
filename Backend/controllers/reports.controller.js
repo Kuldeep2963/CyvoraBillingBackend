@@ -79,15 +79,15 @@ const buildAccountConditions = (account, vendorReport) => {
   }
 
   // 3️⃣ Gateway authentication (explicit)
-  if (account.authenticationType === 'gateway' && account.gatewayId) {
+  if (account.authenticationType === 'gateway' && account.authenticationValue) {
     or.push(
       vendorReport
-        ? { agentaccount: account.gatewayId }
-        : { customeraccount: account.gatewayId }
+        ? { agentaccount: account.authenticationValue }
+        : { customeraccount: account.authenticationValue }
     );
   }
 
-  // 4️⃣ Fallback → use gatewayId if no specific auth rule matched
+  // 4️⃣ Fallback to gatewayId only if authenticationValue is not set but type is gateway
   if (or.length === 0 && account.gatewayId) {
     or.push(
       vendorReport
@@ -192,9 +192,9 @@ exports.hourlyReport = async (req, res) => {
         asr: r.attempts > 0 ? parseFloat(((r.completed / r.attempts) * 100).toFixed(4)) : 0,
         acd: r.completed > 0 ? parseFloat((r.duration / r.completed).toFixed(4)) : 0,
         duration: Number(r.duration),
-        revenue: parseFloat(Number(r.revenue).toFixed(6)),
-        cost: parseFloat(Number(r.cost).toFixed(6)),
-        margin: parseFloat((Number(r.revenue) - Number(r.cost)).toFixed(6))
+        revenue: parseFloat(Number(r.revenue).toFixed(4)),
+        cost: parseFloat(Number(r.cost).toFixed(4)),
+        margin: parseFloat((Number(r.revenue) - Number(r.cost)).toFixed(4))
       };
     });
 
@@ -436,16 +436,15 @@ exports.customerTrafficReport = async (req, res) => {
         rawDuration: dur,
         custRoundedDuration: comp > 0 ? parseFloat((dur / comp).toFixed(4)) : 0,
         vendRoundedDuration: comp > 0 ? parseFloat((dur / comp).toFixed(4)) : 0,
-        revenue: parseFloat(rev.toFixed(8)),
-        revenuePerMin: dur > 0 ? parseFloat((rev / (dur / 60)).toFixed(6)) : 0,
-        cost: parseFloat(cst.toFixed(8)),
-        costPerMin: dur > 0 ? parseFloat((cst / (dur / 60)).toFixed(6)) : 0,
+        revenue: parseFloat(rev.toFixed(6)),
+        revenuePerMin: dur > 0 ? parseFloat((rev / (dur / 60)).toFixed(4)) : 0,
+        cost: parseFloat(cst.toFixed(6)),
+        costPerMin: dur > 0 ? parseFloat((cst / (dur / 60)).toFixed(4)) : 0,
         margin: parseFloat(margin.toFixed(6)),
-        marginPerMin: dur > 0 ? parseFloat((margin / (dur / 60)).toFixed(6)) : 0,
-        marginPercent: rev > 0 ? parseFloat(((margin / rev) * 100).toFixed(6)) : 0,
+        marginPerMin: dur > 0 ? parseFloat((margin / (dur / 60)).toFixed(4)) : 0,
+        marginPercent: rev > 0 ? parseFloat(((margin / rev) * 100).toFixed(4)) : 0,
         failedCalls: r.attempts - comp,
-        custProductGroup: "",
-        vendProductGroup: ""
+        
       };
     });
 
@@ -693,7 +692,7 @@ exports.debugMapping = async (req, res) => {
 exports.getReportAccounts = async (req, res) => {
   try {
     const accounts = await Account.findAll({
-      attributes: ['id', 'accountId', 'accountName', 'accountRole', 'customerCode', 'vendorCode', 'gatewayId'],
+      attributes: ['id', 'accountId', 'accountName', 'accountRole', 'customerCode', 'vendorCode', 'gatewayId','authenticationType','authenticationValue'],
       where: { active: true },
       order: [['accountName', 'ASC']]
     });
