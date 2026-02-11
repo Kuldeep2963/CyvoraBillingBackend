@@ -85,13 +85,20 @@ const DataTable = ({
     }
 
     if (column.type === 'date') {
+      const dateValue = item[column.key];
+      const date = !dateValue || dateValue === 'N/A' 
+        ? null 
+        : (isNaN(dateValue) ? new Date(dateValue) : new Date(parseInt(dateValue)));
+
+      if (!date || isNaN(date.getTime())) return <Text fontSize="sm" color="gray.400">N/A</Text>;
+
       return (
         <VStack align="start" spacing={0}>
           <Text fontSize="sm" fontWeight="medium">
-            {new Date(item[column.key]).toLocaleDateString()}
+            {date.toLocaleDateString()}
           </Text>
           <Text fontSize="xs" color="gray.500">
-            {new Date(item[column.key]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Text>
         </VStack>
       );

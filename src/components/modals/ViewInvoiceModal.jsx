@@ -43,6 +43,7 @@ import {
   FiCheckCircle,
   FiClock,
   FiAlertTriangle,
+  FiX,
 } from "react-icons/fi";
 import { format } from "date-fns";
 
@@ -140,7 +141,7 @@ const ViewInvoiceModal = ({
                             "MMMM dd, yyyy",
                           )}
                         </Text>
-                        <Text color={"blue.600"}>
+                        <Text color={"blue.800"}>
                           <strong>Period:</strong>{" "}
                           {format(
                             new Date(
@@ -301,7 +302,7 @@ const ViewInvoiceModal = ({
               </CardHeader>
               <CardBody p={0}>
                 {/* Table with fixed height and sticky header */}
-                <Box maxH="400px" overflowY="auto">
+                <Box maxH="400px" overflowY="auto" >
                   <Table variant="simple" size="sm">
                     <Thead
                       position="sticky"
@@ -309,10 +310,13 @@ const ViewInvoiceModal = ({
                       bg="gray.200"
                       zIndex={1}
                       boxShadow="sm"
+                      
                     >
                       <Tr>
-                        <Th color={"black"}>Description</Th>
+                        <Th isNumeric color={"black"}>Trunk</Th>
+                        <Th isNumeric color={"black"}>Prefix</Th>
                         <Th color={"black"}>Destination</Th>
+                        <Th color={"black"}>Description</Th>
                         <Th color={"black"} isNumeric>
                           Calls
                         </Th>
@@ -333,8 +337,10 @@ const ViewInvoiceModal = ({
                     <Tbody>
                       {selectedInvoice.items?.map((item, index) => (
                         <Tr key={index} _hover={{ bg: "gray.50" }}>
-                          <Td>{item.description}</Td>
+                          <Td>{item.trunk || "-"}</Td>
+                          <Td>{item.prefix || "-"}</Td>
                           <Td>{item.destination || "-"}</Td>
+                          <Td>{item.description}</Td>
                           <Td isNumeric>{item.totalCalls}</Td>
                           <Td isNumeric>{item.duration.toFixed(2)} sec</Td>
                           <Td isNumeric>
@@ -356,18 +362,10 @@ const ViewInvoiceModal = ({
           </VStack>
         </ModalBody>
         <ModalFooter borderTopWidth="1px">
-          <Button variant="ghost" mr={3} onClick={onClose}>
+          <Button  leftIcon={<FiX/>} colorScheme="gray" variant="ghost" mr={3} onClick={onClose}>
             Close
           </Button>
-          <Button
-            colorScheme="blue"
-            onClick={() => {
-              onUpdateStatus(selectedInvoice.id, "paid");
-              onClose();
-            }}
-          >
-            Mark as Paid & Close
-          </Button>
+          
         </ModalFooter>
       </ModalContent>
     </Modal>

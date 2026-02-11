@@ -18,8 +18,8 @@ Invoice.hasMany(InvoiceItem, {
 });
 
 Invoice.belongsTo(Account, {
-  foreignKey: 'customerGatewayId',
-  targetKey: 'gatewayId',
+  foreignKey: 'customerCode',
+  targetKey: 'customerCode',
   as: 'customer'
 });
 
@@ -36,8 +36,8 @@ InvoiceItem.belongsTo(Invoice, {
 
 // Payment associations
 Payment.belongsTo(Account, {
-  foreignKey: 'customerGatewayId',
-  targetKey: 'gatewayId',
+  foreignKey: 'customerCode',
+  targetKey: 'customerCode',
   as: 'customer'
 });
 

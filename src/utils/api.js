@@ -201,6 +201,20 @@ export const fetchInvoices = async (params = {}) => {
   }
 };
 
+export const fetchLiteInvoices = async (params = {}) => {
+  try {
+    const query = new URLSearchParams(params).toString();
+    const url = query
+      ? `${API_BASE_URL}/billing/invoices/lite?${query}`
+      : `${API_BASE_URL}/billing/invoices/lite`;
+
+    const response = await fetch(url);
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching lite invoices:', error);
+    throw error;
+  }
+};
 
 export const fetchInvoiceById = async (id) => {
   try {
@@ -268,6 +282,21 @@ export const recordPayment = async (paymentData) => {
     return await handleResponse(response);
   } catch (error) {
     console.error('Error recording payment:', error);
+    throw error;
+  }
+};
+
+export const fetchPayments = async (params = {}) => {
+  try {
+    const query = new URLSearchParams(params).toString();
+    const url = query
+      ? `${API_BASE_URL}/billing/payments?${query}`
+      : `${API_BASE_URL}/billing/payments`;
+
+    const response = await fetch(url);
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching payments:', error);
     throw error;
   }
 };

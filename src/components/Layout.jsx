@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 import {
   Box,
   Flex,
@@ -8,11 +8,12 @@ import {
   Icon,
   useColorModeValue,
   Avatar,
+  Image,
   Text,
   HStack,
   Badge,
-} from '@chakra-ui/react';
-import { Link as RouterLink, useLocation } from 'react-router-dom';
+} from "@chakra-ui/react";
+import { Link as RouterLink, useLocation } from "react-router-dom";
 import {
   FiHome,
   FiUpload,
@@ -22,17 +23,19 @@ import {
   FiSettings,
   FiDollarSign,
   FiBell,
-} from 'react-icons/fi';
+  FiCreditCard,
+} from "react-icons/fi";
 
 const Layout = ({ children }) => {
   const location = useLocation();
-  
+
   const navItems = [
-    { path: '/', label: 'Dashboard', icon: FiHome },
-    { path: '/accounts', label: 'Accounts', icon: FiUsers },
-    { path: '/invoices', label: 'Invoices', icon: FiFileText },
-    { path: '/reports', label: 'Reports', icon: FiFileText },
-    { path: '/settings', label: 'Settings', icon: FiSettings },
+    { path: "/", label: "Dashboard", icon: FiHome },
+    { path: "/accounts", label: "Accounts", icon: FiUsers },
+    { path: "/invoices", label: "Invoices", icon: FiFileText },
+    { path: "/payments", label: "Payments", icon: FiCreditCard },
+    { path: "/reports", label: "Reports", icon: FiFileText },
+    { path: "/settings", label: "Settings", icon: FiSettings },
   ];
 
   return (
@@ -40,24 +43,25 @@ const Layout = ({ children }) => {
       {/* Sidebar */}
       <Box
         w="250px"
-        bg={useColorModeValue('white', 'gray.800')}
+        bg={useColorModeValue("white", "gray.800")}
         p={4}
         borderRight="1px"
-        borderColor={useColorModeValue('gray.200', 'gray.700')}
+        borderColor={useColorModeValue("gray.200", "gray.700")}
         display="flex"
         flexDirection="column"
       >
-        <HStack mb={8} spacing={3}>
-          <Icon as={FiDollarSign} w={8} h={8} color="blue.500" />
-          <Box>
-            <Heading size="md" color="blue.600">
-              CDR Billing
-            </Heading>
-            <Text fontSize="xs" color="gray.500">
-              Telecom Billing System
-            </Text>
-          </Box>
-        </HStack>
+        <Flex direction="column" align="center" mb={8}>
+          <Image
+            src="/pai-telecom-logo.png"
+            alt="Xoraxsoft logo"
+            boxSize="70px"
+            objectFit="contain"
+          />
+
+          <Text fontSize="xs" color="gray.500" textAlign="center">
+            CDR Billing System
+          </Text>
+        </Flex>
 
         <VStack spacing={1} align="stretch" flex={1}>
           {navItems.map((item) => (
@@ -67,12 +71,12 @@ const Layout = ({ children }) => {
               key={item.path}
               p={3}
               borderRadius="md"
-              bg={location.pathname === item.path ? 'blue.50' : 'transparent'}
-              color={location.pathname === item.path ? 'blue.600' : 'gray.600'}
-              fontWeight={location.pathname === item.path ? '600' : '500'}
+              bg={location.pathname === item.path ? "blue.50" : "transparent"}
+              color={location.pathname === item.path ? "blue.600" : "gray.600"}
+              fontWeight={location.pathname === item.path ? "600" : "500"}
               _hover={{
-                bg: location.pathname === item.path ? 'blue.50' : 'gray.50',
-                textDecoration: 'none',
+                bg: location.pathname === item.path ? "blue.50" : "gray.50",
+                textDecoration: "none",
               }}
               display="flex"
               alignItems="center"
@@ -80,10 +84,16 @@ const Layout = ({ children }) => {
             >
               <Icon as={item.icon} mr={3} />
               {item.label}
-              {item.path === '/invoices' && (
-                <Badge ml="auto" colorScheme="red"  variant="subtle" size="sm" borderRadius={"full"}>
-                  3  
-                </Badge>      //will be replaced by the actual number of pending invoices
+              {item.path === "/invoices" && (
+                <Badge
+                  ml="auto"
+                  colorScheme="red"
+                  variant="subtle"
+                  size="sm"
+                  borderRadius={"full"}
+                >
+                  3
+                </Badge> //will be replaced by the actual number of pending invoices
               )}
             </ChakraLink>
           ))}
@@ -94,10 +104,10 @@ const Layout = ({ children }) => {
           mt="auto"
           p={3}
           borderRadius="md"
-          bg={useColorModeValue('gray.50', 'gray.700')}
+          bg={useColorModeValue("gray.50", "gray.700")}
         >
           <HStack spacing={3}>
-            <Avatar size="sm" name="Admin User" bg="blue.500" />
+            <Avatar size="sm" name="Admin User" color={"white"} bg="blue.700" />
             <Box flex={1}>
               <Text fontWeight="medium" fontSize="sm">
                 Admin User
@@ -106,13 +116,17 @@ const Layout = ({ children }) => {
                 Administrator
               </Text>
             </Box>
-            <Icon as={FiBell} color="gray.500" cursor="pointer" />
+            <Icon as={FiBell} color="blue.500" cursor="pointer" />
           </HStack>
         </Box>
       </Box>
 
       {/* Main Content */}
-      <Box flex={1} overflow="auto" bg={useColorModeValue('gray.50', 'gray.900')}>
+      <Box
+        flex={1}
+        overflow="auto"
+        bg={useColorModeValue("gray.50", "gray.900")}
+      >
         {children}
       </Box>
     </Flex>

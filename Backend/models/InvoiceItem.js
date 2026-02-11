@@ -32,6 +32,14 @@ const InvoiceItem = sequelize.define('InvoiceItem', {
     type: DataTypes.STRING(50),
     comment: 'Country code or prefix'
   },
+  trunk: {
+    type: DataTypes.STRING(100),
+    comment: 'Trunk name (NCLI, CLI, etc.)'
+  },
+  prefix: {
+    type: DataTypes.INTEGER(50),
+    comment: 'Call prefix'
+  },
   
   // Quantity and Duration
   quantity: {

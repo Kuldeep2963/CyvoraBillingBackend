@@ -33,7 +33,7 @@ const GenerateInvoiceModal = ({
   onGenerate,
 }) => {
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="xl">
+    <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside">
       <ModalOverlay />
       <ModalContent>
         <ModalHeader borderTopRadius={"md"} bg={"blue.500"} borderBottomWidth="1px">

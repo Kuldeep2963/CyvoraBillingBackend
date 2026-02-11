@@ -27,9 +27,13 @@ const getCountryCodes = async () => {
   return countryCodesCache;
 };
 
-const getCountryFromNumber = (number, countryCodes) => {
+const getCountryFromNumber = (number, countryCodes, skipPrefix = false) => {
   if (!number) return 'Unknown';
   let cleaned = number.toString().replace(/^(\+|00)/, '');
+  
+  if (skipPrefix && cleaned.length > 5) {
+    cleaned = cleaned.substring(5);
+  }
   
   // Try to match longest prefix first
   const sortedCodes = [...countryCodes].sort((a, b) => b.code.length - a.code.length);
@@ -38,6 +42,16 @@ const getCountryFromNumber = (number, countryCodes) => {
       return cc.country_name;
     }
   }
+  return 'Unknown';
+};
+
+const getTrunkName = (number) => {
+  if (!number) return 'Unknown';
+  const trunkPrefix = number.toString().substring(0, 5);
+  if (trunkPrefix.startsWith('10')) return 'NCLI';
+  if (trunkPrefix.startsWith('20')) return 'CLI';
+  if (trunkPrefix.startsWith('30')) return 'ortp/TDM';
+  if (trunkPrefix.startsWith('40')) return 'CC';
   return 'Unknown';
 };
 
@@ -130,14 +144,17 @@ exports.getDashboardStats = async (req, res) => {
 
     const countryCodes = await getCountryCodes();
     
-    // Group by destination
+    // Group by destination and trunk
     const groupedDestinations = {};
     destinationDataRaw.forEach(item => {
-      const destination = getCountryFromNumber(item.calleee164, countryCodes);
+      const destination = getCountryFromNumber(item.calleee164, countryCodes, true);
+      const trunk = getTrunkName(item.calleee164);
+      const key = `${destination}-${trunk}`;
       
-      if (!groupedDestinations[destination]) {
-        groupedDestinations[destination] = {
+      if (!groupedDestinations[key]) {
+        groupedDestinations[key] = {
           destination,
+          trunk,
           totalCalls: 0,
           completedCalls: 0,
           duration: 0,
@@ -145,11 +162,11 @@ exports.getDashboardStats = async (req, res) => {
           cost: 0
         };
       }
-      groupedDestinations[destination].totalCalls += Number(item.totalCalls);
-      groupedDestinations[destination].completedCalls += Number(item.completedCalls);
-      groupedDestinations[destination].duration += Number(item.duration);
-      groupedDestinations[destination].revenue += Number(item.revenue);
-      groupedDestinations[destination].cost += Number(item.cost);
+      groupedDestinations[key].totalCalls += Number(item.totalCalls);
+      groupedDestinations[key].completedCalls += Number(item.completedCalls);
+      groupedDestinations[key].duration += Number(item.duration);
+      groupedDestinations[key].revenue += Number(item.revenue);
+      groupedDestinations[key].cost += Number(item.cost);
     });
 
     const topDestinations = Object.values(groupedDestinations)
@@ -161,6 +178,7 @@ exports.getDashboardStats = async (req, res) => {
         const cost = item.cost;
         return {
           destination: item.destination,
+          trunk: item.trunk,
           totalCalls: item.totalCalls,
           minutes: parseFloat(minutes.toFixed(2)),
           revenue: parseFloat(revenue.toFixed(4)),

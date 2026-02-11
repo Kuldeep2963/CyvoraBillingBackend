@@ -1,9 +1,3 @@
-/**
- * Invoice Service
- * 
- * Business logic layer for invoice operations
- * Separates business logic from controller/routes
- */
 
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');

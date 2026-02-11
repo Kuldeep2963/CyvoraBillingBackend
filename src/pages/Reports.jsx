@@ -567,305 +567,6 @@ const Reports = () => {
     return metrics;
   }, [reportData]);
 
-  const ReportModal = () => (
-    <Modal
-      isOpen={isModalOpen}
-      onClose={() => setIsModalOpen(false)}
-      size="xl"
-      isCentered
-    >
-      <ModalOverlay backdropFilter="blur(4px)" />
-      <ModalContent>
-        <ModalHeader bg="blue.500" color="white" borderTopRadius="md">
-          <HStack>
-            <FiFilter />
-            <Text>
-              Generate{" "}
-              {
-                ["Hourly", "Margin", "Negative Margin", "Customer Traffic"][
-                  activeTab
-                ]
-              }{" "}
-              Report
-            </Text>
-          </HStack>
-        </ModalHeader>
-        <ModalCloseButton color="white" />
-        <ModalBody py={6}>
-          <VStack spacing={6} align="stretch">
-            <Box>
-              <FormLabel fontWeight="bold">Date Range</FormLabel>
-              <HStack mb={3}>
-                {[
-                  { label: "Today", days: 0 },
-                  { label: "Yesterday", days: 1 },
-                  { label: "Last 7 Days", days: 7 },
-                  { label: "Last 30 Days", days: 30 },
-                  { label: "Last 90 Days", days: 90 },
-                ].map((option) => (
-                  <Button
-                    key={option.label}
-                    size="xs"
-                    variant="outline"
-                    onClick={() => {
-                      const end = new Date();
-                      const start = new Date();
-                      start.setDate(start.getDate() - option.days);
-                      setDateRange({
-                        startDate: start,
-                        endDate: end,
-                        startHour: 0,
-                        endHour: 23,
-                      });
-                    }}
-                  >
-                    {option.label}
-                  </Button>
-                ))}
-              </HStack>
-              <HStack>
-                <Box flex={1}>
-                  <FormLabel fontSize="sm">Start Date</FormLabel>
-                  <DatePicker
-                    selected={dateRange.startDate}
-                    onChange={(date) =>
-                      setDateRange({ ...dateRange, startDate: date })
-                    }
-                    selectsStart
-                    startDate={dateRange.startDate}
-                    endDate={dateRange.endDate}
-                    dateFormat="yyyy-MM-dd"
-                    customInput={<Input />}
-                    isClearable
-                  />
-                </Box>
-                <Box flex={1}>
-                  <FormLabel fontSize="sm">End Date</FormLabel>
-                  <DatePicker
-                    selected={dateRange.endDate}
-                    onChange={(date) =>
-                      setDateRange({ ...dateRange, endDate: date })
-                    }
-                    selectsEnd
-                    startDate={dateRange.startDate}
-                    endDate={dateRange.endDate}
-                    minDate={dateRange.startDate}
-                    dateFormat="yyyy-MM-dd"
-                    customInput={<Input />}
-                    isClearable
-                  />
-                </Box>
-              </HStack>
-              <HStack mt={4} spacing={4}>
-                <Box flex={1}>
-                  <FormLabel fontSize="sm">From Hour</FormLabel>
-                  <Menu>
-                    <MenuButton as={Button} size="sm" variant="outline">
-                      {dateRange.startHour.toString().padStart(2, "0")}:00
-                    </MenuButton>
-                    <MenuList maxH="200px" overflowY="auto">
-                      {[...Array(24).keys()].map((hour) => (
-                        <MenuItem
-                          key={hour}
-                          onClick={() =>
-                            setDateRange({ ...dateRange, startHour: hour })
-                          }
-                        >
-                          {hour.toString().padStart(2, "0")}:00
-                        </MenuItem>
-                      ))}
-                    </MenuList>
-                  </Menu>
-                </Box>
-                <Box flex={1}>
-                  <FormLabel fontSize="sm">To Hour</FormLabel>
-                  <Menu>
-                    <MenuButton as={Button} size="sm" variant="outline">
-                      {dateRange.endHour.toString().padStart(2, "0")}:59
-                    </MenuButton>
-                    <MenuList maxH="200px" overflowY="auto">
-                      {[...Array(24).keys()].map((hour) => (
-                        <MenuItem
-                          key={hour}
-                          onClick={() =>
-                            setDateRange({ ...dateRange, endHour: hour })
-                          }
-                        >
-                          {hour.toString().padStart(2, "0")}:59
-                        </MenuItem>
-                      ))}
-                    </MenuList>
-                  </Menu>
-                </Box>
-              </HStack>
-              <Text fontSize="xs" color="gray.500" mt={2}>
-                {Math.ceil(
-                  (dateRange.endDate - dateRange.startDate) /
-                    (1000 * 60 * 60 * 24),
-                )}{" "}
-                days selected
-              </Text>
-            </Box>
-
-            <FormControl>
-              <FormLabel fontWeight="bold">
-                {isVendorReport ? "Vendor Account" : "Customer Account"}
-              </FormLabel>
-              <Select
-                value={selectedAccount}
-                onChange={(e) => setSelectedAccount(e.target.value)}
-                placeholder={
-                  accountsLoading ? "Loading accounts..." : "Select an account"
-                }
-                isDisabled={accountsLoading}
-              >
-                <option value="all">All Accounts</option>
-                <option value="top10">Top 10 Accounts by Revenue</option>
-                <option value="active">Active Accounts Only</option>
-                {(isVendorReport ? accounts.vendors : accounts.customers).map(
-                  (account) => (
-                    <option
-                      key={account.id || account._id}
-                      value={
-                        isVendorReport
-                          ? account.vendorCode
-                          : account.customerCode
-                      }
-                    >
-                      {account.customerCode} ({account.accountName})
-                    </option>
-                  ),
-                )}
-              </Select>
-            </FormControl>
-
-            <Accordion allowToggle>
-              <AccordionItem border="none">
-                <AccordionButton px={0} py={2}>
-                  <Box flex="1" textAlign="left" fontWeight="medium">
-                    Advanced Options
-                  </Box>
-                  <AccordionIcon />
-                </AccordionButton>
-                <AccordionPanel px={0} pb={0}>
-                  <VStack spacing={4} align="stretch">
-                    {activeTab === 0 && (
-                      <FormControl display="flex" alignItems="center">
-                        <Switch
-                          id="vendor-report"
-                          isChecked={isVendorReport}
-                          onChange={(e) => {
-                            setIsVendorReport(e.target.checked);
-                            setSelectedAccount("all");
-                          }}
-                          colorScheme="blue"
-                          size="lg"
-                        />
-                        <FormLabel htmlFor="vendor-report" mb={0} ml={3}>
-                          Generate Vendor Report
-                        </FormLabel>
-                      </FormControl>
-                    )}
-
-                    {activeTab === 2 && (
-                      <FormControl>
-                        <FormLabel>Negative Margin Threshold</FormLabel>
-                        <HStack spacing={4}>
-                          <NumberInput
-                            value={marginThreshold}
-                            onChange={(value) => setMarginThreshold(value)}
-                            precision={2}
-                            step={0.1}
-                            min={-100}
-                            max={0}
-                            width="150px"
-                          >
-                            <NumberInputField />
-                            <NumberInputStepper>
-                              <NumberIncrementStepper />
-                              <NumberDecrementStepper />
-                            </NumberInputStepper>
-                          </NumberInput>
-                          <Slider
-                            value={marginThreshold}
-                            onChange={(value) => setMarginThreshold(value)}
-                            min={-100}
-                            max={0}
-                            step={1}
-                            width="200px"
-                          >
-                            <SliderTrack>
-                              <SliderFilledTrack bg="red.500" />
-                            </SliderTrack>
-                            <SliderThumb />
-                          </Slider>
-                        </HStack>
-                        <Text fontSize="sm" color="gray.500" mt={1}>
-                          Show calls with margin below: {marginThreshold}%
-                        </Text>
-                      </FormControl>
-                    )}
-
-                    <FormControl>
-                      <FormLabel>Time Granularity</FormLabel>
-                      <Select
-                        value={timeGranularity}
-                        onChange={(e) => setTimeGranularity(e.target.value)}
-                      >
-                        <option value="hour">Hourly</option>
-                        <option value="day">Daily</option>
-                        <option value="week">Weekly</option>
-                        <option value="month">Monthly</option>
-                      </Select>
-                    </FormControl>
-
-                    <FormControl>
-                      <FormLabel>Result Limit</FormLabel>
-                      <Select
-                        value={rowsPerPage}
-                        onChange={(e) =>
-                          setRowsPerPage(parseInt(e.target.value))
-                        }
-                      >
-                        <option value={50}>50 rows</option>
-                        <option value={100}>100 rows</option>
-                        <option value={250}>250 rows</option>
-                        <option value={500}>500 rows</option>
-                        <option value={1000}>1000 rows</option>
-                      </Select>
-                    </FormControl>
-                  </VStack>
-                </AccordionPanel>
-              </AccordionItem>
-            </Accordion>
-          </VStack>
-        </ModalBody>
-
-        <ModalFooter>
-          <HStack spacing={6} width="100%">
-            <Button
-              variant="outline"
-              onClick={() => setIsModalOpen(false)}
-              flex={1}
-            >
-              Cancel
-            </Button>
-            <Button
-              colorScheme="blue"
-              onClick={handleGenerateReport}
-              isLoading={loading}
-              leftIcon={<FiFilter />}
-              flex={2}
-              size="md"
-            >
-              Generate Report
-            </Button>
-          </HStack>
-        </ModalFooter>
-      </ModalContent>
-    </Modal>
-  );
-
   const ReportSummary = () => {
     if (!reportSummary || Object.keys(reportSummary).length === 0) return null;
 
@@ -2110,7 +1811,323 @@ const Reports = () => {
         </TabPanels>
       </Tabs>
 
-      <ReportModal />
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        size="xl"
+        isCentered
+        scrollBehavior="inside"
+      >
+        <ModalOverlay backdropFilter="blur(4px)" />
+        <ModalContent>
+          <ModalHeader bg="blue.500" color="white" borderTopRadius="md">
+            <HStack>
+              <FiFilter />
+              <Text>
+                Generate{" "}
+                {
+                  ["Hourly", "Margin", "Negative Margin", "Customer Traffic"][
+                    activeTab
+                  ]
+                }{" "}
+                Report
+              </Text>
+            </HStack>
+          </ModalHeader>
+          <ModalCloseButton color="white" />
+          <ModalBody py={6}>
+            <VStack spacing={6} align="stretch">
+              <Box>
+                <FormLabel fontWeight="bold">Date Range</FormLabel>
+                <HStack mb={3}>
+                  {[
+                    { label: "Today", days: 0 },
+                    { label: "Yesterday", days: 1 },
+                    { label: "Last 7 Days", days: 7 },
+                    { label: "Last 30 Days", days: 30 },
+                    { label: "Last 90 Days", days: 90 },
+                  ].map((option) => (
+                    <Button
+                      key={option.label}
+                      size="xs"
+                      variant="outline"
+                      onClick={() => {
+                        const end = new Date();
+                        const start = new Date();
+                        start.setDate(start.getDate() - option.days);
+                        setDateRange({
+                          startDate: start,
+                          endDate: end,
+                          startHour: 0,
+                          endHour: 23,
+                        });
+                      }}
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </HStack>
+                <HStack>
+                  <Box flex={1}>
+                    <FormLabel fontSize="sm">Start Date</FormLabel>
+                    <DatePicker
+                      selected={dateRange.startDate}
+                      onChange={(date) =>
+                        setDateRange({ ...dateRange, startDate: date })
+                      }
+                      selectsStart
+                      startDate={dateRange.startDate}
+                      endDate={dateRange.endDate}
+                      dateFormat="yyyy-MM-dd"
+                      customInput={<Input />}
+                      isClearable
+                    />
+                  </Box>
+                  <Box flex={1}>
+                    <FormLabel fontSize="sm">End Date</FormLabel>
+                    <DatePicker
+                      selected={dateRange.endDate}
+                      onChange={(date) =>
+                        setDateRange({ ...dateRange, endDate: date })
+                      }
+                      selectsEnd
+                      startDate={dateRange.startDate}
+                      endDate={dateRange.endDate}
+                      minDate={dateRange.startDate}
+                      dateFormat="yyyy-MM-dd"
+                      customInput={<Input />}
+                      isClearable
+                    />
+                  </Box>
+                </HStack>
+                <HStack mt={4} spacing={4}>
+                  <Box flex={1}>
+                    <FormLabel fontSize="sm">From Hour</FormLabel>
+                    <Menu>
+                      <MenuButton as={Button} size="sm" variant="outline">
+                        {dateRange.startHour.toString().padStart(2, "0")}:00
+                      </MenuButton>
+                      <MenuList maxH="200px" overflowY="auto">
+                        {[...Array(24).keys()].map((hour) => (
+                          <MenuItem
+                            key={hour}
+                            onClick={() =>
+                              setDateRange({ ...dateRange, startHour: hour })
+                            }
+                          >
+                            {hour.toString().padStart(2, "0")}:00
+                          </MenuItem>
+                        ))}
+                      </MenuList>
+                    </Menu>
+                  </Box>
+                  <Box flex={1}>
+                    <FormLabel fontSize="sm">To Hour</FormLabel>
+                    <Menu>
+                      <MenuButton as={Button} size="sm" variant="outline">
+                        {dateRange.endHour.toString().padStart(2, "0")}:59
+                      </MenuButton>
+                      <MenuList maxH="200px" overflowY="auto">
+                        {[...Array(24).keys()].map((hour) => (
+                          <MenuItem
+                            key={hour}
+                            onClick={() =>
+                              setDateRange({ ...dateRange, endHour: hour })
+                            }
+                          >
+                            {hour.toString().padStart(2, "0")}:59
+                          </MenuItem>
+                        ))}
+                      </MenuList>
+                    </Menu>
+                  </Box>
+                </HStack>
+                <Text fontSize="xs" color="gray.500" mt={2}>
+                  {Math.ceil(
+                    (dateRange.endDate - dateRange.startDate) /
+                      (1000 * 60 * 60 * 24),
+                  )}{" "}
+                  days selected
+                </Text>
+              </Box>
+
+              <FormControl>
+                <FormLabel fontWeight="bold">
+                  {isVendorReport ? "Vendor Account" : "Customer Account"}
+                </FormLabel>
+                <Select
+                  value={selectedAccount}
+                  onChange={(e) => setSelectedAccount(e.target.value)}
+                  placeholder={
+                    accountsLoading
+                      ? "Loading accounts..."
+                      : "Select an account"
+                  }
+                  isDisabled={accountsLoading}
+                >
+                  <option value="all">All Accounts</option>
+                  <option value="top10">Top 10 Accounts by Revenue</option>
+                  <option value="active">Active Accounts Only</option>
+                  {(isVendorReport ? accounts.vendors : accounts.customers).map(
+                    (account) => (
+                      <option
+                        key={account.id || account._id}
+                        value={
+                          isVendorReport
+                            ? account.vendorCode
+                            : account.customerCode
+                        }
+                      >
+                        {account.customerCode} ({account.accountName})
+                      </option>
+                    ),
+                  )}
+                </Select>
+              </FormControl>
+
+              <Accordion allowToggle>
+                <AccordionItem border="none">
+                  <AccordionButton px={0} py={2}>
+                    <Box flex="1" textAlign="left" fontWeight="medium">
+                      Advanced Options
+                    </Box>
+                    <AccordionIcon />
+                  </AccordionButton>
+                  <AccordionPanel px={0} pb={0}>
+                    <VStack spacing={4} align="stretch">
+                      {[0, 1].includes(activeTab) && (
+                        <FormControl display="flex" alignItems="center">
+                          <Switch
+                            id="vendor-report"
+                            isChecked={isVendorReport}
+                            onChange={(e) => {
+                              setIsVendorReport(e.target.checked);
+                              setSelectedAccount("all");
+                            }}
+                            colorScheme="blue"
+                            size="lg"
+                          />
+                          <FormLabel htmlFor="vendor-report" mb={0} ml={3}>
+                            Generate Vendor Report
+                          </FormLabel>
+                        </FormControl>
+                      )}
+
+                      {activeTab === 3 && (
+                        <FormControl display="flex" alignItems="center">
+                          <Switch
+                            id="vendor-traffic"
+                            isChecked={isVendorReport}
+                            onChange={(e) => {
+                              setIsVendorReport(e.target.checked);
+                              setSelectedAccount("all");
+                            }}
+                            colorScheme="blue"
+                            size="lg"
+                          />
+                          <FormLabel htmlFor="vendor-traffic" mb={0} ml={3}>
+                            Show Vendor Traffic instead
+                          </FormLabel>
+                        </FormControl>
+                      )}
+
+                      {activeTab === 2 && (
+                        <FormControl>
+                          <FormLabel>Negative Margin Threshold</FormLabel>
+                          <HStack spacing={4}>
+                            <NumberInput
+                              value={marginThreshold}
+                              onChange={(value) => setMarginThreshold(value)}
+                              precision={2}
+                              step={0.1}
+                              min={-100}
+                              max={0}
+                              width="150px"
+                            >
+                              <NumberInputField />
+                              <NumberInputStepper>
+                                <NumberIncrementStepper />
+                                <NumberDecrementStepper />
+                              </NumberInputStepper>
+                            </NumberInput>
+                            <Slider
+                              value={marginThreshold}
+                              onChange={(value) => setMarginThreshold(value)}
+                              min={-100}
+                              max={0}
+                              step={1}
+                              width="200px"
+                            >
+                              <SliderTrack>
+                                <SliderFilledTrack bg="red.500" />
+                              </SliderTrack>
+                              <SliderThumb />
+                            </Slider>
+                          </HStack>
+                          <Text fontSize="sm" color="gray.500" mt={1}>
+                            Show calls with margin below: {marginThreshold}%
+                          </Text>
+                        </FormControl>
+                      )}
+
+                      <FormControl>
+                        <FormLabel>Time Granularity</FormLabel>
+                        <Select
+                          value={timeGranularity}
+                          onChange={(e) => setTimeGranularity(e.target.value)}
+                        >
+                          <option value="hour">Hourly</option>
+                          <option value="day">Daily</option>
+                          <option value="week">Weekly</option>
+                          <option value="month">Monthly</option>
+                        </Select>
+                      </FormControl>
+
+                      <FormControl>
+                        <FormLabel>Result Limit</FormLabel>
+                        <Select
+                          value={rowsPerPage}
+                          onChange={(e) =>
+                            setRowsPerPage(parseInt(e.target.value))
+                          }
+                        >
+                          <option value={50}>50 rows</option>
+                          <option value={100}>100 rows</option>
+                          <option value={250}>250 rows</option>
+                          <option value={500}>500 rows</option>
+                          <option value={1000}>1000 rows</option>
+                        </Select>
+                      </FormControl>
+                    </VStack>
+                  </AccordionPanel>
+                </AccordionItem>
+              </Accordion>
+            </VStack>
+          </ModalBody>
+
+          <ModalFooter>
+            <HStack spacing={6} width="100%">
+              <Button
+                variant="outline"
+                onClick={() => setIsModalOpen(false)}
+                flex={1}
+              >
+                Cancel
+              </Button>
+              <Button
+                colorScheme="blue"
+                onClick={handleGenerateReport}
+                isLoading={loading}
+                leftIcon={<FiFilter />}
+                flex={2}
+                size="md"
+              >
+                Generate Report
+              </Button>
+            </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Container>
   );
 };

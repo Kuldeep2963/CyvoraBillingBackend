@@ -24,6 +24,10 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.STRING(255),
     allowNull: false
   },
+  customerCode: {
+    type: DataTypes.STRING(100),
+    allowNull: true
+  },
   
   // Payment Details
   amount: {

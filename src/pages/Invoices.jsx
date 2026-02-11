@@ -125,6 +125,7 @@ import {
   recordPayment
 } from "../utils/api";
 import { format, differenceInDays, isBefore, subDays } from "date-fns";
+import html2pdf from "html2pdf.js";
 
 const Invoices = () => {
   const [invoices, setInvoices] = useState([]);
@@ -230,11 +231,12 @@ const Invoices = () => {
     const thirtyDaysAgo = subDays(now, 30);
     
     const paidInvoices = invoices.filter(inv => inv.status === "paid");
-    const pendingInvoices = invoices.filter(inv => ["sent", "generated", "pending", "partial"].includes(inv.status));
+    const sentInvoices = invoices.filter(inv => inv.status === "sent");
+    const pendingInvoices = invoices.filter(inv => ["generated", "pending", "partial"].includes(inv.status));
     const overdueInvoices = invoices.filter(inv => inv.status === "overdue");
     
     const totalRevenue = invoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || 0), 0);
-    const pendingRevenue = pendingInvoices.reduce((sum, inv) => sum + parseFloat(inv.balanceAmount || 0), 0);
+    const pendingRevenue = invoices.filter(inv => ["sent", "generated", "pending", "partial", "overdue"].includes(inv.status)).reduce((sum, inv) => sum + parseFloat(inv.balanceAmount || 0), 0);
     const collectedRevenue = invoices.reduce((sum, inv) => sum + parseFloat(inv.paidAmount || 0), 0);
     const overdueAmount = overdueInvoices.reduce((sum, inv) => sum + parseFloat(inv.balanceAmount || 0), 0);
     
@@ -259,6 +261,7 @@ const Invoices = () => {
       totalCalls,
       averageInvoice,
       paidInvoices: paidInvoices.length,
+      sentInvoices: sentInvoices.length,
       pendingInvoices: pendingInvoices.length,
       overdueInvoices: overdueInvoices.length,
       collectionRate,
@@ -340,374 +343,285 @@ const Invoices = () => {
           <title>Invoice ${invoice.invoiceNumber}</title>
           <style>
             body { 
-              font-family: Arial, sans-serif; 
-              margin: 20px; 
-              font-size: 12px;
-              line-height: 1.4;
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+              margin: 0; 
+              padding: 0;
+              color: #333;
+              background-color: #fff;
+            }
+            .invoice-container {
+              padding: 40px;
+              max-width: 800px;
+              margin: 0 auto;
             }
             .invoice-header {
               display: flex;
               justify-content: space-between;
-              margin-bottom: 30px;
-              border-bottom: 2px solid #000;
+              margin-bottom: 40px;
+              border-bottom: 3px solid #1a365d;
               padding-bottom: 20px;
             }
-            .from-address, .to-address {
-              width: 48%;
+            .company-logo {
+              font-size: 28px;
+              font-weight: bold;
+              color: #1a365d;
             }
             .invoice-title {
-              font-size: 24px;
+              font-size: 32px;
               font-weight: bold;
-              margin-bottom: 5px;
+              color: #2d3748;
+              text-align: right;
             }
-            .company-name {
+            .address-section {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 40px;
+            }
+            .address-box {
+              width: 45%;
+            }
+            .address-label {
+              font-weight: bold;
+              color: #4a5568;
+              text-transform: uppercase;
+              font-size: 12px;
+              margin-bottom: 8px;
+              border-bottom: 1px solid #e2e8f0;
+              padding-bottom: 4px;
+            }
+            .address-content {
+              font-size: 14px;
+              line-height: 1.6;
+            }
+            .details-grid {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 20px;
+              background-color: #f7fafc;
+              padding: 20px;
+              border-radius: 8px;
+              margin-bottom: 40px;
+              border: 1px solid #e2e8f0;
+            }
+            .detail-item {
+              display: flex;
+              flex-direction: column;
+            }
+            .detail-label {
+              font-size: 11px;
+              color: #718096;
+              text-transform: uppercase;
+              font-weight: bold;
+            }
+            .detail-value {
+              font-size: 14px;
+              color: #2d3748;
+              font-weight: 600;
+            }
+            .table-section {
+              margin-bottom: 40px;
+            }
+            .invoice-table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 12px;
+            }
+            .invoice-table th {
+              background-color: #1a365d;
+              color: white;
+              text-align: left;
+              padding: 12px 8px;
+              text-transform: uppercase;
+              font-weight: 600;
+            }
+            .invoice-table td {
+              padding: 10px 8px;
+              border-bottom: 1px solid #e2e8f0;
+            }
+            .invoice-table tr:nth-child(even) {
+              background-color: #f8fafc;
+            }
+            .text-right { text-align: right; }
+            .totals-section {
+              display: flex;
+              justify-content: flex-end;
+              margin-bottom: 40px;
+            }
+            .totals-box {
+              width: 250px;
+            }
+            .total-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 8px 0;
+              font-size: 14px;
+            }
+            .total-grand {
+              border-top: 2px solid #1a365d;
+              margin-top: 8px;
+              padding-top: 12px;
+              font-weight: bold;
+              font-size: 18px;
+              color: #1a365d;
+            }
+            .bank-section {
+              background-color: #f8fafc;
+              padding: 20px;
+              border-radius: 8px;
+              border-left: 4px solid #1a365d;
+              font-size: 12px;
+            }
+            .bank-title {
               font-weight: bold;
               margin-bottom: 10px;
-              font-size: 16px;
+              color: #1a365d;
+              text-transform: uppercase;
             }
-            .invoice-details {
-              margin-bottom: 30px;
-              border: 1px solid #ddd;
-              padding: 15px;
-              background-color: #f9f9f9;
-            }
-            .invoice-details table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-            .invoice-details td {
-              padding: 5px;
-              vertical-align: top;
-            }
-            .invoice-details td:first-child {
-              font-weight: bold;
-              width: 25%;
-            }
-            .summary-table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-bottom: 30px;
-              border: 1px solid #000;
-            }
-            .summary-table td, .summary-table th {
-              padding: 12px;
-              border: 1px solid #000;
-              text-align: left;
-            }
-            .summary-table th {
-              background-color: #f0f0f0;
-              font-weight: bold;
-            }
-            .summary-table .total-row {
-              font-weight: bold;
-              background-color: #f0f0f0;
-            }
-            .detail-table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-bottom: 40px;
+            .footer {
+              margin-top: 60px;
+              text-align: center;
               font-size: 11px;
+              color: #a0aec0;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 20px;
             }
-            .detail-table td, .detail-table th {
-              padding: 8px 5px;
-              border: 1px solid #ddd;
-              text-align: left;
-            }
-            .detail-table th {
-              background-color: #f5f5f5;
-              font-weight: bold;
-            }
-            .detail-table .section-header {
-              background-color: #e9e9e9;
-              font-weight: bold;
-            }
-            .bank-details {
-              margin-top: 40px;
-              padding: 15px;
-              border: 1px solid #ddd;
-              background-color: #f9f9f9;
-            }
-            .bank-details table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-            .bank-details td {
-              padding: 5px;
-              vertical-align: top;
-            }
-            .bank-details td:first-child {
-              font-weight: bold;
-              width: 30%;
-            }
-            .office-address {
-              margin-top: 30px;
-              font-style: italic;
-              color: #666;
-            }
-            .page-break {
-              page-break-before: always;
-            }
-            @media print {
-              body { margin: 0; padding: 10px; }
-              .page-break { page-break-before: always; }
-            }
+            .page-break { page-break-before: always; }
           </style>
         </head>
         <body>
-          <!-- Page 1: Invoice Header and Summary -->
-          <div class="invoice-header">
-            <div class="from-address">
-              <div class="invoice-title">Invoice From</div>
-              <div class="company-name">PAI Telecommunications</div>
-              <div>ROOM D5, 5 FLOOR, KING YIP FACTORY BUILDING,</div>
-              <div>NO. 59 KING YIP STREET,</div>
-              <div>KWUNG TONG, KOWLOON,</div>
-              <div>HONG KONG</div>
+          <div id="invoice-content" class="invoice-container">
+            <div class="invoice-header">
+              <div class="company-logo">PAI TELECOMM</div>
+              <div class="invoice-title">${invoice.invoiceNumber}</div>
             </div>
-            <div class="to-address">
-              <div class="invoice-title">Invoice To</div>
-              <div class="company-name">${invoice.customerName || 'Dial Tel PTE. LTD.'}</div>
-              <div>${invoice.customerAddress || '2 Kallang Ave., #07-31 CT Hub, Singapore 339407'}</div>
-              <div>${invoice.customerCountry || 'SINGAPORE'}</div>
+
+            <div class="address-section">
+              <div class="address-box">
+                <div class="address-label">From</div>
+                <div class="address-content">
+                  <strong>Pai Telecomm Private Limited</strong><br>
+                  810, 8th floor, vipul bussiness park<br>
+                  sector-46, Gurgaon<br>
+                  122018<br>
+                  Email: accounts@paitelecomm.com
+                </div>
+              </div>
+              <div class="address-box">
+                <div class="address-label">Bill To</div>
+                <div class="address-content">
+                  <strong>${invoice.customerName || 'Customer'}</strong><br>
+                  ${invoice.customerAddress || ''}<br>
+                  ${invoice.customerEmail || ''}<br>
+                  ${invoice.customerPhone || ''}
+                </div>
+              </div>
             </div>
-          </div>
-          
-          <div class="invoice-details">
-            <table>
-              <tr>
-                <td>Invoice No:</td>
-                <td>${invoice.invoiceNumber || 'INVHK155565'}</td>
-                <td>Invoice Date:</td>
-                <td>${format(new Date(parseInt(invoice.invoiceDate)), "dd-MM-yyyy") || '09-02-2026'}</td>
-              </tr>
-              <tr>
-                <td>Due Date:</td>
-                <td>${format(new Date(parseInt(invoice.dueDate)), "dd-MM-yyyy") || '12-02-2026'}</td>
-                <td>Invoice Period:</td>
-                <td>${format(new Date(parseInt(invoice.billingPeriodStart)), "dd-MM-yyyy") || '02-02-2026'} - ${format(new Date(parseInt(invoice.billingPeriodEnd)), "dd-MM-yyyy") || '08-02-2026'}</td>
-              </tr>
-            </table>
-          </div>
-          
-          <table class="summary-table">
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th>Usage</th>
-                <th>Recurring</th>
-                <th>TOTAL</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Traffic Summary</td>
-                <td>$${(parseFloat(invoice.subtotal) || 837096.4158).toFixed(4)}</td>
-                <td>$0.0000</td>
-                <td>$${(parseFloat(invoice.subtotal) || 837096.4158).toFixed(4)}</td>
-              </tr>
-              <tr class="total-row">
-                <td>Sub Total</td>
-                <td></td>
-                <td></td>
-                <td>$${(parseFloat(invoice.subtotal) || 837096.4158).toFixed(4)}</td>
-              </tr>
-              <tr class="total-row">
-                <td>Grand Total</td>
-                <td></td>
-                <td></td>
-                <td>$${(parseFloat(invoice.totalAmount) || 837096.4158).toFixed(4)}</td>
-              </tr>
-            </tbody>
-          </table>
-          
-          <div class="office-address">
-            <div>Office Address: ROOM D5, 5 FLOOR, KING YIP FACTORY BUILDING, NO. 59 KING YIP STREET, KWUNG TONG, KOWLOON, HONG KONG</div>
-          </div>
-          
-          <div class="bank-details">
-            <table>
-              <tr>
-                <td>Account Name:</td>
-                <td>Pai Telecommunications Limited</td>
-              </tr>
-              <tr>
-                <td>Billing Address:</td>
-                <td>accounts@paitelecomm.com</td>
-              </tr>
-              <tr>
-                <td>Bank Name:</td>
-                <td>Bank Of ChinaBank</td>
-              </tr>
-              <tr>
-                <td>Bank Address:</td>
-                <td>BANK OF CHINA, BANK OF CHINA TOWER, 1 GARDEN ROAD, CENTRAL, HONG KONG</td>
-              </tr>
-              <tr>
-                <td>Account/IBAN Number:</td>
-                <td>012-687-2-011894-5 (USD)</td>
-              </tr>
-              <tr>
-                <td>Swift Code:</td>
-                <td>BKCHHKHHXXX</td>
-              </tr>
-              <tr>
-                <td>Bank Code:</td>
-                <td>012</td>
-              </tr>
-            </table>
-          </div>
-          
-          <!-- Page 2: Simple Summary -->
-          <div class="page-break"></div>
-          <div style="text-align: center; margin-top: 100px; font-size: 72px;">
-            ${(parseFloat(invoice.totalAmount) || 837096.4158).toFixed(4)}
-          </div>
-          
-          <table style="width: 100%; margin-top: 50px; border-collapse: collapse;">
-            <tr>
-              <td style="padding: 10px;">Title</td>
-              <td style="padding: 10px;">Description</td>
-              <td style="padding: 10px;">Date From</td>
-              <td style="padding: 10px;">Date To</td>
-              <td style="padding: 10px;">Price</td>
-              <td style="padding: 10px;">Quantity</td>
-              <td style="padding: 10px;">TOTAL</td>
-            </tr>
-            <tr>
-              <td style="padding: 10px;">Usage From ${format(new Date(parseInt(invoice.billingPeriodStart)), "dd-MM-yyyy") || '02-02-2026'}</td>
-              <td style="padding: 10px;">To ${format(new Date(parseInt(invoice.billingPeriodEnd)), "dd-MM-yyyy") || '08-02-2026'}</td>
-              <td style="padding: 10px;">${format(new Date(parseInt(invoice.billingPeriodEnd)), "dd-MM-yyyy") || '08-02-2026'}</td>
-              <td style="padding: 10px;"></td>
-              <td style="padding: 10px;">${(parseFloat(invoice.totalAmount) || 837096.4158).toFixed(4)}</td>
-              <td style="padding: 10px;">1</td>
-              <td style="padding: 10px;">${(parseFloat(invoice.totalAmount) || 837096.4158).toFixed(4)}</td>
-            </tr>
-          </table>
-          
-          <div class="office-address" style="margin-top: 100px;">
-            <div>Office Address: ROOM D5, 5 FLOOR, KING YIP FACTORY BUILDING, NO. 59 KING YIP STREET, KWUNG TONG, KOWLOON, HONG KONG</div>
-          </div>
-          
-          <!-- Page 3: Detailed Call Logs -->
-          <div class="page-break"></div>
-          <h2>Usage</h2>
-          
-          <table class="detail-table">
-            <thead>
-              <tr>
-                <th>Trunk</th>
-                <th>Prefix</th>
-                <th>Country</th>
-                <th>Description</th>
-                <th>No of calls</th>
-                <th>Duration</th>
-                <th>Billed Duration</th>
-                <th>Avg Rate/Min</th>
-                <th>Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${invoice.items && invoice.items.length > 0 ? 
-                invoice.items.map(item => `
+
+            <div class="details-grid">
+              <div class="detail-item">
+                <span class="detail-label">Invoice Number</span>
+                <span class="detail-value">${invoice.invoiceNumber}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Invoice Date</span>
+                <span class="detail-value">${format(new Date(parseInt(invoice.invoiceDate)), "dd-MM-yyyy")}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Due Date</span>
+                <span class="detail-value">${format(new Date(parseInt(invoice.dueDate)), "dd-MM-yyyy")}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Billing Period</span>
+                <span class="detail-value">${format(new Date(parseInt(invoice.billingPeriodStart)), "dd MMM")} - ${format(new Date(parseInt(invoice.billingPeriodEnd)), "dd MMM yyyy")}</span>
+              </div>
+            </div>
+
+            <div class="table-section">
+              <table class="invoice-table">
+                <thead>
                   <tr>
-                    <td>${item.trunk || 'CLI216'}</td>
-                    <td>${item.prefix || ''}</td>
-                    <td>${item.country || 'TUNISIA'}</td>
-                    <td>${item.description || 'TUNISIA MOBILE'}</td>
-                    <td>${item.totalCalls || '0'}</td>
-                    <td>${formatDuration(item.duration) || '0:00'}</td>
-                    <td>${formatDuration(item.billedDuration) || '0:00'}</td>
-                    <td>$${parseFloat(item.avgRate).toFixed(4) || '0.7001'}</td>
-                    <td>$${parseFloat(item.amount).toFixed(4) || '0.0000'}</td>
+                    <th>Trunk</th>
+                    <th>Prefix</th>
+                    <th>Destination</th>
+                    <th>Description</th>
+                    <th class="text-right">Calls</th>
+                    <th class="text-right">Duration (Min)</th>
+                    <th class="text-right">Rate</th>
+                    <th class="text-right">Amount</th>
                   </tr>
-                `).join('') : 
-                // Sample data if no items provided
-                `
-                <tr>
-                  <td>CLI216</td>
-                  <td></td>
-                  <td>TUNISIA</td>
-                  <td>TUNISIA</td>
-                  <td>1</td>
-                  <td>121935718:11</td>
-                  <td>121935718:11</td>
-                  <td>$0.7001</td>
-                  <td>$25,006.3039</td>
-                </tr>
-                <tr>
-                  <td>CLI2162</td>
-                  <td></td>
-                  <td>TUNISIA</td>
-                  <td>TUNISIA MOBILE ORASCOM</td>
-                  <td>4</td>
-                  <td>1433134577:40</td>
-                  <td>1433134577:40</td>
-                  <td>$0.7001</td>
-                  <td>$94,217.8383</td>
-                </tr>
-                `
-              }
-              <tr class="section-header">
-                <td colspan="4">TOTAL</td>
-                <td>${invoice.totalCalls || '372268'}</td>
-                <td>${formatTotalDuration(invoice.totalDuration) || '1195681:2'}</td>
-                <td>${formatTotalDuration(invoice.totalDuration) || '1195681:2'}</td>
-                <td></td>
-                <td>$${(parseFloat(invoice.totalAmount) || 837096.4158).toFixed(4)}</td>
-              </tr>
-            </tbody>
-          </table>
-          
-          <div class="bank-details">
-            <table>
-              <tr>
-                <td>Account Name:</td>
-                <td>Pai Telecommunications Limited</td>
-              </tr>
-              <tr>
-                <td>Billing Address:</td>
-                <td>accounts@paitelecomm.com</td>
-              </tr>
-              <tr>
-                <td>Bank Name:</td>
-                <td>Bank Of ChinaBank</td>
-              </tr>
-              <tr>
-                <td>Bank Address:</td>
-                <td>BANK OF CHINA, BANK OF CHINA TOWER, 1 GARDEN ROAD, CENTRAL, HONG KONG</td>
-              </tr>
-              <tr>
-                <td>Account/IBAN Number:</td>
-                <td>012-687-2-011894-5 (USD)</td>
-              </tr>
-              <tr>
-                <td>Swift Code:</td>
-                <td>BKCHHKHHXXX</td>
-              </tr>
-              <tr>
-                <td>Bank Code:</td>
-                <td>012</td>
-              </tr>
-            </table>
-          </div>
-          
-          <!-- Page 4: Empty Page (like in the PDF) -->
-          <div class="page-break"></div>
-          <div style="text-align: center; margin-top: 200px; font-size: 48px;">
-            0
+                </thead>
+                <tbody>
+                  ${invoice.items?.map(item => `
+                    <tr>
+                      <td>${item.trunk || '-'}</td>
+                      <td>${item.prefix || '-'}</td>
+                      <td>${item.destination || '-'}</td>
+                      <td>${item.description||'-'}</td>
+                      <td class="text-right">${item.totalCalls}</td>
+                      <td class="text-right">${(item.duration / 60).toFixed(2)}</td>
+                      <td class="text-right">$${parseFloat(item.unitPrice).toFixed(4)}</td>
+                      <td class="text-right">$${parseFloat(item.amount).toFixed(4)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="totals-section">
+              <div class="totals-box">
+                <div class="total-row">
+                  <span>Subtotal</span>
+                  <span>$${parseFloat(invoice.subtotal).toFixed(4)}</span>
+                </div>
+                <div class="total-row">
+                  <span>Tax (${invoice.taxRate}%)</span>
+                  <span>$${parseFloat(invoice.taxAmount).toFixed(4)}</span>
+                </div>
+                <div class="total-row">
+                  <span>Discount</span>
+                  <span>-$${parseFloat(invoice.discountAmount || 0).toFixed(4)}</span>
+                </div>
+                <div class="total-row total-grand">
+                  <span>Total Amount</span>
+                  <span>$${parseFloat(invoice.totalAmount).toFixed(4)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="bank-section">
+              <div class="bank-title">Payment Information</div>
+              <strong>Bank Name:</strong> Bank Of China<br>
+              <strong>Account Name:</strong> Pai Telecommunications Limited<br>
+              <strong>Account Number:</strong> 012-687-2-011894-5 (USD)<br>
+              <strong>Swift Code:</strong> BKCHHKHHXXX<br>
+              <strong>Bank Address:</strong> Bank of China Tower, 1 Garden Road, Central, Hong Kong
+            </div>
+
+            <div class="footer">
+              Thank you for your business. Please contact accounts@paitelecomm.com for any billing inquiries.<br>
+              Generated by CDR Billing System
+            </div>
           </div>
         </body>
       </html>
     `;
 
-    const win = window.open("", "_blank");
-    win.document.write(invoiceHtml);
-    win.document.close();
-    win.focus();
+    const element = document.createElement('div');
+    element.innerHTML = invoiceHtml;
+    
+    const options = {
+      margin: 0,
+      filename: `Invoice_${invoice.invoiceNumber}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    html2pdf().from(element).set(options).save();
 
     toast({
-      title: "Invoice opened",
-      description: "Invoice opened in new window for printing",
+      title: "Generating PDF",
+      description: "Your invoice PDF is being generated and will download shortly",
       status: "success",
       duration: 3000,
       isClosable: true,
@@ -1077,9 +991,10 @@ const formatTotalDuration = (seconds) => {
             <MenuButton
               as={Button}
               leftIcon={<FiPlus />}
+               borderRadius={"2px"}
               colorScheme="blue"
               size="sm"
-              px={6}
+              px={2}
               _hover={{ transform: 'translateY(-2px)', boxShadow: 'lg' }}
               transition="all 0.2s"
             >
@@ -1213,8 +1128,16 @@ const formatTotalDuration = (seconds) => {
       <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={4} mb={8}>
         {/* Main Stats Cards */}
         <SimpleGrid columns={{ base: 1, md: 2, lg: 2 }} spacing={4}>
-          <Card bg="white" shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius={"12px"}>
-            <CardBody>
+          <Box display="flex"
+            justifyContent="center"
+            alignItems="center"
+            textAlign="left"
+            bg={bgColor}
+            p={2}
+            pl={4}
+            boxShadow={"md"}
+            borderRadius={"md"} borderColor={borderColor} >
+            
               <Stat>
                 <StatLabel color="gray.600" fontSize="sm">Total Revenue</StatLabel>
                 <StatNumber color="green.600" fontSize="2xl">
@@ -1225,11 +1148,18 @@ const formatTotalDuration = (seconds) => {
                   12.5% from last month
                 </StatHelpText>
               </Stat>
-            </CardBody>
-          </Card>
+            </Box>
 
-          <Card bg="white" shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius={"12px"}>
-            <CardBody>
+          <Box display="flex"
+            justifyContent="center"
+            alignItems="center"
+            textAlign="left"
+            bg={bgColor}
+            p={2}
+            pl={4}
+            boxShadow={"md"}
+            borderRadius={"md"} borderColor={borderColor}>
+            
               <Stat>
                 <StatLabel color="gray.600" fontSize="sm">Pending Revenue</StatLabel>
                 <StatNumber color="orange.600" fontSize="2xl">
@@ -1239,11 +1169,17 @@ const formatTotalDuration = (seconds) => {
                   {dashboardStats.pendingInvoices} invoices pending
                 </StatHelpText>
               </Stat>
-            </CardBody>
-          </Card>
+          </Box>
 
-          <Card bg="white" shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius={"12px"}>
-            <CardBody>
+          <Box display="flex"
+            justifyContent="center"
+            alignItems="center"
+            textAlign="left"
+            bg={bgColor}
+            p={2}
+            pl={4}
+            boxShadow={"md"}
+            borderRadius={"md"} borderColor={borderColor} >
               <Stat>
                 <StatLabel color="gray.600" fontSize="sm">Overdue Amount</StatLabel>
                 <StatNumber color="red.600" fontSize="2xl">
@@ -1253,13 +1189,19 @@ const formatTotalDuration = (seconds) => {
                   {dashboardStats.overdueInvoices} overdue invoices
                 </StatHelpText>
               </Stat>
-            </CardBody>
-          </Card>
+          </Box>
 
-          <Card bg="white" shadow="md" borderWidth="1px" borderColor={borderColor} borderRadius={"12px"}>
-            <CardBody>
+          <Box display="flex"
+            justifyContent="center"
+            alignItems="center"
+            textAlign="left"
+            bg={bgColor}
+            p={2}
+            pl={4}
+            boxShadow={"md"}
+            borderRadius={"md"} borderWidth="1px" borderColor={borderColor}>
               <Stat>
-                <StatLabel color="gray.600" fontSize="sm">Collection Rate</StatLabel>
+                <StatLabel color="gray.600" fontSize="sm">Collection Percentage</StatLabel>
                 <StatNumber color="blue.600" fontSize="2xl">
                   {dashboardStats.collectionRate.toFixed(1)}%
                 </StatNumber>
@@ -1267,13 +1209,11 @@ const formatTotalDuration = (seconds) => {
                   <Progress value={dashboardStats.collectionRate} size="sm" colorScheme="blue" />
                 </StatHelpText>
               </Stat>
-            </CardBody>
-          </Card>
+          </Box>
         </SimpleGrid>
 
         {/* Quick Insights Panel */}
-        <Card bg="green.50" shadow="md">
-          <CardBody>
+        <Box p={2} pl={3} bg={"white"} boxShadow={"md"} borderRadius={"md"} >
             <VStack align="stretch" spacing={4}>
               <Heading size="md" color="blue.700">Quick Insights</Heading>
               <VStack align="stretch" spacing={2}>
@@ -1305,8 +1245,7 @@ const formatTotalDuration = (seconds) => {
                 View Full Report
               </Button>
             </VStack>
-          </CardBody>
-        </Card>
+          </Box>
       </Grid>
 
       {/* Tabs for Invoice Categories */}
@@ -1315,7 +1254,7 @@ const formatTotalDuration = (seconds) => {
         colorScheme="blue" 
         mb={6}
         onChange={(index) => {
-          const tabs = ["all", "pending", "paid", "overdue"];
+          const tabs = ["all", "pending", "sent", "paid", "overdue"];
           setStatusFilter(tabs[index] || "all");
         }}
       >
@@ -1333,6 +1272,12 @@ const formatTotalDuration = (seconds) => {
             </HStack>
           </Tab>
           <Tab>
+            <FiClock style={{ marginRight: "8px" }} />
+            <HStack>
+            <Text>Sent</Text> <Badge borderRadius={"full"} colorScheme="orange">{dashboardStats.sentInvoices}</Badge>
+            </HStack>
+          </Tab>
+          <Tab>
             <FiCheckCircle style={{ marginRight: "8px" }} />
             <HStack>
             <Text>Paid</Text><Badge borderRadius={"full"} colorScheme="green">{dashboardStats.paidInvoices}</Badge>
@@ -1347,26 +1292,18 @@ const formatTotalDuration = (seconds) => {
         </TabList>
       </Tabs>
       <Card shadow="lg" borderWidth="1px" borderColor={borderColor}>
-        <CardHeader bg="gray.50" borderBottomWidth="1px">
-          <Flex justify="space-between" align="center">
-            <Heading size="md">Invoice List ({filteredInvoices.length})</Heading>
-            <Text color="gray.600" fontSize="sm">
-              Showing {filteredInvoices.length} of {invoices.length} invoices
-            </Text>
-          </Flex>
-        </CardHeader>
-        
-        <TableContainer>
+                
+        <TableContainer maxH={"400px"} overflowY={"auto"}>
           <Table variant="simple">
-            <Thead bg="gray.200">
+            <Thead bg="gray.200" position={"sticky"}  top={0} zIndex={1}>
               <Tr>
                 <Th width="40px">
                   <Checkbox
                   sx={{
                             "& .chakra-checkbox__control": {
                               borderRadius: "6px",
-                              border: "2px solid", // Use separate border properties
-                              borderColor: "blue.500", // Use theme color
+                              border: "2px solid", 
+                              borderColor: "blue.500", 
                               _checked: {
                                 bg: "blue.500",
                                 borderColor: "blue.500",
@@ -1388,7 +1325,7 @@ const formatTotalDuration = (seconds) => {
                     }}
                   />
                 </Th>
-                <Th >Invoice #</Th>
+                <Th >Invoice No.</Th>
                 <Th>Customer</Th>
                 <Th>Period</Th>
                 <Th>Amount</Th>
@@ -1443,7 +1380,11 @@ const formatTotalDuration = (seconds) => {
                         </Text>
                       </VStack>
                     </Td>
-                    <Td maxW="170px" overflowX="auto">
+                    <Td maxW="170px" overflowX="auto" sx={{
+                      '&::-webkit-scrollbar': { display: 'none' },
+                      msOverflowStyle: 'none',
+                      scrollbarWidth: 'none'
+                    }}>
                       <HStack>
                         <Box>
                           <Text fontWeight="medium">{invoice.customerName}</Text>
@@ -1639,7 +1580,6 @@ const formatTotalDuration = (seconds) => {
         paymentForm={paymentForm}
         setPaymentForm={setPaymentForm}
         customers={customers}
-        invoices={invoices}
         onRecordPayment={handleRecordPayment}
       />
     </Container>

@@ -11,6 +11,9 @@ const billingController = require('../controllers/Billingcontroller');
 // Generate invoice from CDR data
 router.post('/invoices/generate', billingController.generateInvoice);
 
+// Get lite invoices (minimal fields, no items)
+router.get('/invoices/lite', billingController.getLiteInvoices);
+
 // Get all invoices (with filters)
 router.get('/invoices', billingController.getAllInvoices);
 
@@ -27,6 +30,9 @@ router.delete('/invoices/:id', billingController.deleteInvoice);
 
 // Record payment
 router.post('/payments', billingController.recordPayment);
+
+// Get all payments
+router.get('/payments', billingController.getAllPayments);
 
 /* ===================== CUSTOMER OUTSTANDING ROUTES ===================== */
 

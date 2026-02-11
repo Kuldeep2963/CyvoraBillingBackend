@@ -1,4 +1,5 @@
 const { Op, fn, col } = require('sequelize');
+const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const sequelize = require('../config/database');
 const H = require('../utils/reportHelper');
 const Invoice = require('../models/Invoice');
@@ -32,6 +33,17 @@ const getCountryFromNumber = (number, countryCodes, skipPrefix = false) => {
       return cc.country_name;
     }
   }
+  return 'Unknown';
+};
+
+/* ===================== HELPER: GET TRUNK NAME ===================== */
+const getTrunkName = (number) => {
+  if (!number) return 'Unknown';
+  const trunkPrefix = number.toString().substring(0, 5);
+  if (trunkPrefix.startsWith('10')) return 'NCLI';
+  if (trunkPrefix.startsWith('20')) return 'CLI';
+  if (trunkPrefix.startsWith('30')) return 'ortp/TDM';
+  if (trunkPrefix.startsWith('40')) return 'CC';
   return 'Unknown';
 };
 
@@ -154,14 +166,17 @@ exports.generateInvoice = async (req, res) => {
     }
 
     // Get customer details - find by gatewayId, customerCode, or accountId
+    const isNumeric = /^\d+$/.test(customerId);
+    const customerWhere = {
+      [Op.or]: [
+        { gatewayId: customerId },
+        { customerCode: customerId }
+      ]
+    };
+    if (isNumeric) customerWhere[Op.or].push({ accountId: customerId });
+
     const customer = await Account.findOne({
-      where: {
-        [Op.or]: [
-          { gatewayId: customerId },
-          { customerCode: customerId },
-          { accountId: customerId }
-        ]
-      }
+      where: customerWhere
     });
 
     if (!customer) {
@@ -197,6 +212,7 @@ exports.generateInvoice = async (req, res) => {
         'customeraccount',
         'customername',
         'callere164',
+        'calleee164',
         [fn('COUNT', col('*')), 'totalCalls'],
         [fn('SUM', H.completedCall), 'completedCalls'],
         [fn('SUM', H.failedCall), 'failedCalls'],
@@ -204,7 +220,7 @@ exports.generateInvoice = async (req, res) => {
         [fn('SUM', H.revenue), 'revenue']
       ],
       where: cdrWhere,
-      group: ['customeraccount', 'customername', 'callere164'],
+      group: ['customeraccount', 'customername', 'callere164', 'calleee164'],
       raw: true
     });
 
@@ -215,14 +231,38 @@ exports.generateInvoice = async (req, res) => {
       });
     }
 
-    // Group CDRs by destination country
-    const groupedByDestination = {};
+    // Group CDRs by destination country, prefix and trunk
+    const groupedData = {};
     cdrs.forEach(cdr => {
-      const destination = getCountryFromNumber(cdr.callere164, countryCodes, false);
+      let destination = 'Unknown';
+      let prefix = '';
       
-      if (!groupedByDestination[destination]) {
-        groupedByDestination[destination] = {
+      const phoneNumber = parsePhoneNumberFromString('+' + cdr.callere164.toString().replace(/^\+/, ''));
+      
+      if (phoneNumber) {
+        destination = getCountryFromNumber(cdr.callere164, countryCodes, false);
+        // Prefix is Country Code + part of national number to represent area
+        prefix = phoneNumber.countryCallingCode;
+        
+        // If we have a national number, the first 2-3 digits usually represent the area/network
+        const national = phoneNumber.nationalNumber;
+        if (national.length > 3) {
+          prefix += national.substring(0, 3);
+        }
+      } else {
+        // Fallback to existing logic if libphonenumber fails
+        destination = getCountryFromNumber(cdr.callere164, countryCodes, false);
+        prefix = cdr.callere164 ? cdr.callere164.toString().substring(0, 5) : '';
+      }
+
+      const trunk = getTrunkName(cdr.calleee164);
+      const key = `${destination}|${prefix}|${trunk}`;
+      
+      if (!groupedData[key]) {
+        groupedData[key] = {
           destination,
+          trunk,
+          prefix,
           totalCalls: 0,
           completedCalls: 0,
           failedCalls: 0,
@@ -231,11 +271,11 @@ exports.generateInvoice = async (req, res) => {
         };
       }
       
-      groupedByDestination[destination].totalCalls += Number(cdr.totalCalls);
-      groupedByDestination[destination].completedCalls += Number(cdr.completedCalls);
-      groupedByDestination[destination].failedCalls += Number(cdr.failedCalls);
-      groupedByDestination[destination].duration += Number(cdr.duration);
-      groupedByDestination[destination].revenue += Number(cdr.revenue);
+      groupedData[key].totalCalls += Number(cdr.totalCalls);
+      groupedData[key].completedCalls += Number(cdr.completedCalls);
+      groupedData[key].failedCalls += Number(cdr.failedCalls);
+      groupedData[key].duration += Number(cdr.duration);
+      groupedData[key].revenue += Number(cdr.revenue);
     });
 
     // Generate invoice number
@@ -245,7 +285,9 @@ exports.generateInvoice = async (req, res) => {
 
     // Calculate subtotal
     let subtotal = 0;
-    const invoiceItems = Object.values(groupedByDestination).map((item, index) => {
+    const invoiceItems = Object.values(groupedData)
+      .filter(item => item.completedCalls > 0)
+      .map((item, index) => {
       
       const durationMinutes = (item.duration / 60).toFixed(2);
       const amount = Number(item.revenue);
@@ -253,8 +295,10 @@ exports.generateInvoice = async (req, res) => {
 
       return {
         itemType: 'call_charges',
-        description: `Calls to ${item.destination}`,
+        description: `Calls to ${item.destination} (${item.trunk})`,
         destination: item.destination,
+        trunk: item.trunk,
+        prefix: item.prefix,
         quantity: item.totalCalls,
         duration: item.duration,
         durationMinutes: parseFloat(durationMinutes),
@@ -272,6 +316,13 @@ exports.generateInvoice = async (req, res) => {
         sortOrder: index
       };
     });
+
+    if (invoiceItems.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No successful calls found for this customer in the billing period'
+      });
+    }
 
     // Calculate tax and total
     const taxAmount = (subtotal * (taxRate / 100));
@@ -355,17 +406,24 @@ exports.getAllInvoices = async (req, res) => {
     const where = {};
 
     if (customerId) {
+      const isNumeric = /^\d+$/.test(customerId);
+      const customerWhere = {
+        [Op.or]: [
+          { gatewayId: customerId },
+          { customerCode: customerId }
+        ]
+      };
+      
+      // Only add accountId to search if customerId is numeric
+      if (isNumeric) {
+        customerWhere[Op.or].push({ accountId: customerId });
+      }
+
       const customer = await Account.findOne({
-        where: {
-          [Op.or]: [
-            { gatewayId: customerId },
-            { customerCode: customerId },
-            { accountId: customerId }
-          ]
-        }
+        where: customerWhere
       });
       if (customer) {
-        where.customerGatewayId = customer.gatewayId;
+        where.customerCode = customer.customerCode;
       }
     }
 
@@ -417,13 +475,14 @@ exports.getInvoiceById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Use specific where clause to avoid casting error if id is not numeric
+    const isNumeric = /^\d+$/.test(id);
+    const whereClause = isNumeric 
+      ? { [Op.or]: [{ id: parseInt(id) }, { invoiceNumber: id }] }
+      : { invoiceNumber: id };
+
     const invoice = await Invoice.findOne({
-      where: {
-        [Op.or]: [
-          { id },
-          { invoiceNumber: id }
-        ]
-      },
+      where: whereClause,
       include: [{
         model: InvoiceItem,
         as: 'items',
@@ -456,7 +515,13 @@ exports.getInvoiceById = async (req, res) => {
 exports.updateInvoice = async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const isNumeric = /^\d+$/.test(id);
+    if (!isNumeric) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invoice not found'
+      });
+    }
 
     const invoice = await Invoice.findByPk(id);
 
@@ -512,6 +577,13 @@ exports.deleteInvoice = async (req, res) => {
   
   try {
     const { id } = req.params;
+    const isNumeric = /^\d+$/.test(id);
+    if (!isNumeric) {
+      return res.status(404).json({
+        success: false,
+        error: 'Invoice not found'
+      });
+    }
 
     const invoice = await Invoice.findByPk(id);
 
@@ -569,8 +641,15 @@ exports.recordPayment = async (req, res) => {
       transactionId,
       referenceNumber,
       notes,
+      invoiceId,
       invoiceAllocations = [] // Array of { invoiceId, amount }
     } = req.body;
+
+    // Handle single invoiceId if provided
+    let allocations = [...invoiceAllocations];
+    if (invoiceId && allocations.length === 0) {
+      allocations.push({ invoiceId, amount });
+    }
 
     // Validate
     if (!customerId || !amount || !paymentDate || !paymentMethod) {
@@ -580,12 +659,12 @@ exports.recordPayment = async (req, res) => {
       });
     }
 
-    // Get customer by gatewayId
+    // Get customer by customerCode or other IDs
     const customer = await Account.findOne({
       where: {
         [Op.or]: [
-          { gatewayId: customerId },
           { customerCode: customerId },
+          { gatewayId: customerId },
           { accountId: customerId }
         ]
       }
@@ -604,8 +683,8 @@ exports.recordPayment = async (req, res) => {
 
     // Calculate allocated and unapplied amounts
     let totalAllocated = 0;
-    if (invoiceAllocations.length > 0) {
-      totalAllocated = invoiceAllocations.reduce((sum, alloc) => sum + Number(alloc.amount), 0);
+    if (allocations.length > 0) {
+      totalAllocated = allocations.reduce((sum, alloc) => sum + Number(alloc.amount), 0);
     }
 
     if (totalAllocated > amount) {
@@ -615,11 +694,12 @@ exports.recordPayment = async (req, res) => {
       });
     }
 
-    // Create payment using gatewayId
+    // Create payment using customerCode
     const payment = await Payment.create({
       paymentNumber,
       receiptNumber,
       customerGatewayId: customer.gatewayId,
+      customerCode: customer.customerCode,
       customerName: customer.accountName,
       amount: parseFloat(amount),
       paymentDate: formatTime(paymentDate),
@@ -635,16 +715,16 @@ exports.recordPayment = async (req, res) => {
     }, { transaction });
 
     // Create allocations and update invoices
-    for (const allocation of invoiceAllocations) {
+    for (const allocation of allocations) {
       const invoice = await Invoice.findByPk(allocation.invoiceId, { transaction });
       
       if (!invoice) {
         throw new Error(`Invoice ${allocation.invoiceId} not found`);
       }
 
-      // Verify invoice belongs to this customer
-      if (invoice.customerGatewayId !== customer.gatewayId) {
-        throw new Error(`Invoice ${allocation.invoiceId} does not belong to customer ${customer.gatewayId}`);
+      // Verify invoice belongs to this customer using customerCode
+      if (invoice.customerCode !== customer.customerCode) {
+        throw new Error(`Invoice ${allocation.invoiceId} does not belong to customer ${customer.customerCode}`);
       }
 
       // Create allocation
@@ -705,19 +785,106 @@ exports.recordPayment = async (req, res) => {
   }
 };
 
+
+/* ===================== GET ALL PAYMENTS ===================== */
+exports.getAllPayments = async (req, res) => {
+  try {
+    const {
+      customerId,
+      status,
+      startDate,
+      endDate,
+      page = 1,
+      limit = 50
+    } = req.query;
+
+    const where = {};
+
+    if (customerId) {
+      const isNumeric = /^\d+$/.test(customerId);
+      const customerWhere = {
+        [Op.or]: [
+          { gatewayId: customerId },
+          { customerCode: customerId }
+        ]
+      };
+      
+      // Only add accountId to search if customerId is numeric
+      if (isNumeric) {
+        customerWhere[Op.or].push({ accountId: customerId });
+      }
+
+      const customer = await Account.findOne({
+        where: customerWhere
+      });
+      if (customer) {
+        where.customerCode = customer.customerCode;
+      }
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (startDate && endDate) {
+      where.paymentDate = {
+        [Op.between]: [formatTime(startDate), formatTime(endDate, 23, true)]
+      };
+    }
+
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await Payment.findAndCountAll({
+      where,
+      include: [{
+        model: PaymentAllocation,
+        as: 'allocations',
+        include: [{
+          model: Invoice,
+          as: 'invoice',
+          attributes: ['invoiceNumber', 'totalAmount', 'balanceAmount']
+        }]
+      }],
+      order: [['paymentDate', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    res.json({
+      success: true,
+      data: rows,
+      pagination: {
+        total: count,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(count / limit)
+      }
+    });
+
+  } catch (error) {
+    console.error('Get All Payments Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 /* ===================== GET CUSTOMER OUTSTANDING ===================== */
 exports.getCustomerOutstanding = async (req, res) => {
   try {
     const { customerId } = req.params;
+    const isNumeric = /^\d+$/.test(customerId);
+    const customerWhere = {
+      [Op.or]: [
+        { gatewayId: customerId },
+        { customerCode: customerId }
+      ]
+    };
+    if (isNumeric) customerWhere[Op.or].push({ accountId: customerId });
 
     const customer = await Account.findOne({
-      where: {
-        [Op.or]: [
-          { gatewayId: customerId },
-          { customerCode: customerId },
-          { accountId: customerId }
-        ]
-      }
+      where: customerWhere
     });
 
     if (!customer) {
@@ -845,6 +1012,39 @@ exports.getAgingReport = async (req, res) => {
 
   } catch (error) {
     console.error('Get Aging Report Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+/* ===================== GET LITE INVOICES (FOR DROPDOWNS) ===================== */
+exports.getLiteInvoices = async (req, res) => {
+  try {
+    const { customerId, status } = req.query;
+    const where = {};
+
+    if (customerId) {
+      where.customerCode = customerId;
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    const invoices = await Invoice.findAll({
+      where,
+      attributes: ['id', 'invoiceNumber', 'customerName', 'customerCode', 'status', 'totalAmount', 'balanceAmount', 'invoiceDate', 'dueDate'],
+      order: [['createdAt', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      data: invoices
+    });
+  } catch (error) {
+    console.error('Get Lite Invoices Error:', error);
     res.status(500).json({
       success: false,
       error: error.message

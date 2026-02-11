@@ -373,18 +373,13 @@ const Dashboard = () => {
                   borderBottom="1px solid"
                   borderColor="gray.100"
                 >
-                  <Box
-                    p={2}
-                    bgGradient="linear(to-r, blue.100, cyan.100)"
-                    borderRadius="lg"
-                  >
                     <Icon as={FiGlobe} w={5} h={5} color="blue.600" />
-                  </Box>
+                  
                   <VStack align="start" spacing={0}>
                     <Heading size="md" color="gray.800" fontWeight="semibold">
                       Top Destinations
                     </Heading>
-                    <Text fontSize="sm" color="gray.500">
+                    <Text fontSize="xs" color="gray.500">
                       Performance by country
                     </Text>
                   </VStack>
@@ -395,6 +390,7 @@ const Dashboard = () => {
                     <Thead bg="gray.100">
                       <Tr>
                         <Th>Destination</Th>
+                        <Th>Trunk</Th>
                         <Th isNumeric>Calls</Th>
                         <Th isNumeric>Minutes</Th>
                         <Th isNumeric>ASR (%)</Th>
@@ -407,7 +403,16 @@ const Dashboard = () => {
                     <Tbody>
                       {chartData.topDestinations?.map((d, i) => (
                         <Tr key={i}>
-                          <Td fontWeight="medium">{d.destination}</Td>
+                          <Td maxW="170px" overflowX="auto" sx={{
+                      '&::-webkit-scrollbar': { display: 'none' },
+                      msOverflowStyle: 'none',
+                      scrollbarWidth: 'none'
+                    }} fontWeight="medium">{d.destination}</Td>
+                          <Td>
+                            <Badge colorScheme="purple" variant="subtle" fontSize="2xs">
+                              {d.trunk}
+                            </Badge>
+                          </Td>
                           <Td isNumeric>{d.totalCalls}</Td>
                           <Td isNumeric>{d.minutes}</Td>
                           <Td isNumeric>
@@ -446,7 +451,7 @@ const Dashboard = () => {
           {/* Financial Metrics Card */}
           <GridItem>
             <Card
-              w={{ base: "full", lg: "300px" }}
+              w={{ base: "full", lg: "100%" }}
               bg="white"
               border="1px solid"
               borderColor="gray.100"
@@ -464,18 +469,13 @@ const Dashboard = () => {
                   borderBottom="1px solid"
                   borderColor="gray.100"
                 >
-                  <Box
-                    p={2}
-                    bgGradient="linear(to-r, green.100, teal.100)"
-                    borderRadius="lg"
-                  >
                     <Icon as={FiDollarSign} w={5} h={5} color="green.600" />
-                  </Box>
+                 
                   <VStack align="start" spacing={0}>
                     <Heading size="md" color="gray.800" fontWeight="semibold">
                       Financial Summary
                     </Heading>
-                    <Text fontSize="sm" color="gray.500">
+                    <Text fontSize="xs" color="gray.500">
                       Revenue & cost breakdown
                     </Text>
                   </VStack>
@@ -546,18 +546,12 @@ const Dashboard = () => {
                   borderBottom="1px solid"
                   borderColor="gray.100"
                 >
-                  <Box
-                    p={2}
-                    bgGradient="linear(to-r, blue.100, cyan.100)"
-                    borderRadius="lg"
-                  >
                     <Icon as={FiActivity} w={5} h={5} color="blue.600" />
-                  </Box>
                   <VStack align="start" spacing={0}>
                     <Heading size="md" color="gray.800" fontWeight="semibold">
                       Hourly Call Distribution
                     </Heading>
-                    <Text fontSize="sm" color="gray.500">
+                    <Text fontSize="xs" color="gray.500">
                       Call volume by hour
                     </Text>
                   </VStack>
@@ -611,18 +605,12 @@ const Dashboard = () => {
                   borderBottom="1px solid"
                   borderColor="gray.100"
                 >
-                  <Box
-                    p={2}
-                    bgGradient="linear(to-r, purple.100, pink.100)"
-                    borderRadius="lg"
-                  >
                     <Icon as={FiUsers} w={5} h={5} color="purple.600" />
-                  </Box>
                   <VStack align="start" spacing={0}>
                     <Heading size="md" color="gray.800" fontWeight="semibold">
                       Top Customers
                     </Heading>
-                    <Text fontSize="sm" color="gray.500">
+                    <Text fontSize="xs" color="gray.500">
                       Distribution by Total Calls
                     </Text>
                   </VStack>
