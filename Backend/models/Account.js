@@ -215,8 +215,8 @@ const Account = sequelize.define('Account', {
   
   // Billing Configuration (CRITICAL)
   billingClass: {
-    type: DataTypes.ENUM('standard', 'premium', 'enterprise'),
-    defaultValue: 'standard'
+    type: DataTypes.ENUM('paihk','paiusa'),
+    defaultValue: ''
   },
   
   billingType: {

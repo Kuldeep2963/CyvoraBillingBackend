@@ -69,23 +69,11 @@ const buildAccountConditions = (account, vendorReport) => {
   if (account.authenticationType === 'custom' && account.authenticationValue) {
     const v = `${account.authenticationValue}`;
     or.push(
-      { customeraccount: { [Op.like]: v } },
-      { agentaccount: { [Op.like]: v } },
-      { callere164: { [Op.like]: v } },
-      { calleee164: { [Op.like]: v } },
-      { customername: { [Op.like]: v } },
-      { agentname: { [Op.like]: v } }
+      { customeraccount: { [Op.like]: v }}
     );
   }
 
-  // 3️⃣ Gateway authentication (explicit)
-  if (account.authenticationType === 'gateway' && account.authenticationValue) {
-    or.push(
-      vendorReport
-        ? { agentaccount: account.authenticationValue }
-        : { customeraccount: account.authenticationValue }
-    );
-  }
+  
 
   // 4️⃣ Fallback to gatewayId only if authenticationValue is not set but type is gateway
   if (or.length === 0 && account.gatewayId) {

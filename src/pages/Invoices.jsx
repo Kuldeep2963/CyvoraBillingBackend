@@ -122,7 +122,7 @@ import {
   fetchReportAccounts,
   deleteInvoice as apiDeleteInvoice,
   updateInvoiceStatus,
-  recordPayment
+  recordPayment,
 } from "../utils/api";
 import { format, differenceInDays, isBefore, subDays } from "date-fns";
 import html2pdf from "html2pdf.js";
@@ -154,7 +154,7 @@ const Invoices = () => {
     notes: "",
     invoiceId: "", // Optional, if recording for a specific invoice
   });
-  
+
   const [dashboardStats, setDashboardStats] = useState({
     totalRevenue: 0,
     pendingRevenue: 0,
@@ -167,7 +167,7 @@ const Invoices = () => {
     overdueInvoices: 0,
     collectionRate: 0,
   });
-  
+
   const [activeTab, setActiveTab] = useState("all");
   const toast = useToast();
   const bgColor = useColorModeValue("white", "gray.800");
@@ -179,7 +179,7 @@ const Invoices = () => {
 
   useEffect(() => {
     filterInvoices();
-    
+
     calculateDashboardStats();
   }, [invoices, searchTerm, statusFilter]);
 
@@ -187,9 +187,9 @@ const Invoices = () => {
     try {
       const [invoicesRes, customersData] = await Promise.all([
         fetchInvoices(),
-        fetchReportAccounts()
+        fetchReportAccounts(),
       ]);
-      
+
       const invoicesData = invoicesRes.success ? invoicesRes.data : [];
       setInvoices(invoicesData);
       setFilteredInvoices(invoicesData);
@@ -215,7 +215,7 @@ const Invoices = () => {
         (invoice) =>
           invoice.invoiceNumber?.toLowerCase().includes(term) ||
           invoice.customerName?.toLowerCase().includes(term) ||
-          invoice.customerId?.toLowerCase().includes(term)
+          invoice.customerId?.toLowerCase().includes(term),
       );
     }
 
@@ -229,30 +229,48 @@ const Invoices = () => {
   const calculateDashboardStats = () => {
     const now = new Date();
     const thirtyDaysAgo = subDays(now, 30);
-    
-    const paidInvoices = invoices.filter(inv => inv.status === "paid");
-    const sentInvoices = invoices.filter(inv => inv.status === "sent");
-    const pendingInvoices = invoices.filter(inv => ["generated", "pending", "partial"].includes(inv.status));
-    const overdueInvoices = invoices.filter(inv => inv.status === "overdue");
-    
-    const totalRevenue = invoices.reduce((sum, inv) => sum + parseFloat(inv.totalAmount || 0), 0);
-    const pendingRevenue = invoices.filter(inv => ["sent", "generated", "pending", "partial", "overdue"].includes(inv.status)).reduce((sum, inv) => sum + parseFloat(inv.balanceAmount || 0), 0);
-    const collectedRevenue = invoices.reduce((sum, inv) => sum + parseFloat(inv.paidAmount || 0), 0);
-    const overdueAmount = overdueInvoices.reduce((sum, inv) => sum + parseFloat(inv.balanceAmount || 0), 0);
-    
-    const totalCalls = invoices.reduce((sum, inv) => {
-      const itemsCalls = inv.items?.reduce((s, item) => s + (parseInt(item.totalCalls) || 0), 0) || 0;
-      return sum + itemsCalls;
-    }, 0);
-    
-    const averageInvoice = invoices.length > 0 ? totalRevenue / invoices.length : 0;
-    const collectionRate = totalRevenue > 0 ? (collectedRevenue / totalRevenue) * 100 : 0;
-    
-    // Recent activity (last 30 days)
-    const recentInvoices = invoices.filter(inv => 
-      new Date(parseInt(inv.invoiceDate)) >= thirtyDaysAgo
+
+    const paidInvoices = invoices.filter((inv) => inv.status === "paid");
+    const sentInvoices = invoices.filter((inv) => inv.status === "sent");
+    const pendingInvoices = invoices.filter((inv) =>
+      ["generated", "pending", "partial"].includes(inv.status),
     );
-    
+    const overdueInvoices = invoices.filter((inv) => inv.status === "overdue");
+
+    const totalRevenue = invoices.reduce(
+      (sum, inv) => sum + parseFloat(inv.totalAmount || 0),
+      0,
+    );
+    const pendingRevenue = invoices
+      .filter((inv) =>
+        ["sent", "generated", "pending", "partial", "overdue"].includes(
+          inv.status,
+        ),
+      )
+      .reduce((sum, inv) => sum + parseFloat(inv.balanceAmount || 0), 0);
+    const collectedRevenue = invoices.reduce(
+      (sum, inv) => sum + parseFloat(inv.paidAmount || 0),
+      0,
+    );
+    const overdueAmount = overdueInvoices.reduce(
+      (sum, inv) => sum + parseFloat(inv.balanceAmount || 0),
+      0,
+    );
+
+    const totalCalls = invoices.reduce((sum, inv) => {
+      return sum + (parseInt(inv.totalCalls) || 0);
+    }, 0);
+
+    const averageInvoice =
+      invoices.length > 0 ? totalRevenue / invoices.length : 0;
+    const collectionRate =
+      totalRevenue > 0 ? (collectedRevenue / totalRevenue) * 100 : 0;
+
+    // Recent activity (last 30 days)
+    const recentInvoices = invoices.filter(
+      (inv) => new Date(parseInt(inv.invoiceDate)) >= thirtyDaysAgo,
+    );
+
     setDashboardStats({
       totalRevenue,
       pendingRevenue,
@@ -271,7 +289,12 @@ const Invoices = () => {
 
   const handleGenerateInvoice = async () => {
     try {
-      const customer = customers.find((c) => c.gatewayId === generateForm.customerId || c.customerCode === generateForm.customerId || c.accountId === generateForm.customerId);
+      const customer = customers.find(
+        (c) =>
+          c.gatewayId === generateForm.customerId ||
+          c.customerCode === generateForm.customerId ||
+          c.accountId === generateForm.customerId,
+      );
       if (!customer) {
         toast({
           title: "Customer not found",
@@ -287,7 +310,7 @@ const Invoices = () => {
         customerId: generateForm.customerId,
         billingPeriodStart: generateForm.periodStart,
         billingPeriodEnd: generateForm.periodEnd,
-        notes: `Generated manually for period ${generateForm.periodStart} to ${generateForm.periodEnd}`
+        notes: `Generated manually for period ${generateForm.periodStart} to ${generateForm.periodEnd}`,
       });
 
       if (response.success) {
@@ -299,7 +322,7 @@ const Invoices = () => {
           isClosable: true,
           position: "top-right",
         });
-        
+
         loadData();
         setIsGenerateModalOpen(false);
         setGenerateForm({
@@ -336,11 +359,33 @@ const Invoices = () => {
     setIsPaymentModalOpen(true);
   };
 
-  const handleDownloadInvoice = (invoice) => {
+  const handleDownloadInvoice = async (invoice) => {
+    let invoiceWithItems = invoice;
+
+    // Fetch items if missing
+    if (!invoice.items || invoice.items.length === 0) {
+      try {
+        const response = await fetchInvoiceItems(invoice.id);
+        if (response.success) {
+          invoiceWithItems = { ...invoice, items: response.items };
+        }
+      } catch (error) {
+        console.error("Error fetching items for PDF:", error);
+        toast({
+          title: "Error fetching items",
+          description: "Could not fetch items for PDF generation",
+          status: "error",
+          duration: 3000,
+          isClosable: true,
+        });
+        return;
+      }
+    }
+
     const invoiceHtml = `
       <html>
         <head>
-          <title>Invoice ${invoice.invoiceNumber}</title>
+          <title>Invoice ${invoiceWithItems.invoiceNumber}</title>
           <style>
             body { 
               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
@@ -362,9 +407,10 @@ const Invoices = () => {
               padding-bottom: 20px;
             }
             .company-logo {
-              font-size: 28px;
-              font-weight: bold;
-              color: #1a365d;
+              height: 40px;
+              width: auto;
+              display: block;
+              object-fit: contain;
             }
             .invoice-title {
               font-size: 32px;
@@ -491,8 +537,10 @@ const Invoices = () => {
         <body>
           <div id="invoice-content" class="invoice-container">
             <div class="invoice-header">
-              <div class="company-logo">PAI TELECOMM</div>
-              <div class="invoice-title">${invoice.invoiceNumber}</div>
+            <div>
+  <img class="company-logo" src="/pai-telecom-logo.png" alt="PAI TELECOMM" />
+</div>
+              <div class="invoice-title">${invoiceWithItems.invoiceNumber}</div>
             </div>
 
             <div class="address-section">
@@ -509,10 +557,10 @@ const Invoices = () => {
               <div class="address-box">
                 <div class="address-label">Bill To</div>
                 <div class="address-content">
-                  <strong>${invoice.customerName || 'Customer'}</strong><br>
-                  ${invoice.customerAddress || ''}<br>
-                  ${invoice.customerEmail || ''}<br>
-                  ${invoice.customerPhone || ''}
+                  <strong>${invoiceWithItems.customerName || "Customer"}</strong><br>
+                  ${invoiceWithItems.customerAddress || ""}<br>
+                  ${invoiceWithItems.customerEmail || ""}<br>
+                  ${invoiceWithItems.customerPhone || ""}
                 </div>
               </div>
             </div>
@@ -520,19 +568,19 @@ const Invoices = () => {
             <div class="details-grid">
               <div class="detail-item">
                 <span class="detail-label">Invoice Number</span>
-                <span class="detail-value">${invoice.invoiceNumber}</span>
+                <span class="detail-value">${invoiceWithItems.invoiceNumber}</span>
               </div>
               <div class="detail-item">
                 <span class="detail-label">Invoice Date</span>
-                <span class="detail-value">${format(new Date(parseInt(invoice.invoiceDate)), "dd-MM-yyyy")}</span>
+                <span class="detail-value">${format(new Date(parseInt(invoiceWithItems.invoiceDate)), "dd-MM-yyyy")}</span>
               </div>
               <div class="detail-item">
                 <span class="detail-label">Due Date</span>
-                <span class="detail-value">${format(new Date(parseInt(invoice.dueDate)), "dd-MM-yyyy")}</span>
+                <span class="detail-value">${format(new Date(parseInt(invoiceWithItems.dueDate)), "dd-MM-yyyy")}</span>
               </div>
               <div class="detail-item">
                 <span class="detail-label">Billing Period</span>
-                <span class="detail-value">${format(new Date(parseInt(invoice.billingPeriodStart)), "dd MMM")} - ${format(new Date(parseInt(invoice.billingPeriodEnd)), "dd MMM yyyy")}</span>
+                <span class="detail-value">${format(new Date(parseInt(invoiceWithItems.billingPeriodStart)), "dd MMM")} - ${format(new Date(parseInt(invoiceWithItems.billingPeriodEnd)), "dd MMM yyyy")}</span>
               </div>
             </div>
 
@@ -551,18 +599,22 @@ const Invoices = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  ${invoice.items?.map(item => `
+                  ${invoiceWithItems.items
+                    ?.map(
+                      (item) => `
                     <tr>
-                      <td>${item.trunk || '-'}</td>
-                      <td>${item.prefix || '-'}</td>
-                      <td>${item.destination || '-'}</td>
-                      <td>${item.description||'-'}</td>
+                      <td>${item.trunk || "-"}</td>
+                      <td>${item.prefix || "-"}</td>
+                      <td>${item.destination || "-"}</td>
+                      <td>${item.description || "-"}</td>
                       <td class="text-right">${item.totalCalls}</td>
                       <td class="text-right">${(item.duration / 60).toFixed(2)}</td>
                       <td class="text-right">$${parseFloat(item.unitPrice).toFixed(4)}</td>
                       <td class="text-right">$${parseFloat(item.amount).toFixed(4)}</td>
                     </tr>
-                  `).join('')}
+                  `,
+                    )
+                    .join("")}
                 </tbody>
               </table>
             </div>
@@ -571,19 +623,19 @@ const Invoices = () => {
               <div class="totals-box">
                 <div class="total-row">
                   <span>Subtotal</span>
-                  <span>$${parseFloat(invoice.subtotal).toFixed(4)}</span>
+                  <span>$${parseFloat(invoiceWithItems.subtotal).toFixed(4)}</span>
                 </div>
                 <div class="total-row">
-                  <span>Tax (${invoice.taxRate}%)</span>
-                  <span>$${parseFloat(invoice.taxAmount).toFixed(4)}</span>
+                  <span>Tax (${invoiceWithItems.taxRate}%)</span>
+                  <span>$${parseFloat(invoiceWithItems.taxAmount).toFixed(4)}</span>
                 </div>
                 <div class="total-row">
                   <span>Discount</span>
-                  <span>-$${parseFloat(invoice.discountAmount || 0).toFixed(4)}</span>
+                  <span>-$${parseFloat(invoiceWithItems.discountAmount || 0).toFixed(4)}</span>
                 </div>
                 <div class="total-row total-grand">
                   <span>Total Amount</span>
-                  <span>$${parseFloat(invoice.totalAmount).toFixed(4)}</span>
+                  <span>$${parseFloat(invoiceWithItems.totalAmount).toFixed(4)}</span>
                 </div>
               </div>
             </div>
@@ -606,22 +658,23 @@ const Invoices = () => {
       </html>
     `;
 
-    const element = document.createElement('div');
+    const element = document.createElement("div");
     element.innerHTML = invoiceHtml;
-    
+
     const options = {
       margin: 0,
       filename: `Invoice_${invoice.invoiceNumber}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
+      image: { type: "jpeg", quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
     };
 
     html2pdf().from(element).set(options).save();
 
     toast({
       title: "Generating PDF",
-      description: "Your invoice PDF is being generated and will download shortly",
+      description:
+        "Your invoice PDF is being generated and will download shortly",
       status: "success",
       duration: 3000,
       isClosable: true,
@@ -629,22 +682,22 @@ const Invoices = () => {
     });
   };
 
-// Helper function to format duration (you may need to adjust this based on your data structure)
-const formatDuration = (seconds) => {
-  if (!seconds) return '0:00';
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return `${hours}:${minutes.toString().padStart(2, '0')}`;
-};
+  // Helper function to format duration (you may need to adjust this based on your data structure)
+  const formatDuration = (seconds) => {
+    if (!seconds) return "0:00";
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${hours}:${minutes.toString().padStart(2, "0")}`;
+  };
 
-// Helper function to format total duration
-const formatTotalDuration = (seconds) => {
-  if (!seconds) return '0:00';
-  const totalMinutes = Math.floor(seconds / 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${hours}:${minutes.toString().padStart(2, '0')}`;
-};
+  // Helper function to format total duration
+  const formatTotalDuration = (seconds) => {
+    if (!seconds) return "0:00";
+    const totalMinutes = Math.floor(seconds / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}:${minutes.toString().padStart(2, "0")}`;
+  };
 
   const handleSendEmail = (invoice) => {
     const customer = customers.find((c) => c.id === invoice.customerId);
@@ -667,11 +720,11 @@ const formatTotalDuration = (seconds) => {
       invoice.invoiceNumber
     }.\n\nTotal Amount: $${parseFloat(invoice.totalAmount).toFixed(4)}\nDue Date: ${format(
       new Date(parseInt(invoice.dueDate)),
-      "dd/MM/yyyy"
+      "dd/MM/yyyy",
     )}\n\nThank you for your business!\n\nThis is a test email from the CDR Billing System.`;
 
     const mailtoLink = `mailto:${customer.email}?subject=${encodeURIComponent(
-      subject
+      subject,
     )}&body=${encodeURIComponent(body)}`;
     window.location.href = mailtoLink;
 
@@ -711,8 +764,9 @@ const formatTotalDuration = (seconds) => {
   };
 
   const handleDeleteInvoice = async (invoiceId) => {
-    if (!window.confirm("Are you sure you want to delete this invoice?")) return;
-    
+    if (!window.confirm("Are you sure you want to delete this invoice?"))
+      return;
+
     try {
       await apiDeleteInvoice(invoiceId);
       loadData();
@@ -798,24 +852,36 @@ const formatTotalDuration = (seconds) => {
   // Get status color
   const getStatusColor = (status) => {
     switch (status) {
-      case "paid": return "green";
-      case "overdue": return "red";
-      case "sent": return "orange";
-      case "generated": return "blue";
-      case "cancelled": return "gray";
-      default: return "gray";
+      case "paid":
+        return "green";
+      case "overdue":
+        return "red";
+      case "sent":
+        return "orange";
+      case "generated":
+        return "blue";
+      case "cancelled":
+        return "gray";
+      default:
+        return "gray";
     }
   };
 
   // Get status icon
   const getStatusIcon = (status) => {
     switch (status) {
-      case "paid": return FiCheckCircle;
-      case "overdue": return FiAlertTriangle;
-      case "sent": return FiSend;
-      case "generated": return FiFileText;
-      case "cancelled": return FiXCircle;
-      default: return FiFileText;
+      case "paid":
+        return FiCheckCircle;
+      case "overdue":
+        return FiAlertTriangle;
+      case "sent":
+        return FiSend;
+      case "generated":
+        return FiFileText;
+      case "cancelled":
+        return FiXCircle;
+      default:
+        return FiFileText;
     }
   };
 
@@ -875,8 +941,6 @@ const formatTotalDuration = (seconds) => {
     });
   };
 
-  
-
   const handleBulkStatusChange = async (status) => {
     if (selectedInvoiceIds.length === 0) {
       toast({
@@ -889,7 +953,9 @@ const formatTotalDuration = (seconds) => {
     }
 
     try {
-      await Promise.all(selectedInvoiceIds.map(id => updateInvoiceStatus(id, { status })));
+      await Promise.all(
+        selectedInvoiceIds.map((id) => updateInvoiceStatus(id, { status })),
+      );
       loadData();
       setSelectedInvoiceIds([]);
       toast({
@@ -934,10 +1000,15 @@ const formatTotalDuration = (seconds) => {
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to delete ${selectedInvoiceIds.length} invoices?`)) return;
+    if (
+      !window.confirm(
+        `Are you sure you want to delete ${selectedInvoiceIds.length} invoices?`,
+      )
+    )
+      return;
 
     try {
-      await Promise.all(selectedInvoiceIds.map(id => apiDeleteInvoice(id)));
+      await Promise.all(selectedInvoiceIds.map((id) => apiDeleteInvoice(id)));
       loadData();
       setSelectedInvoiceIds([]);
       toast({
@@ -991,11 +1062,11 @@ const formatTotalDuration = (seconds) => {
             <MenuButton
               as={Button}
               leftIcon={<FiPlus />}
-               borderRadius={"2px"}
+              borderRadius={"2px"}
               colorScheme="blue"
               size="sm"
               px={2}
-              _hover={{ transform: 'translateY(-2px)', boxShadow: 'lg' }}
+              _hover={{ transform: "translateY(-2px)", boxShadow: "lg" }}
               transition="all 0.2s"
             >
               Generate Invoice
@@ -1041,26 +1112,17 @@ const formatTotalDuration = (seconds) => {
               </MenuItem>
               <MenuDivider />
               {/* Send Invoice Section */}
-              <MenuItem
-                icon={<FiMail />}
-                onClick={handleSendBulkEmail}
-              >
+              <MenuItem icon={<FiMail />} onClick={handleSendBulkEmail}>
                 Send Bulk Email
               </MenuItem>
-              <MenuItem
-                icon={<FiSend />}
-                onClick={handleSendSelectedInvoices}
-              >
+              <MenuItem icon={<FiSend />} onClick={handleSendSelectedInvoices}>
                 Send Selected Invoices
               </MenuItem>
 
               <MenuDivider />
 
               {/* Download & Export Section */}
-              <MenuItem
-                icon={<FiDownload />}
-                onClick={handleDownloadSelected}
-              >
+              <MenuItem icon={<FiDownload />} onClick={handleDownloadSelected}>
                 Download Selected
               </MenuItem>
               <MenuItem icon={<FiFile />} onClick={handleExportToSage}>
@@ -1071,7 +1133,6 @@ const formatTotalDuration = (seconds) => {
                   </Text>
                 </Box>
               </MenuItem>
-              
 
               <MenuDivider />
 
@@ -1106,10 +1167,7 @@ const formatTotalDuration = (seconds) => {
               <MenuDivider />
 
               {/* Management Actions */}
-              <MenuItem
-                icon={<FiEdit />}
-                onClick={handleRegenerateSelected}
-              >
+              <MenuItem icon={<FiEdit />} onClick={handleRegenerateSelected}>
                 Regenerate Selected
               </MenuItem>
               <MenuItem
@@ -1125,10 +1183,11 @@ const formatTotalDuration = (seconds) => {
       </Flex>
 
       {/* Enhanced Dashboard Stats */}
-      <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={4} mb={8}>
+      <Grid templateColumns={{ base: "1fr", md: "2fr 1fr" }} gap={4} mb={8}>
         {/* Main Stats Cards */}
-        <SimpleGrid columns={{ base: 1, md: 2, lg: 2 }} spacing={4}>
-          <Box display="flex"
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+          <Box
+            display="flex"
             justifyContent="center"
             alignItems="center"
             textAlign="left"
@@ -1136,42 +1195,25 @@ const formatTotalDuration = (seconds) => {
             p={2}
             pl={4}
             boxShadow={"md"}
-            borderRadius={"md"} borderColor={borderColor} >
-            
-              <Stat>
-                <StatLabel color="gray.600" fontSize="sm">Total Revenue</StatLabel>
-                <StatNumber color="green.600" fontSize="2xl">
-                  ${dashboardStats.totalRevenue.toFixed(2)}
-                </StatNumber>
-                <StatHelpText>
-                  <StatArrow type="increase" />
-                  12.5% from last month
-                </StatHelpText>
-              </Stat>
-            </Box>
-
-          <Box display="flex"
-            justifyContent="center"
-            alignItems="center"
-            textAlign="left"
-            bg={bgColor}
-            p={2}
-            pl={4}
-            boxShadow={"md"}
-            borderRadius={"md"} borderColor={borderColor}>
-            
-              <Stat>
-                <StatLabel color="gray.600" fontSize="sm">Pending Revenue</StatLabel>
-                <StatNumber color="orange.600" fontSize="2xl">
-                  ${dashboardStats.pendingRevenue.toFixed(2)}
-                </StatNumber>
-                <StatHelpText>
-                  {dashboardStats.pendingInvoices} invoices pending
-                </StatHelpText>
-              </Stat>
+            borderRadius={"md"}
+            borderColor={borderColor}
+          >
+            <Stat>
+              <StatLabel color="gray.600" fontSize="sm">
+                Total Revenue
+              </StatLabel>
+              <StatNumber color="green.600" fontSize="2xl">
+                ${dashboardStats.totalRevenue.toFixed(2)}
+              </StatNumber>
+              <StatHelpText>
+                <StatArrow type="increase" />
+                12.5% from last month
+              </StatHelpText>
+            </Stat>
           </Box>
 
-          <Box display="flex"
+          <Box
+            display="flex"
             justifyContent="center"
             alignItems="center"
             textAlign="left"
@@ -1179,19 +1221,24 @@ const formatTotalDuration = (seconds) => {
             p={2}
             pl={4}
             boxShadow={"md"}
-            borderRadius={"md"} borderColor={borderColor} >
-              <Stat>
-                <StatLabel color="gray.600" fontSize="sm">Overdue Amount</StatLabel>
-                <StatNumber color="red.600" fontSize="2xl">
-                  ${dashboardStats.overdueAmount.toFixed(2)}
-                </StatNumber>
-                <StatHelpText>
-                  {dashboardStats.overdueInvoices} overdue invoices
-                </StatHelpText>
-              </Stat>
+            borderRadius={"md"}
+            borderColor={borderColor}
+          >
+            <Stat>
+              <StatLabel color="gray.600" fontSize="sm">
+                Pending Revenue
+              </StatLabel>
+              <StatNumber color="orange.600" fontSize="2xl">
+                ${dashboardStats.pendingRevenue.toFixed(2)}
+              </StatNumber>
+              <StatHelpText>
+                {dashboardStats.pendingInvoices} invoices pending
+              </StatHelpText>
+            </Stat>
           </Box>
 
-          <Box display="flex"
+          <Box
+            display="flex"
             justifyContent="center"
             alignItems="center"
             textAlign="left"
@@ -1199,59 +1246,84 @@ const formatTotalDuration = (seconds) => {
             p={2}
             pl={4}
             boxShadow={"md"}
-            borderRadius={"md"} borderWidth="1px" borderColor={borderColor}>
-              <Stat>
-                <StatLabel color="gray.600" fontSize="sm">Collection Percentage</StatLabel>
-                <StatNumber color="blue.600" fontSize="2xl">
-                  {dashboardStats.collectionRate.toFixed(1)}%
-                </StatNumber>
-                <StatHelpText>
-                  <Progress value={dashboardStats.collectionRate} size="sm" colorScheme="blue" />
-                </StatHelpText>
-              </Stat>
+            borderRadius={"md"}
+            borderColor={borderColor}
+          >
+            <Stat>
+              <StatLabel color="gray.600" fontSize="sm">
+                Overdue Amount
+              </StatLabel>
+              <StatNumber color="red.600" fontSize="2xl">
+                ${dashboardStats.overdueAmount.toFixed(2)}
+              </StatNumber>
+              <StatHelpText>
+                {dashboardStats.overdueInvoices} overdue invoices
+              </StatHelpText>
+            </Stat>
+          </Box>
+
+          <Box
+            display="flex"
+            justifyContent="center"
+            alignItems="center"
+            textAlign="left"
+            bg={bgColor}
+            p={2}
+            pl={4}
+            boxShadow={"md"}
+            borderRadius={"md"}
+            borderWidth="1px"
+            borderColor={borderColor}
+          >
+            <Stat>
+              <StatLabel color="gray.600" fontSize="sm">
+                Collection Percentage
+              </StatLabel>
+              <StatNumber color="blue.600" fontSize="2xl">
+                {dashboardStats.collectionRate.toFixed(1)}%
+              </StatNumber>
+              <StatHelpText>
+                <Progress
+                  value={dashboardStats.collectionRate}
+                  size="sm"
+                  colorScheme="blue"
+                />
+              </StatHelpText>
+            </Stat>
           </Box>
         </SimpleGrid>
 
         {/* Quick Insights Panel */}
-        <Box p={2} pl={3} bg={"white"} boxShadow={"md"} borderRadius={"md"} >
-            <VStack align="stretch" spacing={4}>
-              <Heading size="md" color="blue.700">Quick Insights</Heading>
-              <VStack align="stretch" spacing={2}>
-                <Flex justify="space-between" align="center">
-                  <Text fontSize="sm">Average Invoice Value</Text>
-                  <Badge colorScheme="green">${dashboardStats.averageInvoice.toFixed(2)}</Badge>
-                </Flex>
-                <Flex justify="space-between" align="center">
-                  <Text fontSize="sm">Total Calls Billed</Text>
-                  <Badge colorScheme="purple">{dashboardStats.totalCalls}</Badge>
-                </Flex>
-                <Flex justify="space-between" align="center">
-                  <Text fontSize="sm">Paid Invoices</Text>
-                  <Badge colorScheme="green">{dashboardStats.paidInvoices}</Badge>
-                </Flex>
-                <Flex justify="space-between" align="center">
-                  <Text fontSize="sm">Recent Invoices (30d)</Text>
-                  <Badge colorScheme="blue">{dashboardStats.recentInvoices}</Badge>
-                </Flex>
-              </VStack>
-              <Button 
-                w={{base:"full",md:"30%"}}
-                size="sm"
-                colorScheme="blue"
-                variant="outline"
-                leftIcon={<FiBarChart2 />}
-                mt={2}
-              >
-                View Full Report
-              </Button>
+        <Box p={2} pl={3} bg={"white"} boxShadow={"md"} borderRadius={"md"}>
+          <VStack align="stretch" spacing={2}>
+            
+            <VStack align="stretch" spacing={1}>
+              <Flex justify="space-between"  align="center">
+                <Text color={"gray.700"} fontWeight={"bold"} fontSize="sm">Average Invoice Value:</Text>
+                <Badge fontSize={"sm"} px={2} borderRadius={"md"} colorScheme="blue">
+                  ${dashboardStats.averageInvoice.toFixed(2)}
+                </Badge>
+              </Flex>
+              <Flex justify="space-between" align="center">
+                <Text color={"gray.700"} fontWeight={"bold"} fontSize="sm">Paid Invoices:</Text>
+                <Badge fontSize={"sm"} px={2} borderRadius={"md"} colorScheme="green">{dashboardStats.paidInvoices}</Badge>
+              </Flex>
+              <Flex justify="space-between" align="center">
+                <Text color={"gray.700"} fontWeight={"bold"} fontSize="sm">Recent Invoices (30 Days): </Text>
+                <Badge fontSize={"sm"} px={2} borderRadius={"md"} colorScheme="yellow">
+                  {dashboardStats.recentInvoices}
+                </Badge>
+              </Flex>
             </VStack>
-          </Box>
+           
+          </VStack>
+        </Box>
       </Grid>
 
       {/* Tabs for Invoice Categories */}
-      <Tabs 
-        variant="line" 
-        colorScheme="blue" 
+      <Tabs
+        variant="line"
+        colorScheme="blue"
         mb={6}
         onChange={(index) => {
           const tabs = ["all", "pending", "sent", "paid", "overdue"];
@@ -1262,110 +1334,145 @@ const formatTotalDuration = (seconds) => {
           <Tab>
             <FiFileText style={{ marginRight: "8px" }} />
             <HStack spacing={2}>
-           <Text> All Invoices</Text> <Badge borderRadius={"full"} colorScheme={"blue"}>{invoices.length}</Badge>
+              <Text> All Invoices</Text>{" "}
+              <Badge borderRadius={"full"} colorScheme={"blue"}>
+                {invoices.length}
+              </Badge>
             </HStack>
           </Tab>
           <Tab>
             <FiClock style={{ marginRight: "8px" }} />
             <HStack>
-            <Text>Pending</Text> <Badge borderRadius={"full"} colorScheme="yellow">{dashboardStats.pendingInvoices}</Badge>
+              <Text>Pending</Text>{" "}
+              <Badge borderRadius={"full"} colorScheme="yellow">
+                {dashboardStats.pendingInvoices}
+              </Badge>
             </HStack>
           </Tab>
           <Tab>
             <FiClock style={{ marginRight: "8px" }} />
             <HStack>
-            <Text>Sent</Text> <Badge borderRadius={"full"} colorScheme="orange">{dashboardStats.sentInvoices}</Badge>
+              <Text>Sent</Text>{" "}
+              <Badge borderRadius={"full"} colorScheme="orange">
+                {dashboardStats.sentInvoices}
+              </Badge>
             </HStack>
           </Tab>
           <Tab>
             <FiCheckCircle style={{ marginRight: "8px" }} />
             <HStack>
-            <Text>Paid</Text><Badge borderRadius={"full"} colorScheme="green">{dashboardStats.paidInvoices}</Badge>
+              <Text>Paid</Text>
+              <Badge borderRadius={"full"} colorScheme="green">
+                {dashboardStats.paidInvoices}
+              </Badge>
             </HStack>
           </Tab>
           <Tab>
             <FiAlertTriangle style={{ marginRight: "8px" }} />
             <HStack>
-            <Text> Overdue</Text> <Badge borderRadius={"full"} colorScheme="red">{dashboardStats.overdueInvoices}</Badge>
+              <Text> Overdue</Text>{" "}
+              <Badge borderRadius={"full"} colorScheme="red">
+                {dashboardStats.overdueInvoices}
+              </Badge>
             </HStack>
           </Tab>
         </TabList>
       </Tabs>
       <Card shadow="lg" borderWidth="1px" borderColor={borderColor}>
-                
         <TableContainer maxH={"400px"} overflowY={"auto"}>
           <Table variant="simple">
-            <Thead bg="gray.200" position={"sticky"}  top={0} zIndex={1}>
+            <Thead bg="gray.200" position={"sticky"} top={0} zIndex={1}>
               <Tr>
                 <Th width="40px">
                   <Checkbox
-                  sx={{
-                            "& .chakra-checkbox__control": {
-                              borderRadius: "6px",
-                              border: "2px solid", 
-                              borderColor: "blue.500", 
-                              _checked: {
-                                bg: "blue.500",
-                                borderColor: "blue.500",
-                              },
-                            },
-                            "& .chakra-checkbox__label": {
-                              fontSize: "16px",
-                              fontWeight: "medium",
-                            },
-                          }}
-                    isChecked={selectedInvoiceIds.length === filteredInvoices.length && filteredInvoices.length > 0}
-                    isIndeterminate={selectedInvoiceIds.length > 0 && selectedInvoiceIds.length < filteredInvoices.length}
+                    sx={{
+                      "& .chakra-checkbox__control": {
+                        borderRadius: "6px",
+                        border: "2px solid",
+                        borderColor: "blue.500",
+                        _checked: {
+                          bg: "blue.500",
+                          borderColor: "blue.500",
+                        },
+                      },
+                      "& .chakra-checkbox__label": {
+                        fontSize: "16px",
+                        fontWeight: "medium",
+                      },
+                    }}
+                    isChecked={
+                      selectedInvoiceIds.length === filteredInvoices.length &&
+                      filteredInvoices.length > 0
+                    }
+                    isIndeterminate={
+                      selectedInvoiceIds.length > 0 &&
+                      selectedInvoiceIds.length < filteredInvoices.length
+                    }
                     onChange={(e) => {
                       if (e.target.checked) {
-                        setSelectedInvoiceIds(filteredInvoices.map(inv => inv.id));
+                        setSelectedInvoiceIds(
+                          filteredInvoices.map((inv) => inv.id),
+                        );
                       } else {
                         setSelectedInvoiceIds([]);
                       }
                     }}
                   />
                 </Th>
-                <Th >Invoice No.</Th>
-                <Th>Customer</Th>
-                <Th>Period</Th>
-                <Th>Amount</Th>
-                <Th>Due Date</Th>
-                <Th>Status</Th>
-                <Th>Actions</Th>
+                <Th color={"gray.700"}>Invoice No.</Th>
+                <Th color={"gray.700"}>Customer</Th>
+                <Th color={"gray.700"}>Period</Th>
+                <Th color={"gray.700"}>Amount</Th>
+                <Th color={"gray.700"}>Due Date</Th>
+                <Th color={"gray.700"}>Status</Th>
+                <Th color={"gray.700"}>Actions</Th>
               </Tr>
             </Thead>
             <Tbody>
               {filteredInvoices.map((invoice) => {
                 const StatusIcon = getStatusIcon(invoice.status);
-                const isOverdue = invoice.status === "overdue" || 
-                  (invoice.status === "sent" && 
-                   differenceInDays(new Date(), new Date(invoice.dueDate)) > 0);
-                
+                const isOverdue =
+                  invoice.status === "overdue" ||
+                  (invoice.status === "sent" &&
+                    differenceInDays(new Date(), new Date(invoice.dueDate)) >
+                      0);
+
                 return (
-                  <Tr key={invoice.id} _hover={{ bg: "gray.50" }} transition="background-color 0.2s">
+                  <Tr
+                    key={invoice.id}
+                    _hover={{ bg: "gray.50" }}
+                    transition="background-color 0.2s"
+                  >
                     <Td>
                       <Checkbox
-                      sx={{
-                            "& .chakra-checkbox__control": {
-                              borderRadius: "6px",
-                              border: "2px solid", // Use separate border properties
-                              borderColor: "blue.500", // Use theme color
-                              _checked: {
-                                bg: "blue.500",
-                                borderColor: "blue.500",
-                              },
+                        sx={{
+                          "& .chakra-checkbox__control": {
+                            borderRadius: "6px",
+                            border: "2px solid", // Use separate border properties
+                            borderColor: "blue.500", // Use theme color
+                            _checked: {
+                              bg: "blue.500",
+                              borderColor: "blue.500",
                             },
-                            "& .chakra-checkbox__label": {
-                              fontSize: "16px",
-                              fontWeight: "medium",
-                            },
-                          }}
+                          },
+                          "& .chakra-checkbox__label": {
+                            fontSize: "16px",
+                            fontWeight: "medium",
+                          },
+                        }}
                         isChecked={selectedInvoiceIds.includes(invoice.id)}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setSelectedInvoiceIds([...selectedInvoiceIds, invoice.id]);
+                            setSelectedInvoiceIds([
+                              ...selectedInvoiceIds,
+                              invoice.id,
+                            ]);
                           } else {
-                            setSelectedInvoiceIds(selectedInvoiceIds.filter(id => id !== invoice.id));
+                            setSelectedInvoiceIds(
+                              selectedInvoiceIds.filter(
+                                (id) => id !== invoice.id,
+                              ),
+                            );
                           }
                         }}
                       />
@@ -1376,29 +1483,47 @@ const formatTotalDuration = (seconds) => {
                           {invoice.invoiceNumber}
                         </Text>
                         <Text fontSize="xs" color="gray.500">
-                          {format(new Date(parseInt(invoice.invoiceDate)), "MMM dd, yyyy")}
+                          {format(
+                            new Date(parseInt(invoice.invoiceDate)),
+                            "MMM dd, yyyy",
+                          )}
                         </Text>
                       </VStack>
                     </Td>
-                    <Td maxW="170px" overflowX="auto" sx={{
-                      '&::-webkit-scrollbar': { display: 'none' },
-                      msOverflowStyle: 'none',
-                      scrollbarWidth: 'none'
-                    }}>
+                    <Td
+                      maxW="170px"
+                      overflowX="auto"
+                      sx={{
+                        "&::-webkit-scrollbar": { display: "none" },
+                        msOverflowStyle: "none",
+                        scrollbarWidth: "none",
+                      }}
+                    >
                       <HStack>
                         <Box>
-                          <Text fontWeight="medium">{invoice.customerName}</Text>
-                          <Text fontSize="sm" color="gray.600">{invoice.customerGatewayId || invoice.customerCode}</Text>
+                          <Text fontWeight="medium">
+                            {invoice.customerName}
+                          </Text>
+                          <Text fontSize="sm" color="gray.600">
+                            {invoice.customerGatewayId || invoice.customerCode}
+                          </Text>
                         </Box>
                       </HStack>
                     </Td>
                     <Td>
                       <VStack align="start" spacing={1}>
                         <Text fontSize="sm">
-                          {format(new Date(parseInt(invoice.billingPeriodStart)), "MMM dd")}
+                          {format(
+                            new Date(parseInt(invoice.billingPeriodStart)),
+                            "MMM dd",
+                          )}
                         </Text>
                         <Text fontSize="xs" color="gray.500">
-                          to {format(new Date(parseInt(invoice.billingPeriodEnd)), "MMM dd, yyyy")}
+                          to{" "}
+                          {format(
+                            new Date(parseInt(invoice.billingPeriodEnd)),
+                            "MMM dd, yyyy",
+                          )}
                         </Text>
                       </VStack>
                     </Td>
@@ -1415,11 +1540,18 @@ const formatTotalDuration = (seconds) => {
                     <Td>
                       <VStack align="start" spacing={1}>
                         <Text color={isOverdue ? "red.500" : "inherit"}>
-                          {format(new Date(parseInt(invoice.dueDate)), "MMM dd, yyyy")}
+                          {format(
+                            new Date(parseInt(invoice.dueDate)),
+                            "MMM dd, yyyy",
+                          )}
                         </Text>
                         {isOverdue && (
                           <Badge colorScheme="red" variant="subtle" size="sm">
-                            {differenceInDays(new Date(), new Date(parseInt(invoice.dueDate)))}d overdue
+                            {differenceInDays(
+                              new Date(),
+                              new Date(parseInt(invoice.dueDate)),
+                            )}
+                            d overdue
                           </Badge>
                         )}
                       </VStack>
@@ -1435,7 +1567,8 @@ const formatTotalDuration = (seconds) => {
                         borderRadius="full"
                       >
                         <StatusIcon />
-                        {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                        {invoice.status.charAt(0).toUpperCase() +
+                          invoice.status.slice(1)}
                       </Badge>
                     </Td>
                     <Td>
@@ -1485,19 +1618,25 @@ const formatTotalDuration = (seconds) => {
                             </MenuItem>
                             <MenuItem
                               icon={<FiCheckCircle />}
-                              onClick={() => handleUpdateStatus(invoice.id, "paid")}
+                              onClick={() =>
+                                handleUpdateStatus(invoice.id, "paid")
+                              }
                             >
                               Mark as Paid
                             </MenuItem>
                             <MenuItem
                               icon={<FiClock />}
-                              onClick={() => handleUpdateStatus(invoice.id, "sent")}
+                              onClick={() =>
+                                handleUpdateStatus(invoice.id, "sent")
+                              }
                             >
                               Mark as Sent
                             </MenuItem>
                             <MenuItem
                               icon={<FiAlertTriangle />}
-                              onClick={() => handleUpdateStatus(invoice.id, "overdue")}
+                              onClick={() =>
+                                handleUpdateStatus(invoice.id, "overdue")
+                              }
                             >
                               Mark as Overdue
                             </MenuItem>
@@ -1522,12 +1661,16 @@ const formatTotalDuration = (seconds) => {
 
         {filteredInvoices.length === 0 && (
           <Box p={10} textAlign="center">
-            <FiFileText size={48} color="#CBD5E0" style={{ margin: '0 auto 16px' }} />
+            <FiFileText
+              size={48}
+              color="#CBD5E0"
+              style={{ margin: "0 auto 16px" }}
+            />
             <Text color="gray.500" fontSize="lg" mb={2}>
               No invoices found
             </Text>
             <Text color="gray.400" fontSize="sm">
-              {searchTerm || statusFilter !== "all" 
+              {searchTerm || statusFilter !== "all"
                 ? "Try adjusting your search or filter criteria"
                 : "Generate your first invoice to get started"}
             </Text>
@@ -1539,13 +1682,23 @@ const formatTotalDuration = (seconds) => {
           <CardFooter borderTopWidth="1px" px={4} py={4}>
             <Flex justify="space-between" align="center" w="100%">
               <Text color="gray.600" fontSize="sm">
-                Showing {Math.min(filteredInvoices.length, 10)} of {filteredInvoices.length} invoices
+                Showing {Math.min(filteredInvoices.length, 10)} of{" "}
+                {filteredInvoices.length} invoices
               </Text>
               <HStack spacing={2}>
-                <Button size="sm" variant="outline" leftIcon={<FiChevronsLeft />} isDisabled>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  leftIcon={<FiChevronsLeft />}
+                  isDisabled
+                >
                   Previous
                 </Button>
-                <Button size="sm" variant="outline" rightIcon={<FiChevronRight />}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  rightIcon={<FiChevronRight />}
+                >
                   Next
                 </Button>
               </HStack>
@@ -1590,12 +1743,21 @@ const formatTotalDuration = (seconds) => {
 const CardFooter = ({ children, ...props }) => (
   <Box as="footer" {...props}>
     {children}
-</Box>
+  </Box>
 );
 
 // Add missing InputLeftElement component
 const InputLeftElement = ({ children, ...props }) => (
-  <Box position="absolute" left="0" top="0" height="100%" display="flex" alignItems="center" pl="3" {...props}>
+  <Box
+    position="absolute"
+    left="0"
+    top="0"
+    height="100%"
+    display="flex"
+    alignItems="center"
+    pl="3"
+    {...props}
+  >
     {children}
   </Box>
 );

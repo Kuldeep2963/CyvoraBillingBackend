@@ -226,6 +226,16 @@ export const fetchInvoiceById = async (id) => {
   }
 };
 
+export const fetchInvoiceItems = async (id) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}/items`);
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error fetching items for invoice ${id}:`, error);
+    throw error;
+  }
+};
+
 export const generateInvoice = async (invoiceData) => {
   try {
     const response = await fetch(`${API_BASE_URL}/billing/invoices/generate`, {
@@ -322,6 +332,20 @@ export const fetchDashboardStats = async (params = {}) => {
     return await handleResponse(response);
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
+    throw error;
+  }
+};
+
+export const fetchTopDestinations = async (params = {}) => {
+  try {
+    const query = new URLSearchParams(params).toString();
+    const url = query
+      ? `${API_BASE_URL}/dashboard/top-destinations?${query}`
+      : `${API_BASE_URL}/dashboard/top-destinations`;
+    const response = await fetch(url);
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching top destinations:', error);
     throw error;
   }
 };

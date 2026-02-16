@@ -52,11 +52,7 @@ const InvoiceItem = sequelize.define('InvoiceItem', {
     defaultValue: 0,
     comment: 'Total duration in seconds'
   },
-  durationMinutes: {
-    type: DataTypes.DECIMAL(15, 2),
-    defaultValue: 0,
-    comment: 'Total duration in minutes (for display)'
-  },
+  
   
   // Pricing
   unitPrice: {

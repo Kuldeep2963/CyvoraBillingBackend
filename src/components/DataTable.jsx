@@ -49,7 +49,7 @@ const DataTable = ({
   const rowHoverBg = useColorModeValue('blue.50', 'gray.700');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
   const stripedBg = useColorModeValue('gray.50', 'gray.800');
-  const headerBg = useColorModeValue('gray.100', 'gray.200');
+  const headerBg = "gray.200";
 
   // Pagination logic
   const totalItems = data.length;
@@ -160,13 +160,13 @@ const DataTable = ({
           size={compact ? "xs" : "sm"}
           sx={{
             'th': {
-              py: 3,
+              py: 2,
               px: 4,
               fontWeight: '600',
               fontSize: 'xs',
               textTransform: 'uppercase',
               letterSpacing: 'wider',
-              color: useColorModeValue('gray.600', 'gray.400'),
+              color: "gray.800",
               bg: headerBg,
               borderBottom: '2px solid',
               borderColor: borderColor,

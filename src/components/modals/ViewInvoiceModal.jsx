@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Heading,
@@ -15,6 +15,7 @@ import {
   ModalBody,
   ModalCloseButton,
   Table,
+  Input,
   Thead,
   Tbody,
   Tr,
@@ -32,7 +33,11 @@ import {
   Menu,
   MenuButton,
   MenuList,
+  InputGroup,
+  InputLeftElement,
   MenuItem,
+  Spinner,
+  Center,
 } from "@chakra-ui/react";
 import {
   FiDownload,
@@ -43,9 +48,11 @@ import {
   FiCheckCircle,
   FiClock,
   FiAlertTriangle,
+  FiSearch,
   FiX,
 } from "react-icons/fi";
 import { format } from "date-fns";
+import { fetchInvoiceItems } from "../../utils/api";
 
 const ViewInvoiceModal = ({
   isOpen,
@@ -57,7 +64,45 @@ const ViewInvoiceModal = ({
   onSendEmail,
   onUpdateStatus,
 }) => {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [items, setItems] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && selectedInvoice) {
+      if (selectedInvoice.items && selectedInvoice.items.length > 0) {
+        setItems(selectedInvoice.items);
+      } else {
+        loadInvoiceItems();
+      }
+    }
+  }, [isOpen, selectedInvoice]);
+
+  const loadInvoiceItems = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetchInvoiceItems(selectedInvoice.id);
+      if (response.success) {
+        setItems(response.items);
+      }
+    } catch (error) {
+      console.error("Error loading invoice items:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   if (!selectedInvoice) return null;
+
+  const filteredItems = items?.filter((item) => {
+    const term = searchTerm.toLowerCase();
+
+    return (
+      item.destination?.toLowerCase().includes(term) ||
+      item.description?.toLowerCase().includes(term) ||
+      item.trunk?.toLowerCase().includes(term)
+    );
+  });
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="6xl">
@@ -86,7 +131,7 @@ const ViewInvoiceModal = ({
         </ModalHeader>
         <ModalCloseButton color={"white"} />
 
-        <ModalBody overflowY="auto">
+        <ModalBody overflowY="auto" mb={4}>
           <VStack spacing={6} align="stretch">
             {/* Top Section: Customer Info & Summary */}
             <Grid templateColumns={{ base: "1fr", lg: "2fr 1fr" }} gap={8}>
@@ -123,18 +168,18 @@ const ViewInvoiceModal = ({
                         Invoice Details
                       </Text>
                       <VStack align="start" spacing={1}>
-                        <Text >
+                        <Text>
                           <strong>Invoice No. : </strong>{" "}
                           {selectedInvoice.invoiceNumber}
                         </Text>
-                        <Text >
+                        <Text>
                           <strong>Generated: </strong>{" "}
                           {format(
                             new Date(parseInt(selectedInvoice.invoiceDate)),
                             "MMMM dd, yyyy",
                           )}
                         </Text>
-                        <Text >
+                        <Text>
                           <strong>Due Date:</strong>{" "}
                           {format(
                             new Date(parseInt(selectedInvoice.dueDate)),
@@ -229,9 +274,19 @@ const ViewInvoiceModal = ({
                 <HStack justify="space-between">
                   <Heading size="sm">Call Details & Actions</Heading>
                   <HStack spacing={2}>
+                    <InputGroup size="sm" w="200px" borderRadius={"md"}>
+                      <InputLeftElement bg={"gray.100"} pointerEvents="none">
+                        <FiSearch color="gray" />
+                      </InputLeftElement>
+                      <Input
+                        pl={10}
+                        placeholder="Search Destination...."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                    </InputGroup>
                     <Button
-                     borderRadius="2px"
-                      
+                      borderRadius="2px"
                       size="sm"
                       leftIcon={<FiCreditCard />}
                       colorScheme="blue"
@@ -240,9 +295,9 @@ const ViewInvoiceModal = ({
                     >
                       Record Payment
                     </Button>
-                    
+
                     <Button
-                     borderRadius="2px"
+                      borderRadius="2px"
                       size="sm"
                       leftIcon={<FiMail />}
                       colorScheme="green"
@@ -261,8 +316,7 @@ const ViewInvoiceModal = ({
                     </Button>
                     <Menu>
                       <MenuButton
-                     borderRadius="2px"
-                        
+                        borderRadius="2px"
                         as={Button}
                         size="sm"
                         rightIcon={<FiMoreVertical />}
@@ -302,71 +356,93 @@ const ViewInvoiceModal = ({
               </CardHeader>
               <CardBody p={0}>
                 {/* Table with fixed height and sticky header */}
-                <Box maxH="400px" overflowY="auto" >
-                  <Table variant="simple" size="sm">
-                    <Thead
-                      position="sticky"
-                      top={0}
-                      bg="gray.200"
-                      zIndex={1}
-                      boxShadow="sm"
-                      
-                    >
-                      <Tr>
-                        <Th isNumeric color={"black"}>Trunk</Th>
-                        <Th isNumeric color={"black"}>Prefix</Th>
-                        <Th color={"black"}>Destination</Th>
-                        <Th color={"black"}>Description</Th>
-                        <Th color={"black"} isNumeric>
-                          Calls
-                        </Th>
-                        <Th color={"black"} isNumeric>
-                          Duration(Sec)
-                        </Th>
-                        <Th color={"black"} isNumeric>
-                          Duration(Min)
-                        </Th>
-                        <Th color={"black"} isNumeric>
-                          Rate
-                        </Th>
-                        <Th color={"black"} isNumeric>
-                          Amount
-                        </Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {selectedInvoice.items?.map((item, index) => (
-                        <Tr key={index} _hover={{ bg: "gray.50" }}>
-                          <Td>{item.trunk || "-"}</Td>
-                          <Td>{item.prefix || "-"}</Td>
-                          <Td>{item.destination || "-"}</Td>
-                          <Td>{item.description}</Td>
-                          <Td isNumeric>{item.totalCalls}</Td>
-                          <Td isNumeric>{item.duration.toFixed(2)} sec</Td>
-                          <Td isNumeric>
-                            {(item.duration / 60).toFixed(2)} min
-                          </Td>
-                          <Td color={"blue"} isNumeric>
-                            $ {parseFloat(item.unitPrice).toFixed(4)}
-                          </Td>
-                          <Td color={"green"} isNumeric>
-                            $ {parseFloat(item.amount).toFixed(4)}
-                          </Td>
+                <Box maxH="400px" overflowY="auto">
+                  {isLoading ? (
+                    <Center p={10}>
+                      <VStack spacing={4}>
+                        <Spinner size="xl" color="blue.500" thickness="4px" />
+                        <Text color="gray.500">Loading call details...</Text>
+                      </VStack>
+                    </Center>
+                  ) : filteredItems && filteredItems.length > 0 ? (
+                    <Table variant="simple" size="sm">
+                      <Thead
+                        position="sticky"
+                        top={0}
+                        bg="gray.200"
+                        zIndex={1}
+                        boxShadow="sm"
+                        h={"30px"}
+                      >
+                        <Tr>
+                          <Th isNumeric color={"black"}>
+                            Trunk
+                          </Th>
+                          <Th isNumeric color={"black"}>
+                            Prefix
+                          </Th>
+                          <Th color={"black"}>Destination</Th>
+                          <Th color={"black"}>Description</Th>
+                          <Th color={"black"} isNumeric>
+                            Calls
+                          </Th>
+                          <Th color={"black"} isNumeric>
+                            Duration(Sec)
+                          </Th>
+                          <Th color={"black"} isNumeric>
+                            Duration(Min)
+                          </Th>
+                          <Th color={"black"} isNumeric>
+                            Rate
+                          </Th>
+                          <Th color={"black"} isNumeric>
+                            Amount
+                          </Th>
                         </Tr>
-                      ))}
-                    </Tbody>
-                  </Table>
+                      </Thead>
+                      <Tbody>
+                        {filteredItems.map((item, index) => (
+                          <Tr key={index} _hover={{ bg: "gray.50" }}>
+                            <Td>{item.trunk || "-"}</Td>
+                            <Td>{item.prefix || "-"}</Td>
+                            <Td>{item.destination || "-"}</Td>
+                            <Td>{item.description}</Td>
+                            <Td isNumeric>{item.totalCalls}</Td>
+                            <Td isNumeric>{item.duration.toFixed(2)} sec</Td>
+                            <Td isNumeric>
+                              {(item.duration / 60).toFixed(2)} min
+                            </Td>
+                            <Td color={"blue"} isNumeric>
+                              $ {parseFloat(item.unitPrice).toFixed(4)}
+                            </Td>
+                            <Td color={"green"} isNumeric>
+                              $ {parseFloat(item.amount).toFixed(4)}
+                            </Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  ) : (
+                    <Center p={10}>
+                      <Text color="gray.500">No call details found for this invoice.</Text>
+                    </Center>
+                  )}
                 </Box>
               </CardBody>
             </Card>
           </VStack>
         </ModalBody>
-        <ModalFooter borderTopWidth="1px">
-          <Button  leftIcon={<FiX/>} colorScheme="gray" variant="ghost" mr={3} onClick={onClose}>
+        {/* <ModalFooter borderTopWidth="1px">
+          <Button
+            leftIcon={<FiX />}
+            colorScheme="gray"
+            variant="ghost"
+            mr={3}
+            onClick={onClose}
+          >
             Close
           </Button>
-          
-        </ModalFooter>
+        </ModalFooter> */}
       </ModalContent>
     </Modal>
   );

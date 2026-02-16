@@ -376,7 +376,7 @@ const Accounts = () => {
       countryCode: "US",
 
       // Billing
-      billingClass: "standard",
+      billingClass: "",
       billingType: "prepaid",
       billingTimezone: "UTC",
       billingStartDate: new Date().toISOString().split("T")[0],
@@ -668,7 +668,7 @@ const Accounts = () => {
   ];
 
   return (
-    <Container maxW="container.xl" py={4}>
+    <Container maxW="container.2xl">
       <VStack spacing={6} align="stretch">
         {/* Header */}
         <HStack justify="space-between" spacing={4}>
@@ -798,7 +798,7 @@ const Accounts = () => {
           }}
           gap={4}
         >
-          <Box p={4} bg="white" borderRadius="md" display={"flex"} flexDirection={"row"} alignItems="center"
+          <Box p={2} px={6} bg="white" borderRadius="md" display={"flex"} shadow={"md"} flexDirection={"row"} alignItems="center"
             justifyContent="space-between">
             <Text fontSize="sm"  fontWeight="bold">
               Total Accounts
@@ -807,7 +807,7 @@ const Accounts = () => {
               {customers.length}
             </Text>
           </Box>
-          <Box p={4} bg="white" borderRadius="md" display={"flex"} flexDirection={"row"} alignItems="center"
+          <Box p={2} px={6} bg="white" borderRadius="md" display={"flex"} shadow={"md"} flexDirection={"row"} alignItems="center"
             justifyContent="space-between">
             <Text fontSize="sm"  fontWeight="bold">
               Active Accounts
@@ -816,7 +816,7 @@ const Accounts = () => {
               {customers.filter((c) => c.active === true).length}
             </Text>
           </Box>
-          <Box p={4} bg="white" borderRadius="md" display={"flex"} flexDirection={"row"} alignItems="center"
+          <Box p={2} px={6} bg="white" borderRadius="md" display={"flex"} shadow={"md"} flexDirection={"row"} alignItems="center"
             justifyContent="space-between">
             <Text fontSize="sm"  fontWeight="bold">
               Customers
@@ -829,7 +829,7 @@ const Accounts = () => {
               }
             </Text>
           </Box>
-          <Box p={4} bg="white" borderRadius="md" display={"flex"} flexDirection={"row"} alignItems="center"
+          <Box p={2} px={6} bg="white" borderRadius="md" display={"flex"} shadow={"md"} flexDirection={"row"} alignItems="center"
             justifyContent="space-between">
             <Text fontSize="sm"  fontWeight="bold">
               Vendors

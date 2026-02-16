@@ -19,22 +19,26 @@ const formatTime = (date, hour = 0, isEnd = false) => {
 };
 
 /* ===================== HELPER: GET COUNTRY FROM NUMBER ===================== */
-const getCountryFromNumber = (number, countryCodes, skipPrefix = false) => {
+const getCountryFromNumber = (number, countryCodes) => {
   if (!number) return 'Unknown';
+
+  // remove + or 00
   let cleaned = number.toString().replace(/^(\+|00)/, '');
-  
-  if (skipPrefix && cleaned.length > 5) {
-    cleaned = cleaned.substring(5);
-  }
-  
-  const sortedCodes = [...countryCodes].sort((a, b) => b.code.length - a.code.length);
+
+  // sort country codes by length (longest first)
+  const sortedCodes = [...countryCodes].sort(
+    (a, b) => b.code.length - a.code.length
+  );
+
   for (const cc of sortedCodes) {
     if (cleaned.startsWith(cc.code)) {
       return cc.country_name;
     }
   }
+
   return 'Unknown';
 };
+
 
 /* ===================== HELPER: GET TRUNK NAME ===================== */
 const getTrunkName = (number) => {
@@ -42,7 +46,7 @@ const getTrunkName = (number) => {
   const trunkPrefix = number.toString().substring(0, 5);
   if (trunkPrefix.startsWith('10')) return 'NCLI';
   if (trunkPrefix.startsWith('20')) return 'CLI';
-  if (trunkPrefix.startsWith('30')) return 'ortp/TDM';
+  if (trunkPrefix.startsWith('30')) return 'ORTP/TDM';
   if (trunkPrefix.startsWith('40')) return 'CC';
   return 'Unknown';
 };
@@ -66,23 +70,10 @@ const buildAccountConditions = (account, vendorReport = false) => {
     const v = `${account.authenticationValue}`;
     or.push(
       { customeraccount: { [Op.like]: v } },
-      { agentaccount: { [Op.like]: v } },
-      { callere164: { [Op.like]: v } },
-      { calleee164: { [Op.like]: v } },
-      { customername: { [Op.like]: v } },
-      { agentname: { [Op.like]: v } }
     );
   }
 
-  // 3️⃣ Gateway authentication (explicit)
-  if (account.authenticationType === 'gateway' && account.authenticationValue) {
-    or.push(
-      vendorReport
-        ? { agentaccount: account.authenticationValue }
-        : { customeraccount: account.authenticationValue }
-    );
-  }
-
+  
   // 4️⃣ Fallback to gatewayId only if authenticationValue is not set but type is gateway
   if (or.length === 0 && account.gatewayId) {
     or.push(
@@ -213,6 +204,7 @@ exports.generateInvoice = async (req, res) => {
         'customername',
         'callere164',
         'calleee164',
+        'calleegatewayid',
         [fn('COUNT', col('*')), 'totalCalls'],
         [fn('SUM', H.completedCall), 'completedCalls'],
         [fn('SUM', H.failedCall), 'failedCalls'],
@@ -220,7 +212,7 @@ exports.generateInvoice = async (req, res) => {
         [fn('SUM', H.revenue), 'revenue']
       ],
       where: cdrWhere,
-      group: ['customeraccount', 'customername', 'callere164', 'calleee164'],
+      group: ['customeraccount', 'customername', 'callere164', 'calleee164', 'calleegatewayid'],
       raw: true
     });
 
@@ -237,32 +229,63 @@ exports.generateInvoice = async (req, res) => {
       let destination = 'Unknown';
       let prefix = '';
       
-      const phoneNumber = parsePhoneNumberFromString('+' + cdr.callere164.toString().replace(/^\+/, ''));
+      // Clean calleee164 and remove 5-digit trunk prefix
+      const fullCalleee = cdr.calleee164 ? cdr.calleee164.toString().replace(/^\+/, '') : '';
+      const actualCalleee = fullCalleee.length > 5 ? fullCalleee.substring(5) : fullCalleee;
+      
+      const phoneNumber = parsePhoneNumberFromString('+' + actualCalleee);
       
       if (phoneNumber) {
-        destination = getCountryFromNumber(cdr.callere164, countryCodes, false);
-        // Prefix is Country Code + part of national number to represent area
-        prefix = phoneNumber.countryCallingCode;
-        
-        // If we have a national number, the first 2-3 digits usually represent the area/network
-        const national = phoneNumber.nationalNumber;
-        if (national.length > 3) {
-          prefix += national.substring(0, 3);
-        }
-      } else {
-        // Fallback to existing logic if libphonenumber fails
-        destination = getCountryFromNumber(cdr.callere164, countryCodes, false);
-        prefix = cdr.callere164 ? cdr.callere164.toString().substring(0, 5) : '';
-      }
+  destination = getCountryFromNumber(actualCalleee, countryCodes);
+  prefix = phoneNumber.countryCallingCode;
+  
+  const national = phoneNumber.nationalNumber;
+  
+  // Dynamic prefix extraction based on national number length
+  if (national.length >= 3) {
+    prefix += national.substring(0, 3);
+  } else if (national.length >= 2) {
+    prefix += national.substring(0, 2);
+  } else if (national.length > 0) {
+    prefix += national;
+  }
+  
+  // Log failures
+  if (!destination) {
+    console.warn('Failed to detect country for:', actualCalleee, phoneNumber);
+  }
+} else {
+  // Enhanced fallback
+  console.warn('libphonenumber parsing failed for:', actualCalleee);
+  destination = getCountryFromNumber(actualCalleee, countryCodes);
+  
+  // Smart prefix extraction
+  if (actualCalleee.length >= 5) {
+    prefix = actualCalleee.substring(0, 5);
+  } else {
+    prefix = actualCalleee;
+  }
+}
 
       const trunk = getTrunkName(cdr.calleee164);
-      const key = `${destination}|${prefix}|${trunk}`;
+      
+      // Extract custom description from calleegatewayid (after second --)
+      let customDescription = '';
+      if (cdr.calleegatewayid) {
+        const parts = cdr.calleegatewayid.split('--');
+        if (parts.length >= 3) {
+          customDescription = parts[2].trim();
+        }
+      }
+
+      const key = `${destination}|${prefix}|${trunk}|${customDescription}`;
       
       if (!groupedData[key]) {
         groupedData[key] = {
           destination,
           trunk,
           prefix,
+          customDescription,
           totalCalls: 0,
           completedCalls: 0,
           failedCalls: 0,
@@ -285,23 +308,23 @@ exports.generateInvoice = async (req, res) => {
 
     // Calculate subtotal
     let subtotal = 0;
+    let totalCallsCount = 0;
     const invoiceItems = Object.values(groupedData)
       .filter(item => item.completedCalls > 0)
       .map((item, index) => {
       
-      const durationMinutes = (item.duration / 60).toFixed(2);
       const amount = Number(item.revenue);
       subtotal += amount;
+      totalCallsCount += Number(item.totalCalls);
 
       return {
         itemType: 'call_charges',
-        description: `Calls to ${item.destination} (${item.trunk})`,
+        description: item.customDescription || `Calls to ${item.destination} (${item.trunk})`,
         destination: item.destination,
         trunk: item.trunk,
         prefix: item.prefix,
         quantity: item.totalCalls,
         duration: item.duration,
-        durationMinutes: parseFloat(durationMinutes),
         
         unitPrice: item.totalCalls > 0 ? (amount / item.totalCalls) : 0,
         amount: parseFloat(amount.toFixed(4)),
@@ -351,6 +374,7 @@ exports.generateInvoice = async (req, res) => {
       discountAmount: parseFloat(discountAmount),
       totalAmount: parseFloat(totalAmount.toFixed(4)),
       balanceAmount: parseFloat(totalAmount.toFixed(4)),
+      totalCalls: totalCallsCount,
       status: 'pending',
       notes,
       customerNotes,
@@ -441,10 +465,6 @@ exports.getAllInvoices = async (req, res) => {
 
     const { count, rows } = await Invoice.findAndCountAll({
       where,
-      include: [{
-        model: InvoiceItem,
-        as: 'items'
-      }],
       order: [['invoiceDate', 'DESC']],
       limit: parseInt(limit),
       offset: parseInt(offset)
@@ -482,12 +502,7 @@ exports.getInvoiceById = async (req, res) => {
       : { invoiceNumber: id };
 
     const invoice = await Invoice.findOne({
-      where: whereClause,
-      include: [{
-        model: InvoiceItem,
-        as: 'items',
-        order: [['sortOrder', 'ASC']]
-      }]
+      where: whereClause
     });
 
     if (!invoice) {
@@ -504,6 +519,29 @@ exports.getInvoiceById = async (req, res) => {
 
   } catch (error) {
     console.error('Get Invoice By ID Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+/* ===================== GET INVOICE ITEMS ===================== */
+exports.getInvoiceItems = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const items = await InvoiceItem.findAll({
+      where: { invoiceId: id },
+      order: [['sortOrder', 'ASC']]
+    });
+
+    res.json({
+      success: true,
+      items
+    });
+  } catch (error) {
+    console.error('Get Invoice Items Error:', error);
     res.status(500).json({
       success: false,
       error: error.message

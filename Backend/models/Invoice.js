@@ -96,6 +96,10 @@ const Invoice = sequelize.define('Invoice', {
     type: DataTypes.DECIMAL(15, 4),
     defaultValue: 0
   },
+  totalCalls: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
   
   // Currency
   currency: {

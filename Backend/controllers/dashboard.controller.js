@@ -55,79 +55,59 @@ const getTrunkName = (number) => {
   return 'Unknown';
 };
 
-exports.getDashboardStats = async (req, res) => {
-  try {
-    const { startDate, endDate, range } = req.query;
+const getDateRange = (range, startDate, endDate) => {
+  let where = {};
+  if (range) {
+    const now = moment();
+    let start;
+    switch (range) {
+      case 'today':
+        start = moment().startOf('day');
+        break;
+      case 'week':
+        start = moment().subtract(7, 'days').startOf('day');
+        break;
+      case 'biweekly':
+        start = moment().subtract(14, 'days').startOf('day');
+        break;
+      case 'monthly':
+        start = moment().subtract(30, 'days').startOf('day');
+        break;
+      case '3month':
+        start = moment().subtract(90, 'days').startOf('day');
+        break;
+      default:
+        start = moment().startOf('day');
+    }
+    where.starttime = {
+      [Op.between]: [start.valueOf().toString(), now.valueOf().toString()]
+    };
+  } else if (startDate && endDate) {
+    const start = formatTime(startDate, 0);
+    const end = formatTime(endDate, 23, true);
     
-    let where = {};
-    if (range) {
-      const now = moment();
-      let start;
-      switch (range) {
-        case 'today':
-          start = moment().startOf('day');
-          break;
-        case 'week':
-          start = moment().subtract(7, 'days').startOf('day');
-          break;
-        case 'biweekly':
-          start = moment().subtract(14, 'days').startOf('day');
-          break;
-        case 'monthly':
-          start = moment().subtract(30, 'days').startOf('day');
-          break;
-        case '3month':
-          start = moment().subtract(90, 'days').startOf('day');
-          break;
-        default:
-          start = moment().startOf('day');
-      }
+    if (start && end) {
       where.starttime = {
-        [Op.between]: [start.valueOf().toString(), now.valueOf().toString()]
-      };
-    } else if (startDate && endDate) {
-      const start = formatTime(startDate, 0);
-      const end = formatTime(endDate, 23, true);
-      
-      if (start && end) {
-        where.starttime = {
-          [Op.between]: [start, end]
-        };
-      }
-    } else {
-      // Default to today if no dates provided
-      const start = moment().startOf('day');
-      const now = moment();
-      where.starttime = {
-        [Op.between]: [start.valueOf().toString(), now.valueOf().toString()]
+        [Op.between]: [start, end]
       };
     }
+  } else {
+    // Default to today if no dates provided
+    const start = moment().startOf('day');
+    const now = moment();
+    where.starttime = {
+      [Op.between]: [start.valueOf().toString(), now.valueOf().toString()]
+    };
+  }
+  return where;
+};
 
-    // 1. Dashboard Stats: {total calls, total revenue, active customers, total duration}
-    const stats = await CDR.findOne({
-      attributes: [
-        [fn('COUNT', col('id')), 'totalCalls'],
-        [fn('SUM', H.revenue), 'totalRevenue'],
-        [fn('SUM', H.durationSec), 'totalDuration'],
-        [fn('COUNT', fn('DISTINCT', col('customeraccount'))), 'activeCustomers']
-      ],
-      where,
-      raw: true
-    });
+exports.getTopDestinations = async (req, res) => {
+  try {
+    const { startDate, endDate, range, sortBy = 'revenue', limit = 10 } = req.query;
+    
+    const where = getDateRange(range, startDate, endDate);
 
-    // 2. Hourly Call Distribution: {hours and calls count}
-    const hourlyDistribution = await CDR.findAll({
-      attributes: [
-        [H.hour, 'hour'],
-        [fn('COUNT', col('id')), 'callsCount']
-      ],
-      where,
-      group: [H.hour],
-      order: [[H.hour, 'ASC']],
-      raw: true
-    });
-
-    // 3. Top Destinations: {destination, totalcalls, ACD, ASR, margin, revenue, minutes}
     const destinationDataRaw = await CDR.findAll({
       attributes: [
         'calleee164',
@@ -170,8 +150,6 @@ exports.getDashboardStats = async (req, res) => {
     });
 
     const topDestinations = Object.values(groupedDestinations)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10)
       .map(item => {
         const minutes = item.duration / 60;
         const revenue = item.revenue;
@@ -182,12 +160,64 @@ exports.getDashboardStats = async (req, res) => {
           totalCalls: item.totalCalls,
           minutes: parseFloat(minutes.toFixed(2)),
           revenue: parseFloat(revenue.toFixed(4)),
+          cost: parseFloat(cost.toFixed(4)),
           margin: parseFloat((revenue - cost).toFixed(4)),
           marginPercentage: revenue > 0 ? parseFloat((((revenue - cost) / revenue) * 100).toFixed(5)) : 0,
           ASR: item.totalCalls > 0 ? parseFloat(((item.completedCalls / item.totalCalls) * 100).toFixed(4)) : 0,
           ACD: item.completedCalls > 0 ? parseFloat((item.duration / item.completedCalls / 60).toFixed(4)) : 0
         };
-      });
+      })
+      .sort((a, b) => {
+        if (sortBy === 'totalCalls') return b.totalCalls - a.totalCalls;
+        if (sortBy === 'minutes') return b.minutes - a.minutes;
+        if (sortBy === 'cost') return b.cost - a.cost;
+        return b.revenue - a.revenue; // default to revenue
+      })
+      .slice(0, parseInt(limit));
+
+    res.json({
+      success: true,
+      data: topDestinations
+    });
+  } catch (error) {
+    console.error('Top Destinations Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch top destinations',
+      error: error.message
+    });
+  }
+};
+
+exports.getDashboardStats = async (req, res) => {
+  try {
+    const { startDate, endDate, range } = req.query;
+    
+    const where = getDateRange(range, startDate, endDate);
+
+    // 1. Dashboard Stats: {total calls, total revenue, active customers, total duration}
+    const stats = await CDR.findOne({
+      attributes: [
+        [fn('COUNT', col('id')), 'totalCalls'],
+        [fn('SUM', H.revenue), 'totalRevenue'],
+        [fn('SUM', H.durationSec), 'totalDuration'],
+        [fn('COUNT', fn('DISTINCT', col('customeraccount'))), 'activeCustomers']
+      ],
+      where,
+      raw: true
+    });
+
+    // 2. Hourly Call Distribution: {hours and calls count}
+    const hourlyDistribution = await CDR.findAll({
+      attributes: [
+        [H.hour, 'hour'],
+        [fn('COUNT', col('id')), 'callsCount']
+      ],
+      where,
+      group: [H.hour],
+      order: [[H.hour, 'ASC']],
+      raw: true
+    });
 
     // 4. Top Customers Distribution: {customerName, totalCalls}
     const customerDistributionRaw = await CDR.findAll({
@@ -233,7 +263,6 @@ exports.getDashboardStats = async (req, res) => {
           hour: parseInt(h.hour),
           callsCount: Number(h.callsCount)
         })),
-        topDestinations,
         customerDistribution: topCustomers,
         financialSummary: {
           totalRevenue: parseFloat(Number(financialSummary.totalRevenue || 0).toFixed(4)),

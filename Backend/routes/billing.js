@@ -20,6 +20,9 @@ router.get('/invoices', billingController.getAllInvoices);
 // Get single invoice
 router.get('/invoices/:id', billingController.getInvoiceById);
 
+// Get invoice items
+router.get('/invoices/:id/items', billingController.getInvoiceItems);
+
 // Update invoice
 router.put('/invoices/:id', billingController.updateInvoice);
 

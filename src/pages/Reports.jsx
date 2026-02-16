@@ -2108,6 +2108,7 @@ const Reports = () => {
           <ModalFooter>
             <HStack spacing={6} width="100%">
               <Button
+                size={"md"}
                 variant="outline"
                 onClick={() => setIsModalOpen(false)}
                 flex={1}
