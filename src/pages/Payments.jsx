@@ -44,7 +44,6 @@ import {
   fetchPayments,
   fetchReportAccounts,
   recordPayment,
-  fetchInvoices,
   exportReport,
 } from "../utils/api";
 import { format } from "date-fns";
@@ -93,17 +92,16 @@ const Payments = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [paymentsRes, customersData, invoicesRes] = await Promise.all([
+      const [paymentsRes, customersData] = await Promise.all([
         fetchPayments(),
         fetchReportAccounts(),
-        fetchInvoices(),
       ]);
 
       const paymentsData = paymentsRes.success ? paymentsRes.data : [];
       setPayments(paymentsData);
       setFilteredPayments(paymentsData);
       setCustomers(customersData.success ? customersData.customers : []);
-      setInvoices(invoicesRes.success ? invoicesRes.data : []);
+      // setInvoices(invoicesRes.success ? invoicesRes.data : []);
 
       calculateStats(paymentsData);
     } catch (error) {
@@ -374,16 +372,9 @@ const Payments = () => {
   return (
     <Box>
       <VStack spacing={6} align="stretch">
-        <Flex justify="space-between" align="center">
+              <Flex justify="space-between" align="center" bgGradient="linear(to-r,blue.100,blue.200,blue.300)" px={4} py={2} borderRadius={"12px"} >
+        
           <Box>
-            {/* <Breadcrumb spacing="8px" separator={<FiChevronRight color="gray.500" />}>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbItem isCurrentPage>
-                <BreadcrumbLink href="#">Payments</BreadcrumbLink>
-              </BreadcrumbItem>
-            </Breadcrumb> */}
             <Heading size="lg" mt={2}>
               Payment Records
             </Heading>
@@ -391,19 +382,10 @@ const Payments = () => {
           </Box>
           <HStack spacing={3}>
             <Button
-            variant="outline"
-            colorScheme="purple"
-            size={"sm"}
-            leftIcon={<FiRefreshCw />}
-            onClick={loadData}
-            isLoading={isLoading}
-          >
-            Refresh
-          </Button>
-            <Button
               leftIcon={<FiDownload />}
               variant="outline"
               size="sm"
+              colorScheme="black"
               onClick={handleExport}
               isDisabled={filteredPayments.length === 0}
             >
@@ -411,7 +393,7 @@ const Payments = () => {
             </Button>
             <Button
               leftIcon={<FiDollarSign />}
-              colorScheme="blue"
+              colorScheme="green"
               size="sm"
               onClick={() => setIsPaymentModalOpen(true)}
             >

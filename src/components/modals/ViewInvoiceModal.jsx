@@ -356,7 +356,7 @@ const ViewInvoiceModal = ({
               </CardHeader>
               <CardBody p={0}>
                 {/* Table with fixed height and sticky header */}
-                <Box maxH="400px" overflowY="auto">
+                <Box maxH="300px" overflowY="auto">
                   {isLoading ? (
                     <Center p={10}>
                       <VStack spacing={4}>

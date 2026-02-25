@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Button,
@@ -19,6 +21,7 @@ import {
   Flex,
   Badge,
   Image,
+  useToast,
 } from "@chakra-ui/react";
 import { keyframes } from "@emotion/react";
 import {
@@ -47,8 +50,11 @@ const glow = keyframes`
 const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const toast = useToast();
   const [formData, setFormData] = useState({
-    email: "",
+    username: "",
     password: "",
     rememberMe: false,
   });
@@ -64,11 +70,26 @@ const LoginPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      await login(formData.username, formData.password);
+      toast({
+        title: "Login successful",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+      navigate("/");
+    } catch (error) {
+      toast({
+        title: "Login failed",
+        description: error.message,
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
       setIsLoading(false);
-      console.log("Login attempt:", formData);
-    }, 2000);
+    }
   };
 
   return (
@@ -157,54 +178,6 @@ const LoginPage = () => {
                 </Text>
               </VStack>
 
-              {/* Social Login Buttons */}
-              {/* <HStack spacing={4}>
-                <Button
-                  flex={1}
-                  variant="outline"
-                  leftIcon={<Icon as={FaGoogle} />}
-                  borderColor="rgba(255, 255, 255, 0.1)"
-                  bg="rgba(255, 255, 255, 0.02)"
-                  color="gray.300"
-                  _hover={{ 
-                    bg: 'rgba(255, 255, 255, 0.05)',
-                    borderColor: '#667eea',
-                    color: 'white'
-                  }}
-                  _active={{ transform: 'translateY(0)' }}
-                  transition="all 0.2s"
-                  size="lg"
-                >
-                  Google
-                </Button>
-                <Button
-                  flex={1}
-                  variant="outline"
-                  leftIcon={<Icon as={FaGithub} />}
-                  borderColor="rgba(255, 255, 255, 0.1)"
-                  bg="rgba(255, 255, 255, 0.02)"
-                  color="gray.300"
-                  _hover={{ 
-                    bg: 'rgba(255, 255, 255, 0.05)',
-                    borderColor: '#764ba2',
-                    color: 'white'
-                  }}
-                  _active={{ transform: 'translateY(0)' }}
-                  transition="all 0.2s"
-                  size="lg"
-                >
-                  GitHub
-                </Button>
-              </HStack> */}
-
-              {/* <HStack>
-                <Divider borderColor="rgba(255, 255, 255, 0.1)" />
-                <Text fontSize="sm" color="gray.500" px={4}>
-                  OR
-                </Text>
-                <Divider borderColor="rgba(255, 255, 255, 0.1)" />
-              </HStack> */}
-
               {/* Form */}
               <form onSubmit={handleSubmit} style={{ width: "100%" }}>
                 <VStack spacing={5}>
@@ -214,15 +187,15 @@ const LoginPage = () => {
                       fontWeight="medium"
                       fontSize="sm"
                     >
-                      Email Address
+                      Username
                     </FormLabel>
                     <InputGroup size="md">
                       <Input
-                        name="email"
-                        type="email"
-                        value={formData.email}
+                        name="username"
+                        type="text"
+                        value={formData.username}
                         onChange={handleChange}
-                        placeholder="Enter email..."
+                        placeholder="Enter username..."
                         bg="rgba(0, 0, 0, 0.5)"
                         border="1px solid"
                         borderColor="rgba(255, 255, 255, 0.1)"
@@ -243,7 +216,7 @@ const LoginPage = () => {
                         left={3}
                         top="50%"
                         transform="translateY(-50%)"
-                        color={formData.email ? "#667eea" : "gray.600"}
+                        color={formData.username ? "#667eea" : "gray.600"}
                         zIndex={2}
                         transition="color 0.2s"
                       />
@@ -357,58 +330,6 @@ const LoginPage = () => {
                   </Button>
                 </VStack>
               </form>
-
-              {/* Sign Up Link */}
-              {/* <HStack justify="center" spacing={1} pt={4}>
-                <Text color="gray.500" fontSize="sm">
-                  Don't have an account?
-                </Text>
-                <Link 
-                  color="#667eea" 
-                  fontSize="sm" 
-                  fontWeight="semibold"
-                  _hover={{ color: '#764ba2', textDecoration: 'none' }}
-                >
-                  Sign up free
-                </Link>
-              </HStack> */}
-
-              {/* Trust Badges */}
-              <HStack spacing={4} justify="center" pt={2} flexWrap="wrap">
-                <Text
-                  fontSize="xs"
-                  color="gray.600"
-                  display="flex"
-                  alignItems="center"
-                >
-                  <Box as="span" mr={1}>
-                    🔒
-                  </Box>{" "}
-                  256-bit
-                </Text>
-                <Text
-                  fontSize="xs"
-                  color="gray.600"
-                  display="flex"
-                  alignItems="center"
-                >
-                  <Box as="span" mr={1}>
-                    ✓
-                  </Box>{" "}
-                  GDPR
-                </Text>
-                <Text
-                  fontSize="xs"
-                  color="gray.600"
-                  display="flex"
-                  alignItems="center"
-                >
-                  <Box as="span" mr={1}>
-                    ⚡
-                  </Box>{" "}
-                  99.9%
-                </Text>
-              </HStack>
             </VStack>
           </Box>
         </Box>

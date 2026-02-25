@@ -20,6 +20,9 @@ router.get('/invoices', billingController.getAllInvoices);
 // Get single invoice
 router.get('/invoices/:id', billingController.getInvoiceById);
 
+// Download invoice PDF
+router.get('/invoices/:id/download', billingController.downloadInvoice);
+
 // Get invoice items
 router.get('/invoices/:id/items', billingController.getInvoiceItems);
 
@@ -46,5 +49,8 @@ router.get('/customers/:customerId/outstanding', billingController.getCustomerOu
 
 // Get aging report
 router.get('/reports/aging', billingController.getAgingReport);
+
+// Get vendor usage for periods
+router.post('/vendor-usage', billingController.getVendorUsage);
 
 module.exports = router;

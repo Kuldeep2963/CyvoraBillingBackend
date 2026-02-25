@@ -26,20 +26,22 @@ module.exports = {
   `),
 
   revenue: literal(`
-    CASE
-      WHEN fee::text ~ '^[0-9]+(\\.[0-9]+)?$'
-      THEN fee::numeric
-      ELSE 0
-    END
-  `),
+  (
+    COALESCE(NULLIF(fee::text, '')::numeric, 0) +
+    COALESCE(NULLIF(tax::text, '')::numeric, 0) +
+    COALESCE(NULLIF(suitefee::text, '')::numeric, 0) +
+    COALESCE(NULLIF(incomefee::text, '')::numeric, 0) +
+    COALESCE(NULLIF(incometax::text, '')::numeric, 0)
+  )
+`),
 
   cost: literal(`
-    CASE
-      WHEN agentfee::text ~ '^[0-9]+(\\.[0-9]+)?$'
-      THEN agentfee::numeric
-      ELSE 0
-    END
-  `),
+  (
+    COALESCE(NULLIF(agentfee::text, '')::numeric, 0) +
+    COALESCE(NULLIF(agenttax::text, '')::numeric, 0) +
+    COALESCE(NULLIF(agentsuitefee::text, '')::numeric, 0)
+  )
+`),
 
   tax: literal(`
     CASE

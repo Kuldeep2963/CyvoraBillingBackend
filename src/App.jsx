@@ -10,30 +10,46 @@ import Payments from './pages/Payments';
 import Settings from './pages/Settings';
 import Report from './pages/Reports';
 import LoginPage from './pages/LoginPage';
+import SOAPage from './pages/SOA';
+import AddUser from './pages/AddUser';
+import Vendorinvoice from './pages/Vendorinvoice';
+import ProtectedRoute from './components/ProtectedRoute';
+import { useAuth } from './context/AuthContext';
+import { Navigate } from 'react-router-dom';
 
 const AppLayout = () => (
-  <Layout>
-    <Box p={4}>
-      <Outlet />
-    </Box>
-  </Layout>
+  <ProtectedRoute>
+    <Layout>
+      <Box>
+        <Outlet />
+      </Box>
+    </Layout>
+  </ProtectedRoute>
 );
+
+const LoginRoute = () => {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />;
+};
 
 function App() {
   return (
     <ChakraProvider>
       <Router>
         <Routes>
-          <Route path="/" element={<LoginPage />} />
+          <Route path="/" element={<LoginRoute />} />
           <Route element={<AppLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/upload" element={<CDRUpload />} />
+            <Route path='/vendorinvoice' element={<Vendorinvoice />} />
+            <Route path="/adduser" element={<AddUser />} />
+            <Route path="/soa" element={<SOAPage />} />
             <Route path="/accounts" element={<Customers />} />
             <Route path="/invoices" element={<Invoices />} />
             <Route path="/payments" element={<Payments />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/reports" element={<Report />} />
           </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Router>
     </ChakraProvider>

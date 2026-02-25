@@ -1,6 +1,16 @@
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
 const handleResponse = async (response) => {
+  if (response.status === 401) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '/';
+  }
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Network error' }));
     throw new Error(error.error || `HTTP error! status: ${response.status}`);
@@ -10,7 +20,9 @@ const handleResponse = async (response) => {
 
 export const fetchCDRs = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/cdr`);
+    const response = await fetch(`${API_BASE_URL}/cdr`, {
+      headers: getAuthHeaders()
+    });
     return await handleResponse(response);
   } catch (error) {
     console.error('Error fetching CDRs:', error);
@@ -24,6 +36,7 @@ export const createCDR = async (cdrData) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(cdrData),
     });
@@ -40,6 +53,7 @@ export const bulkCreateCDRs = async (cdrsData) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(cdrsData),
     });
@@ -56,6 +70,7 @@ export const updateCDR = async (id, cdrData) => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(cdrData),
     });
@@ -70,6 +85,7 @@ export const deleteCDR = async (id) => {
   try {
     const response = await fetch(`${API_BASE_URL}/cdr/${id}`, {
       method: 'DELETE',
+      headers: getAuthHeaders()
     });
     return await handleResponse(response);
   } catch (error) {
@@ -80,7 +96,9 @@ export const deleteCDR = async (id) => {
 
 export const fetchCustomers = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/customers`);
+    const response = await fetch(`${API_BASE_URL}/customers`, {
+      headers: getAuthHeaders()
+    });
     const data = await handleResponse(response);
     return data.accounts || [];
   } catch (error) {
@@ -95,6 +113,7 @@ export const createCustomer = async (customerData) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(customerData),
     });
@@ -111,6 +130,7 @@ export const updateCustomer = async (id, customerData) => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(customerData),
     });
@@ -125,6 +145,7 @@ export const deleteCustomer = async (id) => {
   try {
     const response = await fetch(`${API_BASE_URL}/customers/${id}`, {
       method: 'DELETE',
+      headers: getAuthHeaders()
     });
     return await handleResponse(response);
   } catch (error) {
@@ -136,7 +157,9 @@ export const deleteCustomer = async (id) => {
 // Report APIs
 export const fetchReportAccounts = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/reports/accounts`);
+    const response = await fetch(`${API_BASE_URL}/reports/accounts`, {
+      headers: getAuthHeaders()
+    });
     return await handleResponse(response);
   } catch (error) {
     console.error('Error fetching report accounts:', error);
@@ -148,7 +171,10 @@ export const generateReport = async (type, params) => {
   try {
     const response = await fetch(`${API_BASE_URL}/reports/${type}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
       body: JSON.stringify(params)
     });
     return await handleResponse(response);
@@ -162,10 +188,20 @@ export const exportReport = async (data, format, fileName) => {
   try {
     const response = await fetch(`${API_BASE_URL}/reports/export-report`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
       body: JSON.stringify({ data, format, fileName })
     });
     
+    if (response.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/';
+      return;
+    }
+
     if (!response.ok) throw new Error('Export failed');
     
     const blob = await response.blob();
@@ -192,8 +228,9 @@ export const fetchInvoices = async (params = {}) => {
       ? `${API_BASE_URL}/billing/invoices?${query}`
       : `${API_BASE_URL}/billing/invoices`;
 
-    const response = await fetch(url);
-    console.log("responseData",response.data )
+    const response = await fetch(url, {
+      headers: getAuthHeaders()
+    });
     return await handleResponse(response);
   } catch (error) {
     console.error('Error fetching invoices:', error);
@@ -208,7 +245,9 @@ export const fetchLiteInvoices = async (params = {}) => {
       ? `${API_BASE_URL}/billing/invoices/lite?${query}`
       : `${API_BASE_URL}/billing/invoices/lite`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: getAuthHeaders()
+    });
     return await handleResponse(response);
   } catch (error) {
     console.error('Error fetching lite invoices:', error);
@@ -218,7 +257,9 @@ export const fetchLiteInvoices = async (params = {}) => {
 
 export const fetchInvoiceById = async (id) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}`);
+    const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}`, {
+      headers: getAuthHeaders()
+    });
     return await handleResponse(response);
   } catch (error) {
     console.error(`Error fetching invoice ${id}:`, error);
@@ -228,7 +269,9 @@ export const fetchInvoiceById = async (id) => {
 
 export const fetchInvoiceItems = async (id) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}/items`);
+    const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}/items`, {
+      headers: getAuthHeaders()
+    });
     return await handleResponse(response);
   } catch (error) {
     console.error(`Error fetching items for invoice ${id}:`, error);
@@ -242,6 +285,7 @@ export const generateInvoice = async (invoiceData) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(invoiceData),
     });
@@ -258,6 +302,7 @@ export const updateInvoiceStatus = async (id, statusData) => {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(statusData),
     });
@@ -272,10 +317,42 @@ export const deleteInvoice = async (id) => {
   try {
     const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}`, {
       method: 'DELETE',
+      headers: getAuthHeaders()
     });
     return await handleResponse(response);
   } catch (error) {
     console.error(`Error deleting invoice ${id}:`, error);
+    throw error;
+  }
+};
+
+export const downloadInvoice = async (id, invoiceNumber) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}/download`, {
+      headers: getAuthHeaders()
+    });
+
+    if (response.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/';
+      return;
+    }
+
+    if (!response.ok) throw new Error('Download failed');
+    
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Invoice_${invoiceNumber || id}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+    return { success: true };
+  } catch (error) {
+    console.error(`Error downloading invoice ${id}:`, error);
     throw error;
   }
 };
@@ -286,6 +363,7 @@ export const recordPayment = async (paymentData) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(paymentData),
     });
@@ -303,7 +381,9 @@ export const fetchPayments = async (params = {}) => {
       ? `${API_BASE_URL}/billing/payments?${query}`
       : `${API_BASE_URL}/billing/payments`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: getAuthHeaders()
+    });
     return await handleResponse(response);
   } catch (error) {
     console.error('Error fetching payments:', error);
@@ -313,10 +393,29 @@ export const fetchPayments = async (params = {}) => {
 
 export const fetchCustomerOutstanding = async (customerId) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/billing/customers/${customerId}/outstanding`);
+    const response = await fetch(`${API_BASE_URL}/billing/customers/${customerId}/outstanding`, {
+      headers: getAuthHeaders()
+    });
     return await handleResponse(response);
   } catch (error) {
     console.error(`Error fetching outstanding for customer ${customerId}:`, error);
+    throw error;
+  }
+};
+
+export const fetchVendorUsage = async (payload) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/vendor-usage`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(payload),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching vendor usage:', error);
     throw error;
   }
 };
@@ -328,7 +427,9 @@ export const fetchDashboardStats = async (params = {}) => {
     const url = query
       ? `${API_BASE_URL}/dashboard/stats?${query}`
       : `${API_BASE_URL}/dashboard/stats`;
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: getAuthHeaders()
+    });
     return await handleResponse(response);
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
@@ -342,10 +443,30 @@ export const fetchTopDestinations = async (params = {}) => {
     const url = query
       ? `${API_BASE_URL}/dashboard/top-destinations?${query}`
       : `${API_BASE_URL}/dashboard/top-destinations`;
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: getAuthHeaders()
+    });
     return await handleResponse(response);
   } catch (error) {
     console.error('Error fetching top destinations:', error);
+    throw error;
+  }
+};
+
+// User APIs
+export const createUser = async (userData) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/signup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(userData),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error creating user:', error);
     throw error;
   }
 };

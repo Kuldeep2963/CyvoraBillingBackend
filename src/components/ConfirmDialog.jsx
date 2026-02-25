@@ -1,13 +1,15 @@
 import React from 'react';
 import {
-  AlertDialog,
-  AlertDialogBody,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogContent,
-  AlertDialogOverlay,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
   Button,
   Text,
+  VStack,
   Icon,
 } from '@chakra-ui/react';
 import { FiAlertTriangle } from 'react-icons/fi';
@@ -44,43 +46,51 @@ const ConfirmDialog = ({
   };
 
   return (
-    <AlertDialog
-      isOpen={isOpen}
-      leastDestructiveRef={cancelRef}
-      onClose={onClose}
-      isCentered
-    >
-      <AlertDialogOverlay>
-        <AlertDialogContent>
-          <AlertDialogHeader fontSize="lg" fontWeight="bold" display="flex" alignItems="center">
-            <Icon as={FiAlertTriangle} mr={2} color={getIconColor()} />
+    <Modal isOpen={isOpen} onClose={onClose} isCentered size="md">
+      <ModalOverlay backdropFilter="blur(4px)" />
+      <ModalContent borderRadius="xl">
+        <ModalHeader borderBottomWidth="1px" py={4}>
+          <Text fontSize="lg" fontWeight="bold">
             {title}
-          </AlertDialogHeader>
+          </Text>
+          <ModalCloseButton top={3} ref={cancelRef} />
+        </ModalHeader>
 
-          <AlertDialogBody>
-            <Text>{message}</Text>
-            <Text fontSize="sm" color="gray.500" mt={2}>
+        <ModalBody py={4}>
+          <VStack spacing={4} align="center" textAlign="center">
+            <Icon as={FiAlertTriangle} boxSize={12} color={getIconColor()} />
+            <Text color="gray.600" fontSize="md">
+              {message}
+            </Text>
+            <Text fontSize="sm" color="gray.500">
               This action cannot be undone.
             </Text>
-          </AlertDialogBody>
+          </VStack>
+        </ModalBody>
 
-          <AlertDialogFooter>
-            <Button ref={cancelRef} onClick={onClose} isDisabled={isLoading}>
-              {cancelText}
-            </Button>
-            <Button
-              colorScheme={getColorScheme()}
-              onClick={onConfirm}
-              ml={3}
-              isLoading={isLoading}
-              loadingText="Processing..."
-            >
-              {confirmText}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialogOverlay>
-    </AlertDialog>
+        <ModalFooter bg="gray.50" borderBottomRadius="xl" py={3}>
+          <Button 
+            variant="ghost" 
+            mr={3} 
+            onClick={onClose} 
+            size="sm"
+            isDisabled={isLoading}
+          >
+            {cancelText}
+          </Button>
+          <Button
+            colorScheme={getColorScheme()}
+            onClick={onConfirm}
+            size="sm"
+            px={6}
+            isLoading={isLoading}
+            loadingText="Processing..."
+          >
+            {confirmText}
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
   );
 };
 

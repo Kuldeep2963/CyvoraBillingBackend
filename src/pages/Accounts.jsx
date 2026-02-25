@@ -18,6 +18,7 @@ import {
   Grid,
   InputGroup,
   InputLeftElement,
+  InputRightElement,
   Stack,
   Tooltip,
   Flex,
@@ -57,8 +58,10 @@ const Accounts = () => {
     accountType: "prepaid",
     accountStatus: "active",
     accountId: "",
-    authenticationType: 'ip',
-    authenticationValue: '',
+    customerauthenticationType: "ip",
+    customerauthenticationValue: "",
+    vendorauthenticationType: "ip",
+    vendorauthenticationValue: "",
 
     // CDR Mapping Fields
     customerCode: "",
@@ -97,8 +100,6 @@ const Accounts = () => {
     languages: "en",
 
     // Description
-    description: "",
-
     // Address
     addressLine1: "",
     addressLine2: "",
@@ -110,39 +111,17 @@ const Accounts = () => {
     countryCode: "US",
 
     // Billing
-    billingClass: "standard",
+    billingClass: "paiusa",
     billingType: "prepaid",
     billingTimezone: "UTC",
     billingStartDate: new Date().toISOString().split("T")[0],
     billingCycle: "monthly",
+    lastbillingdate: null,
+    nextbillingdate: null,
 
     // Payment Settings
-    autoPay: false,
-    autoPayMethod: "credit_card",
     sendInvoiceEmail: true,
     lateFeeEnabled: true,
-    lateFeePercentage: 5.0,
-    gracePeriodDays: 15,
-
-    // Telecom Specific
-    telecomProvider: false,
-    wholesaleCustomer: false,
-    retailCustomer: false,
-    carrierType: "tier2",
-
-    // Call Rating
-    defaultRatePerSecond: 0.01,
-    taxRate: 18.0,
-    minimumCharge: 0.01,
-    roundingDecimal: 4,
-
-    // Vendor Specific (for vendors)
-    defaultCostPerSecond: 0.008,
-    marginPercentage: 25.0,
-
-    // CDR Processing
-    cdrProcessingDelay: 0,
-    billingDelay: 0,
   });
   const [cdrStats, setCdrStats] = useState({
     totalCalls: 0,
@@ -251,7 +230,6 @@ const Accounts = () => {
           customer.accountName?.toLowerCase().includes(term) ||
           customer.email?.toLowerCase().includes(term) ||
           customer.phone?.toLowerCase().includes(term) ||
-          customer.accountNumber?.toLowerCase().includes(term) ||
           customer.customerCode?.toLowerCase().includes(term) ||
           customer.vendorCode?.toLowerCase().includes(term),
       );
@@ -321,10 +299,8 @@ const Accounts = () => {
       accountType: "prepaid",
       accountStatus: "active",
       accountId: "",
-      authenticationType: 'ip',
-      authenticationValue: '',
-
-
+      authenticationType: "ip",
+      authenticationValue: "",
 
       // CDR Mapping Fields
       customerCode: `C_${Math.floor(10000 + Math.random() * 90000)}`,
@@ -363,8 +339,6 @@ const Accounts = () => {
       languages: "en",
 
       // Description
-      description: "",
-
       // Address
       addressLine1: "",
       addressLine2: "",
@@ -381,34 +355,12 @@ const Accounts = () => {
       billingTimezone: "UTC",
       billingStartDate: new Date().toISOString().split("T")[0],
       billingCycle: "monthly",
+      lastbillingdate: "",
+      nextbillingdate: "",
 
       // Payment Settings
-      autoPay: false,
-      autoPayMethod: "credit_card",
       sendInvoiceEmail: true,
       lateFeeEnabled: true,
-      lateFeePercentage: 5.0,
-      gracePeriodDays: 15,
-
-      // Telecom Specific
-      telecomProvider: false,
-      wholesaleCustomer: false,
-      retailCustomer: false,
-      carrierType: "tier2",
-
-      // Call Rating
-      defaultRatePerSecond: 0.01,
-      taxRate: 18.0,
-      minimumCharge: 0.01,
-      roundingDecimal: 4,
-
-      // Vendor Specific (for vendors)
-      defaultCostPerSecond: 0.008,
-      marginPercentage: 25.0,
-
-      // CDR Processing
-      cdrProcessingDelay: 0,
-      billingDelay: 0,
     });
 
     setSelectedCustomer(null);
@@ -523,11 +475,6 @@ const Accounts = () => {
     if (!formData.city?.trim()) errors.push("City is required");
     if (!formData.postalCode?.trim()) errors.push("Postal Code is required");
 
-    if (formData.defaultRatePerSecond <= 0)
-      errors.push("Rate must be greater than 0");
-    if (formData.taxRate < 0 || formData.taxRate > 100)
-      errors.push("Tax rate must be between 0 and 100");
-
     // Validate customer/vendor codes based on role
     if (
       (formData.accountRole === "customer" ||
@@ -568,10 +515,13 @@ const Accounts = () => {
   };
 
   const authTypeOptions = [
-    { value: 'ip', label: 'IP Address', description: 'Match by source IP' },
-    { value: 'custom', label: 'Custom Field', description: 'Match by custom field' },
+    { value: "ip", label: "IP Address", description: "Match by source IP" },
+    {
+      value: "custom",
+      label: "Custom Field",
+      description: "Match by custom field",
+    },
   ];
-
 
   const columns = [
     {
@@ -616,10 +566,10 @@ const Accounts = () => {
         </Box>
       ),
     },
-    {
-      key: "phone",
-      header: "Phone",
-    },
+    // {
+    //   key: "phone",
+    //   header: "Phone",
+    // },
     {
       key: "email",
       header: "Email",
@@ -630,22 +580,15 @@ const Accounts = () => {
       ),
     },
     {
-      key: "defaultRatePerSecond",
-      header: "Rate/sec",
-      isNumeric: true,
-      render: (value) => (
-        <Text textAlign="right" fontFamily="mono">
-          ${parseFloat(value).toFixed(6)}
-        </Text>
-      ),
-    },
-    {
       key: "active",
       header: "Status",
       render: (value, row) => {
         const status = statusOptions.find((s) => s.value === row.accountStatus);
         return (
-          <Badge colorScheme={status?.color || (value ? "green" : "red")} variant="subtle">
+          <Badge
+            colorScheme={status?.color || (value ? "green" : "red")}
+            variant="subtle"
+          >
             {status?.label || (value ? "Active" : "Inactive")}
           </Badge>
         );
@@ -665,27 +608,58 @@ const Accounts = () => {
         </Text>
       ),
     },
+    {
+      key: "creditLimit",
+      header: "Credit Limit",
+      isNumeric: true,
+      render: (value) => (
+        <Text
+          fontWeight="bold"
+          textAlign="right"
+          color={parseFloat(value) < 0 ? "red.600" : "green.600"}
+        >
+          ${parseFloat(value).toFixed(2)}
+        </Text>
+      ),
+    },
+    {
+      key: "lastbillingdate",
+      header: "Last Billing",
+      render: (value) => value || "N/A",
+    },
+    {
+      key: "nextbillingdate",
+      header: "Next Billing",
+      render: (value) => value || "N/A",
+    },
   ];
 
   return (
-    <Container maxW="container.2xl">
+    <Box>
       <VStack spacing={6} align="stretch">
         {/* Header */}
-        <HStack justify="space-between" spacing={4}>
+        <Flex
+          justify="space-between"
+          align="center"
+          bgGradient="linear(to-r,blue.100,blue.200,blue.300)"
+          px={4}
+          py={2}
+          borderRadius={"12px"}
+        >
           <Box>
-            <Heading size="lg" mb={2}>
+            <Heading size="xl" color={"gray.600"}>
               Accounts Management
             </Heading>
-            <Text color="gray.600">
+            <Text fontSize={"sm"} color="gray.600">
               Manage customers, vendors, resellers and agents
             </Text>
           </Box>
-
+          <Spacer />
           {/* Search and Filters */}
           <HStack spacing={4} flexWrap="wrap">
             {/* Role Filter */}
             <Select
-              borderRadius={"sm"}
+              borderRadius={"md"}
               bg={"white"}
               size="sm"
               width="150px"
@@ -703,7 +677,7 @@ const Accounts = () => {
             {/* Status Filter */}
             <Select
               bg={"white"}
-              borderRadius={"sm"}
+              borderRadius={"md"}
               size="sm"
               width="150px"
               value={statusFilter}
@@ -725,7 +699,7 @@ const Accounts = () => {
               position="relative"
               border="2px solid"
               borderColor="gray.200"
-              borderRadius="sm"
+              borderRadius="md"
               _hover={{
                 borderColor: "blue.300",
                 boxShadow: "0 0 0 3px rgba(66, 153, 225, 0.1)",
@@ -780,14 +754,14 @@ const Accounts = () => {
             <Button
               borderRadius="4px"
               leftIcon={<FiPlus />}
-              colorScheme="blue"
+              colorScheme="green"
               onClick={handleAddNew}
               size="sm"
             >
               Add Account
             </Button>
           </HStack>
-        </HStack>
+        </Flex>
 
         {/* Account Stats Summary */}
         <Grid
@@ -798,27 +772,54 @@ const Accounts = () => {
           }}
           gap={4}
         >
-          <Box p={2} px={6} bg="white" borderRadius="md" display={"flex"} shadow={"md"} flexDirection={"row"} alignItems="center"
-            justifyContent="space-between">
-            <Text fontSize="sm"  fontWeight="bold">
+          <Box
+            p={4}
+            px={6}
+            bgGradient="linear(to-tr, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
+            borderRadius="md"
+            display={"flex"}
+            shadow={"md"}
+            flexDirection={"row"}
+            alignItems="center"
+            justifyContent="space-between"
+          >
+            <Text fontSize="sm" fontWeight="bold">
               Total Accounts
             </Text>
             <Text fontSize="2xl" color="blue.600" fontWeight="bold">
               {customers.length}
             </Text>
           </Box>
-          <Box p={2} px={6} bg="white" borderRadius="md" display={"flex"} shadow={"md"} flexDirection={"row"} alignItems="center"
-            justifyContent="space-between">
-            <Text fontSize="sm"  fontWeight="bold">
+          <Box
+            p={4}
+            px={6}
+            bgGradient="linear(to-tr, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
+            borderRadius="md"
+            display={"flex"}
+            shadow={"md"}
+            flexDirection={"row"}
+            alignItems="center"
+            justifyContent="space-between"
+          >
+            <Text fontSize="sm" fontWeight="bold">
               Active Accounts
             </Text>
             <Text fontSize="2xl" color="green.600" fontWeight="bold">
               {customers.filter((c) => c.active === true).length}
             </Text>
           </Box>
-          <Box p={2} px={6} bg="white" borderRadius="md" display={"flex"} shadow={"md"} flexDirection={"row"} alignItems="center"
-            justifyContent="space-between">
-            <Text fontSize="sm"  fontWeight="bold">
+          <Box
+            p={4}
+            px={6}
+            bgGradient="linear(to-tr,rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
+            borderRadius="md"
+            display={"flex"}
+            shadow={"md"}
+            flexDirection={"row"}
+            alignItems="center"
+            justifyContent="space-between"
+          >
+            <Text fontSize="sm" fontWeight="bold">
               Customers
             </Text>
             <Text fontSize="2xl" color="purple.600" fontWeight="bold">
@@ -829,9 +830,18 @@ const Accounts = () => {
               }
             </Text>
           </Box>
-          <Box p={2} px={6} bg="white" borderRadius="md" display={"flex"} shadow={"md"} flexDirection={"row"} alignItems="center"
-            justifyContent="space-between">
-            <Text fontSize="sm"  fontWeight="bold">
+          <Box
+            p={4}
+            px={6}
+            bgGradient="linear(to-tr, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
+            borderRadius="md"
+            display={"flex"}
+            shadow={"md"}
+            flexDirection={"row"}
+            alignItems="center"
+            justifyContent="space-between"
+          >
+            <Text fontSize="sm" fontWeight="bold">
               Vendors
             </Text>
             <Text fontSize="2xl" color="orange.600" fontWeight="bold">
@@ -888,7 +898,7 @@ const Accounts = () => {
           type="danger"
         />
       </VStack>
-    </Container>
+    </Box>
   );
 };
 

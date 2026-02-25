@@ -140,19 +140,19 @@ const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
               <Box>
                 <Heading size="sm" mb={3}>Invoice Allocations</Heading>
                 <Table size="sm" variant="simple">
-                  <Thead>
+                  <Thead bg={"gray.300"}>
                     <Tr>
-                      <Th>Invoice #</Th>
-                      <Th isNumeric>Date</Th>
-                      <Th isNumeric>Amount Applied</Th>
+                      <Th color={"black"}>Invoice #</Th>
+                      <Th color={"black"} isNumeric>Date</Th>
+                      <Th color={"black"} isNumeric>Amount Applied</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
                     {payment.allocations.map((alloc, index) => (
                       <Tr key={index}>
-                        <Td fontWeight="medium">{alloc.invoice?.invoiceNumber || alloc.invoiceNumber || "N/A"}</Td>
+                        <Td fontWeight="medium"><Badge>{alloc.invoice?.invoiceNumber || alloc.invoiceNumber || "N/A"}</Badge></Td>
                         <Td isNumeric>{formatDate(alloc.allocationDate)}</Td>
-                        <Td isNumeric fontWeight="bold">${parseFloat(alloc.allocatedAmount || alloc.amount).toFixed(4)}</Td>
+                        <Td isNumeric color={"green.600"} fontWeight="bold">${parseFloat(alloc.allocatedAmount || alloc.amount).toFixed(4)}</Td>
                       </Tr>
                     ))}
                   </Tbody>

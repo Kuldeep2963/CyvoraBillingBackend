@@ -8,13 +8,14 @@
     "dev": "nodemon index.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
-    "html2pdf.js": "^0.14.0",
     "json2csv": "^6.0.0-alpha.2",
+    "jsonwebtoken": "^9.0.3",
     "libphonenumber-js": "^1.12.36",
     "moment": "^2.30.1",
     "multer": "^2.0.2",
@@ -23,6 +24,7 @@
     "papaparse": "^5.5.3",
     "pg": "^8.17.1",
     "pg-hstore": "^2.3.4",
+    "puppeteer": "^24.37.4",
     "sequelize": "^6.37.7"
   },
   "devDependencies": {

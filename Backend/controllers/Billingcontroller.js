@@ -1,5 +1,7 @@
 const { Op, fn, col } = require('sequelize');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
+const puppeteer = require('puppeteer');
+const moment = require('moment');
 const sequelize = require('../config/database');
 const H = require('../utils/reportHelper');
 const Invoice = require('../models/Invoice');
@@ -12,10 +14,16 @@ const CountryCode = require('../models/CountryCode');
 
 /* ===================== HELPER: FORMAT TIME ===================== */
 const formatTime = (date, hour = 0, isEnd = false) => {
-  const d = new Date(date);
+  if (!date) return null;
+  
+  // Handle numeric strings (Unix timestamps)
+  const numericDate = Number(date);
+  const d = !isNaN(numericDate) ? new Date(numericDate) : new Date(date);
+  
   if (isNaN(d.getTime())) return null;
+  
   d.setHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
-  return d.getTime();
+  return d.getTime().toString();
 };
 
 /* ===================== HELPER: GET COUNTRY FROM NUMBER ===================== */
@@ -55,32 +63,54 @@ const getTrunkName = (number) => {
 const buildAccountConditions = (account, vendorReport = false) => {
   const or = [];
 
+  // ✅ FIX (Bug 2): Determine auth type and value independently for vendor vs customer.
+  // Previously, vendor auth fell back to customerauthenticationType, which caused
+  // vendor CDR queries to use customer-side fields (callerip, customeraccount),
+  // resulting in zero matching CDR rows for the vendor.
+  let authType, authValue;
+
+  if (vendorReport) {
+    // For vendors: ONLY use vendor auth fields, do NOT fall back to customer fields
+    authType = account.vendorauthenticationType;
+    authValue = account.vendorauthenticationValue;
+  } else {
+    // For customers: use customer auth fields only
+    authType = account.customerauthenticationType;
+    authValue = account.customerauthenticationValue;
+  }
+
   // 1️⃣ IP authentication
-  if (account.authenticationType === 'ip' && account.authenticationValue) {
-    // For vendor reports, check agentip; for customer reports, check callerip
+  if (authType === 'ip' && authValue) {
     if (vendorReport) {
-      or.push({ agentip: account.authenticationValue });
+      // For vendor reports, we check calleeip (where we send calls to the vendor)
+      or.push({ calleeip: authValue });
     } else {
-      or.push({ callerip: account.authenticationValue });
+      // For customer reports, we check callerip (where calls come from)
+      or.push({ callerip: authValue });
     }
   }
 
-  // 2️⃣ Custom authentication → search entire CDR row
-  if (account.authenticationType === 'custom' && account.authenticationValue) {
-    const v = `${account.authenticationValue}`;
-    or.push(
-      { customeraccount: { [Op.like]: v } },
-    );
+  // 2️⃣ Custom authentication → search in account fields
+  if (authType === 'custom' && authValue) {
+    const v = `${authValue}`;
+    if (vendorReport) {
+      or.push({ agentaccount: { [Op.like]: v } });
+      or.push({ agentname: { [Op.like]: v } });
+    } else {
+      or.push({ customeraccount: { [Op.like]: v } });
+      or.push({ customername: { [Op.like]: v } });
+    }
   }
 
-  
-  // 4️⃣ Fallback to gatewayId only if authenticationValue is not set but type is gateway
-  if (or.length === 0 && account.gatewayId) {
-    or.push(
-      vendorReport
-        ? { agentaccount: account.gatewayId }
-        : { customeraccount: account.gatewayId }
-    );
+  // 3️⃣ Fallback to vendorCode/customerCode or gatewayId if nothing else matched
+  if (or.length === 0) {
+    if (vendorReport) {
+      const vCode = account.vendorCode || account.gatewayId;
+      if (vCode) or.push({ agentaccount: vCode });
+    } else {
+      const cCode = account.customerCode || account.gatewayId;
+      if (cCode) or.push({ customeraccount: cCode });
+    }
   }
 
   return or;
@@ -236,36 +266,24 @@ exports.generateInvoice = async (req, res) => {
       const phoneNumber = parsePhoneNumberFromString('+' + actualCalleee);
       
       if (phoneNumber) {
-  destination = getCountryFromNumber(actualCalleee, countryCodes);
-  prefix = phoneNumber.countryCallingCode;
-  
-  const national = phoneNumber.nationalNumber;
-  
-  // Dynamic prefix extraction based on national number length
-  if (national.length >= 3) {
-    prefix += national.substring(0, 3);
-  } else if (national.length >= 2) {
-    prefix += national.substring(0, 2);
-  } else if (national.length > 0) {
-    prefix += national;
-  }
-  
-  // Log failures
-  if (!destination) {
-    console.warn('Failed to detect country for:', actualCalleee, phoneNumber);
-  }
-} else {
-  // Enhanced fallback
-  console.warn('libphonenumber parsing failed for:', actualCalleee);
-  destination = getCountryFromNumber(actualCalleee, countryCodes);
-  
-  // Smart prefix extraction
-  if (actualCalleee.length >= 5) {
-    prefix = actualCalleee.substring(0, 5);
-  } else {
-    prefix = actualCalleee;
-  }
-}
+        destination = getCountryFromNumber(actualCalleee, countryCodes);
+        prefix = phoneNumber.countryCallingCode;
+        
+        const national = phoneNumber.nationalNumber;
+        
+        if (!destination) {
+          console.warn('Failed to detect country for:', actualCalleee, phoneNumber);
+        }
+      } else {
+        console.warn('libphonenumber parsing failed for:', actualCalleee);
+        destination = getCountryFromNumber(actualCalleee, countryCodes);
+        
+        if (actualCalleee.length >= 6) {
+          prefix = actualCalleee.substring(0, 3);
+        } else {
+          prefix = actualCalleee;
+        }
+      }
 
       const trunk = getTrunkName(cdr.calleee164);
       
@@ -352,8 +370,8 @@ exports.generateInvoice = async (req, res) => {
     const totalAmount = subtotal + taxAmount - discountAmount;
 
     // Create invoice
-    const customerGatewayId = (customer.authenticationType === 'gateway' && customer.authenticationValue) 
-      ? customer.authenticationValue 
+    const customerGatewayId = (customer.customerauthenticationType === 'gateway' && customer.customerauthenticationValue) 
+      ? customer.customerauthenticationValue 
       : customer.gatewayId;
 
     const invoice = await Invoice.create({
@@ -540,6 +558,7 @@ exports.getInvoiceItems = async (req, res) => {
       success: true,
       items
     });
+
   } catch (error) {
     console.error('Get Invoice Items Error:', error);
     res.status(500).json({
@@ -549,10 +568,368 @@ exports.getInvoiceItems = async (req, res) => {
   }
 };
 
+/* ===================== DOWNLOAD INVOICE PDF ===================== */
+exports.downloadInvoice = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Find invoice with items
+    const invoice = await Invoice.findByPk(id, {
+      include: [{
+        model: InvoiceItem,
+        as: 'items'
+      }]
+    });
+
+    if (!invoice) {
+      // Also try to find by invoice number if id is not numeric
+      const isNumeric = /^\d+$/.test(id);
+      if (!isNumeric) {
+        const invoiceByNum = await Invoice.findOne({
+          where: { invoiceNumber: id },
+          include: [{
+            model: InvoiceItem,
+            as: 'items'
+          }]
+        });
+        if (invoiceByNum) return exports.generatePdf(invoiceByNum, res);
+      }
+      return res.status(404).json({ success: false, error: 'Invoice not found' });
+    }
+
+    return exports.generatePdf(invoice, res);
+
+  } catch (error) {
+    console.error('Download Invoice Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+/* ===================== HELPER: GENERATE PDF ===================== */
+exports.generatePdf = async (invoice, res) => {
+  let browser;
+  try {
+    const invoiceData = invoice.toJSON();
+    
+    // Format dates for the template
+    const formattedInvoiceDate = moment(parseInt(invoiceData.invoiceDate)).format("DD-MM-YYYY");
+    const formattedDueDate = moment(parseInt(invoiceData.dueDate)).format("DD-MM-YYYY");
+    const formattedPeriodStart = moment(parseInt(invoiceData.billingPeriodStart)).format("DD MMM");
+    const formattedPeriodEnd = moment(parseInt(invoiceData.billingPeriodEnd)).format("DD MMM YYYY");
+
+    const invoiceHtml = `
+      <html>
+        <head>
+          <title>Invoice ${invoiceData.invoiceNumber}</title>
+          <style>
+            body { 
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+              margin: 0; 
+              padding: 0;
+              color: #333;
+              background-color: #fff;
+            }
+            .invoice-container {
+              padding: 40px;
+              max-width: 800px;
+              margin: 0 auto;
+            }
+            .invoice-header {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 40px;
+              border-bottom: 3px solid #1a365d;
+              padding-bottom: 20px;
+            }
+            .company-logo {
+              height: 40px;
+              width: auto;
+              display: block;
+              object-fit: contain;
+            }
+            .invoice-title {
+              font-size: 32px;
+              font-weight: bold;
+              color: #2d3748;
+              text-align: right;
+            }
+            .address-section {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 40px;
+            }
+            .address-box {
+              width: 45%;
+            }
+            .address-label {
+              font-weight: bold;
+              color: #4a5568;
+              text-transform: uppercase;
+              font-size: 12px;
+              margin-bottom: 8px;
+              border-bottom: 1px solid #e2e8f0;
+              padding-bottom: 4px;
+            }
+            .address-content {
+              font-size: 14px;
+              line-height: 1.6;
+            }
+            .details-grid {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 20px;
+              background-color: #f7fafc;
+              padding: 20px;
+              border-radius: 8px;
+              margin-bottom: 40px;
+              border: 1px solid #e2e8f0;
+            }
+            .detail-item {
+              display: flex;
+              flex-direction: column;
+            }
+            .detail-label {
+              font-size: 11px;
+              color: #718096;
+              text-transform: uppercase;
+              font-weight: bold;
+            }
+            .detail-value {
+              font-size: 14px;
+              color: #2d3748;
+              font-weight: 600;
+            }
+            .table-section {
+              margin-bottom: 40px;
+            }
+            .invoice-table {
+              width: 100%;
+              border-collapse: collapse;
+              font-size: 12px;
+            }
+            .invoice-table th {
+              background-color: #1a365d;
+              color: white;
+              text-align: left;
+              padding: 12px 8px;
+              text-transform: uppercase;
+              font-weight: 600;
+            }
+            .invoice-table td {
+              padding: 10px 8px;
+              border-bottom: 1px solid #e2e8f0;
+            }
+            .invoice-table tr:nth-child(even) {
+              background-color: #f8fafc;
+            }
+            .text-right { text-align: right; }
+            .totals-section {
+              display: flex;
+              justify-content: flex-end;
+              margin-bottom: 40px;
+            }
+            .totals-box {
+              width: 250px;
+            }
+            .total-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 8px 0;
+              font-size: 14px;
+            }
+            .total-grand {
+              border-top: 2px solid #1a365d;
+              margin-top: 8px;
+              padding-top: 12px;
+              font-weight: bold;
+              font-size: 18px;
+              color: #1a365d;
+            }
+            .bank-section {
+              background-color: #f8fafc;
+              padding: 20px;
+              border-radius: 8px;
+              border-left: 4px solid #1a365d;
+              font-size: 12px;
+            }
+            .bank-title {
+              font-weight: bold;
+              margin-bottom: 10px;
+              color: #1a365d;
+              text-transform: uppercase;
+            }
+            .footer {
+              margin-top: 60px;
+              text-align: center;
+              font-size: 11px;
+              color: #a0aec0;
+              border-top: 1px solid #e2e8f0;
+              padding-top: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="invoice-container">
+            <div class="invoice-header">
+              <div>
+                <h2 style="color: #1a365d; margin: 0;">PAI TELECOMM</h2>
+              </div>
+              <div class="invoice-title">INVOICE</div>
+            </div>
+
+            <div class="address-section">
+              <div class="address-box">
+                <div class="address-label">From</div>
+                <div class="address-content">
+                  <strong>Pai Telecomm Private Limited</strong><br>
+                  810, 8th floor, vipul bussiness park<br>
+                  sector-46, Gurgaon<br>
+                  122018<br>
+                  Email: accounts@paitelecomm.com
+                </div>
+              </div>
+              <div class="address-box">
+                <div class="address-label">Bill To</div>
+                <div class="address-content">
+                  <strong>${invoiceData.customerName || "Customer"}</strong><br>
+                  ${invoiceData.customerAddress || ""}<br>
+                  ${invoiceData.customerEmail || ""}<br>
+                  ${invoiceData.customerPhone || ""}
+                </div>
+              </div>
+            </div>
+
+            <div class="details-grid">
+              <div class="detail-item">
+                <span class="detail-label">Invoice Number</span>
+                <span class="detail-value">${invoiceData.invoiceNumber}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Invoice Date</span>
+                <span class="detail-value">${formattedInvoiceDate}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Due Date</span>
+                <span class="detail-value">${formattedDueDate}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Billing Period</span>
+                <span class="detail-value">${formattedPeriodStart} - ${formattedPeriodEnd}</span>
+              </div>
+            </div>
+
+            <div class="table-section">
+              <table class="invoice-table">
+                <thead>
+                  <tr>
+                    <th>Trunk</th>
+                    <th>Prefix</th>
+                    <th>Destination</th>
+                    <th>Description</th>
+                    <th class="text-right">Calls</th>
+                    <th class="text-right">Duration (Min)</th>
+                    <th class="text-right">Rate</th>
+                    <th class="text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${invoiceData.items
+                    ?.map(
+                      (item) => `
+                    <tr>
+                      <td>${item.trunk || "-"}</td>
+                      <td>${item.prefix || "-"}</td>
+                      <td>${item.destination || "-"}</td>
+                      <td>${item.description || "-"}</td>
+                      <td class="text-right">${item.totalCalls}</td>
+                      <td class="text-right">${(item.duration / 60).toFixed(2)}</td>
+                      <td class="text-right">$${parseFloat(item.unitPrice).toFixed(4)}</td>
+                      <td class="text-right">$${parseFloat(item.amount).toFixed(4)}</td>
+                    </tr>
+                  `,
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="totals-section">
+              <div class="totals-box">
+                <div class="total-row">
+                  <span>Subtotal</span>
+                  <span>$${parseFloat(invoiceData.subtotal).toFixed(4)}</span>
+                </div>
+                <div class="total-row">
+                  <span>Tax (${invoiceData.taxRate}%)</span>
+                  <span>$${parseFloat(invoiceData.taxAmount).toFixed(4)}</span>
+                </div>
+                <div class="total-row">
+                  <span>Discount</span>
+                  <span>-$${parseFloat(invoiceData.discountAmount || 0).toFixed(4)}</span>
+                </div>
+                <div class="total-row total-grand">
+                  <span>Total Amount</span>
+                  <span>$${parseFloat(invoiceData.totalAmount).toFixed(4)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="bank-section">
+              <div class="bank-title">Payment Information</div>
+              <strong>Bank Name:</strong> Bank Of China<br>
+              <strong>Account Name:</strong> Pai Telecommunications Limited<br>
+              <strong>Account Number:</strong> 012-687-2-011894-5 (USD)<br>
+              <strong>Swift Code:</strong> BKCHHKHHXXX<br>
+              <strong>Bank Address:</strong> Bank of China Tower, 1 Garden Road, Central, Hong Kong
+            </div>
+
+            <div class="footer">
+              Thank you for your business. Please contact accounts@paitelecomm.com for any billing inquiries.<br>
+              Generated by CDR Billing System
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    });
+    const page = await browser.newPage();
+    await page.setContent(invoiceHtml, { waitUntil: 'networkidle0' });
+    const pdf = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '20px',
+        right: '20px',
+        bottom: '20px',
+        left: '20px'
+      }
+    });
+
+    await browser.close();
+
+    res.contentType("application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=Invoice_${invoiceData.invoiceNumber}.pdf`);
+    res.send(pdf);
+
+  } catch (error) {
+    if (browser) await browser.close();
+    console.error('PDF Generation Error:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate PDF' });
+  }
+};
+
 /* ===================== UPDATE INVOICE ===================== */
 exports.updateInvoice = async (req, res) => {
   try {
     const { id } = req.params;
+    const updateData = req.body;
     const isNumeric = /^\d+$/.test(id);
     if (!isNumeric) {
       return res.status(404).json({
@@ -1060,7 +1437,7 @@ exports.getAgingReport = async (req, res) => {
 /* ===================== GET LITE INVOICES (FOR DROPDOWNS) ===================== */
 exports.getLiteInvoices = async (req, res) => {
   try {
-    const { customerId, status } = req.query;
+    const { customerId, status, startDate, endDate } = req.query;
     const where = {};
 
     if (customerId) {
@@ -1071,9 +1448,18 @@ exports.getLiteInvoices = async (req, res) => {
       where.status = status;
     }
 
+    if (startDate && endDate) {
+      where.billingPeriodStart = { [Op.gte]: formatTime(startDate) };
+      where.billingPeriodEnd = { [Op.lte]: formatTime(endDate, 23, true) };
+    } else if (startDate) {
+      where.billingPeriodStart = { [Op.gte]: formatTime(startDate) };
+    } else if (endDate) {
+      where.billingPeriodEnd = { [Op.lte]: formatTime(endDate, 23, true) };
+    }
+
     const invoices = await Invoice.findAll({
       where,
-      attributes: ['id', 'invoiceNumber', 'customerName', 'customerCode', 'status', 'totalAmount', 'balanceAmount', 'invoiceDate', 'dueDate'],
+      attributes: ['id', 'invoiceNumber', 'customerName', 'customerCode', 'status', 'totalAmount', 'balanceAmount', 'invoiceDate', 'dueDate','billingPeriodStart', 'billingPeriodEnd'],
       order: [['createdAt', 'DESC']]
     });
 
@@ -1087,6 +1473,95 @@ exports.getLiteInvoices = async (req, res) => {
       success: false,
       error: error.message
     });
+  }
+};
+
+/* ===================== GET VENDOR USAGE FOR PERIODS ===================== */
+exports.getVendorUsage = async (req, res) => {
+  try {
+    const { vendorCode, periods } = req.body;
+
+    if (!vendorCode || !periods || !Array.isArray(periods)) {
+      return res.status(400).json({ success: false, error: 'vendorCode and periods (array) are required' });
+    }
+
+    // ✅ FIX (Bug 3): Also search by accountId (consistent with customer lookup)
+    const isNumeric = /^\d+$/.test(vendorCode);
+    const vendorWhere = {
+      [Op.or]: [
+        { gatewayId: vendorCode },
+        { vendorCode: vendorCode }
+      ]
+    };
+    if (isNumeric) vendorWhere[Op.or].push({ accountId: vendorCode });
+
+    const vendor = await Account.findOne({ where: vendorWhere });
+    if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
+
+    // ✅ FIX (Bug 2): buildAccountConditions now correctly uses vendorauthenticationType only
+    const authConditions = buildAccountConditions(vendor, true);
+
+    // 🛡️ Extra safety: log what conditions were built for debugging
+    console.log('[getVendorUsage] Auth conditions for vendor', vendorCode, ':', JSON.stringify(authConditions));
+
+    if (authConditions.length === 0) {
+      return res.status(400).json({ success: false, error: 'Unable to build authentication conditions for this vendor' });
+    }
+
+    const results = [];
+    for (const period of periods) {
+      const { startDate, endDate } = period;
+      const cdrWhere = {
+        starttime: { [Op.between]: [formatTime(startDate), formatTime(endDate, 23, true)] },
+        [Op.or]: authConditions
+      };
+
+      // ✅ FIX (Bug 1): Use H.cost for vendor (what we owe the vendor), NOT H.revenue
+      // H.revenue = what customer pays us (our income)
+      // H.cost    = what we pay the vendor (our expense / vendor's receivable)
+      // Both must be defined in reportHelper.js pointing to correct CDR columns.
+      const usage = await CDR.findOne({
+        attributes: [
+          [fn('COUNT', col('*')), 'totalCalls'],
+          [fn('SUM', H.completedCall), 'completedCalls'],
+          [fn('SUM', H.durationSec), 'duration'],
+          // ✅ Use H.cost — the amount we owe the vendor per CDR row
+          // If H.cost is still returning null/0, verify that reportHelper.js
+          // maps H.cost to the correct CDR column (e.g., 'agentcost', 'vendorcost', 'cost', etc.)
+          [fn('SUM', H.cost), 'totalAmount']
+        ],
+        where: cdrWhere,
+        raw: true
+      });
+
+      // ✅ FIX: Safely parse values — SUM of NULL rows returns null, not 0
+      const totalCalls = parseInt(usage?.totalCalls || 0);
+      const completedCalls = parseInt(usage?.completedCalls || 0);
+      const duration = parseFloat(usage?.duration || 0);
+      const totalAmount = parseFloat(usage?.totalAmount || 0); // null-safe
+
+      results.push({
+        id: `usage_${startDate}_${endDate}`,
+        invoiceNumber: 'USAGE-ONLY',
+        invoiceDate: Date.now(),
+        billingPeriodStart: formatTime(startDate),
+        billingPeriodEnd: formatTime(endDate, 23, true),
+        dueDate: Date.now(),
+        totalAmount,
+        balanceAmount: totalAmount,
+        totalCalls,
+        completedCalls,
+        duration,
+        status: 'unpaid'
+      });
+    }
+
+    console.log('[getVendorUsage] Results:', results);
+    res.json({ success: true, data: results });
+
+  } catch (error) {
+    console.error('Error fetching vendor usage:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch vendor usage' });
   }
 };
 

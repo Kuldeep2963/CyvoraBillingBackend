@@ -496,7 +496,7 @@ const Reports = () => {
       setSelectedRows([...selectedRows, id]);
     }
   };
-
+   
   const dashboardMetrics = useMemo(() => {
     if (!reportData.length) return null;
 
@@ -588,7 +588,7 @@ const Reports = () => {
           label: "Total Revenue",
           value: formatCurrency(reportSummary.totalRevenue || 0),
           icon: FiTrendingUp,
-          color: "purple.500",
+          color: "green.500",
         },
         {
           label: "Avg ASR",
@@ -718,12 +718,12 @@ const Reports = () => {
     if (!dashboardMetrics) return null;
 
     return (
-      <Card bg={cardBg} border="1px" borderColor={borderColor} mb={6}>
-        <CardHeader>
-          <Heading size="md">Performance Overview</Heading>
-        </CardHeader>
-        <CardBody>
-          <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+      <Box p={4} bg={cardBg} border="1px" borderRadius={"md"} shadow={"lg"} borderColor={borderColor} mb={6}>
+        
+          <Heading mb={2} size="md">Performance Overview
+        </Heading>
+        
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
             <Box>
               <Text fontSize="sm" color={mutedColor}>
                 Profit Margin
@@ -780,8 +780,8 @@ const Reports = () => {
               <Text fontSize="xs">in selected period</Text>
             </Box>
           </SimpleGrid>
-        </CardBody>
-      </Card>
+        
+      </Box>
     );
   };
 
@@ -855,15 +855,16 @@ const Reports = () => {
               borderRadius="md"
             >
               <Table variant="simple" size="sm">
-                <Thead position="sticky" top={0} zIndex={10} bg="gray.200">
+                <Thead h={"30px"} position="sticky" top={0} zIndex={10} bg="gray.200">
                   <Tr>
-                    <Th cursor="pointer" onClick={() => handleSort("hour")}>
+                    <Th cursor="pointer" color="gray.800" onClick={() => handleSort("hour")}>
                       <HStack>
                         <Text>Time Range</Text>
                         {getSortIcon("hour")}
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("attempts")}
@@ -874,6 +875,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("completed")}
@@ -884,6 +886,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("asr")}
@@ -894,6 +897,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("acd")}
@@ -904,6 +908,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("duration")}
@@ -914,6 +919,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("revenue")}
@@ -924,6 +930,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("cost")}
@@ -934,6 +941,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("margin")}
@@ -994,7 +1002,8 @@ const Reports = () => {
               <Table variant="simple" size="sm">
                 <Thead position="sticky" top={0} zIndex={1} bg="gray.200">
                   <Tr>
-                    <Th
+                    <Th 
+                      color="gray.800"
                       cursor="pointer"
                       onClick={() => handleSort("accountCode")}
                     >
@@ -1004,6 +1013,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       cursor="pointer"
                       onClick={() => handleSort("accountName")}
                     >
@@ -1013,6 +1023,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       cursor="pointer"
                       onClick={() => handleSort("destination")}
                     >
@@ -1022,6 +1033,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("attempts")}
@@ -1032,6 +1044,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("revenue")}
@@ -1042,6 +1055,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("cost")}
@@ -1052,6 +1066,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("margin")}
@@ -1062,6 +1077,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("marginPercent")}
@@ -1072,6 +1088,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("duration")}
@@ -1131,6 +1148,7 @@ const Reports = () => {
                 <Thead position="sticky" top={0} zIndex={1} bg="red.50">
                   <Tr>
                     <Th
+                      color="gray.800"
                       cursor="pointer"
                       onClick={() => handleSort("accountCode")}
                     >
@@ -1140,6 +1158,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       cursor="pointer"
                       onClick={() => handleSort("accountName")}
                     >
@@ -1149,6 +1168,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       cursor="pointer"
                       onClick={() => handleSort("destination")}
                     >
@@ -1158,6 +1178,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("attempts")}
@@ -1168,6 +1189,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("revenue")}
@@ -1178,6 +1200,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("cost")}
@@ -1188,6 +1211,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("margin")}
@@ -1198,6 +1222,7 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color="gray.800"
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("marginPercent")}
@@ -1241,9 +1266,10 @@ const Reports = () => {
               borderRadius="md"
             >
               <Table variant="simple" size="sm">
-                <Thead position="sticky" top={0} zIndex={1} bg="gray.200">
+                <Thead h={"30px"} position="sticky" top={0} zIndex={1} bg="gray.200">
                   <Tr>
                     <Th
+                      color={"gray.700"}
                       cursor="pointer"
                       onClick={() => handleSort("customer")}
                       fontSize={"12px"}
@@ -1254,6 +1280,8 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color={"gray.700"}
+                      
                       cursor="pointer"
                       onClick={() => handleSort("custDestination")}
                     >
@@ -1262,13 +1290,18 @@ const Reports = () => {
                         {getSortIcon("custDestination")}
                       </HStack>
                     </Th>
-                    <Th cursor="pointer" onClick={() => handleSort("vendor")}>
+                    <Th 
+                      color={"gray.700"}
+
+                     cursor="pointer" onClick={() => handleSort("vendor")}>
                       <HStack>
                         <Text>Vendor</Text>
                         {getSortIcon("vendor")}
                       </HStack>
                     </Th>
                     <Th
+                      color={"gray.700"}
+
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("attempts")}
@@ -1279,6 +1312,8 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color={"gray.700"}
+
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("completed")}
@@ -1289,6 +1324,8 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color={"gray.700"}
+
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("asr")}
@@ -1299,6 +1336,8 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color={"gray.700"}
+
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("acd")}
@@ -1309,6 +1348,8 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color={"gray.700"}
+
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("revenue")}
@@ -1319,6 +1360,8 @@ const Reports = () => {
                       </HStack>
                     </Th>
                     <Th
+                      color={"gray.700"}
+
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("margin")}
@@ -1648,10 +1691,11 @@ const Reports = () => {
   };
 
   return (
-    <Container maxW="container.xl" py={8}>
-      <Flex justify="space-between" align="center" mb={8}>
+    <Box>
+              <Flex justify="space-between" align="center" bgGradient="linear(to-r,blue.100,blue.200,blue.300)" px={4} py={2} mb={6} borderRadius={"12px"}>
+      
         <Box>
-          <Heading size="lg" mb={2}>
+          <Heading size="lg" color={"gray.600"}>
             CDR Analytics Reports
           </Heading>
           <Text color={mutedColor}>
@@ -1661,7 +1705,7 @@ const Reports = () => {
 
         <HStack spacing={3}>
           <Button
-            size="md"
+            size="sm"
             leftIcon={<FiRefreshCw />}
             variant="ghost"
             onClick={() => loadAccounts()}
@@ -1673,7 +1717,7 @@ const Reports = () => {
           <Button
             size="sm"
             leftIcon={<CalendarIcon />}
-            colorScheme="blue"
+            colorScheme="green"
             onClick={() => setIsModalOpen(true)}
           >
             Generate Report
@@ -1793,11 +1837,10 @@ const Reports = () => {
                       </Text>
                     </VStack>
 
-                    <HStack spacing={2}>
                       <Badge colorScheme="yellow" fontSize="sm" px={3} py={1}>
                         {filteredData.length} records
                       </Badge>
-                    </HStack>
+                    
                   </Flex>
                 </CardHeader>
                 <CardBody overflowX="auto">
@@ -2129,7 +2172,7 @@ const Reports = () => {
           </ModalFooter>
         </ModalContent>
       </Modal>
-    </Container>
+    </Box>
   );
 };
 

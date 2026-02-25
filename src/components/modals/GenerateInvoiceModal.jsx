@@ -21,6 +21,8 @@ import {
   AlertIcon,
   AlertTitle,
   AlertDescription,
+  RadioGroup,
+  Radio,
 } from "@chakra-ui/react";
 import { FiFileText } from "react-icons/fi";
 
@@ -36,7 +38,11 @@ const GenerateInvoiceModal = ({
     <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside">
       <ModalOverlay />
       <ModalContent>
-        <ModalHeader borderTopRadius={"md"} bg={"blue.500"} borderBottomWidth="1px">
+        <ModalHeader
+          borderTopRadius={"md"}
+          bg={"blue.500"}
+          borderBottomWidth="1px"
+        >
           <Heading size="md" color={"white"}>
             Generate New Invoice
           </Heading>
@@ -45,9 +51,32 @@ const GenerateInvoiceModal = ({
 
         <ModalBody>
           <VStack spacing={6} align="stretch">
+            {/* Invoice Type selection */}
+            {/* <FormControl>
+              <FormLabel fontWeight={"bold"} color={"blue.700"}>
+                Invoice Type
+              </FormLabel>
+
+              <RadioGroup
+                value={generateForm.invoiceType}
+                onChange={(value) =>
+                  setGenerateForm({
+                    ...generateForm,
+                    invoiceType: value,
+                  })
+                }
+              >
+                <HStack spacing={6}>
+                  <Radio value="customer">Customer Invoice</Radio>
+                  <Radio value="vendor">Vendor Invoice</Radio>
+                </HStack>
+              </RadioGroup>
+            </FormControl> */}
             {/* Customer Selection */}
             <FormControl isRequired>
-              <FormLabel>Select Customer</FormLabel>
+              <FormLabel fontWeight={"bold"} color={"blue.700"}>
+                Select Customer
+              </FormLabel>
               <Select
                 placeholder="Choose a customer..."
                 value={generateForm.customerId}
@@ -77,7 +106,9 @@ const GenerateInvoiceModal = ({
 
             {/* Billing Period */}
             <Box>
-              <FormLabel>Billing Period</FormLabel>
+              <FormLabel fontWeight={"bold"} color={"blue.700"}>
+                Billing Period
+              </FormLabel>
               <HStack spacing={4}>
                 <FormControl isRequired>
                   <Input
@@ -93,7 +124,7 @@ const GenerateInvoiceModal = ({
                   />
                 </FormControl>
                 <Text>to</Text>
-                <FormControl isRequired>
+                <FormControl fontWeight={"bold"} color={"blue.700"} isRequired>
                   <Input
                     type="date"
                     value={generateForm.periodEnd}
@@ -111,7 +142,9 @@ const GenerateInvoiceModal = ({
 
             {/* Billing Cycle */}
             <FormControl>
-              <FormLabel>Billing Cycle</FormLabel>
+              <FormLabel fontWeight={"bold"} color={"blue.700"}>
+                Billing Cycle
+              </FormLabel>
               <Select
                 value={generateForm.billingCycle}
                 onChange={(e) =>
@@ -142,19 +175,12 @@ const GenerateInvoiceModal = ({
                         (c) =>
                           c.gatewayId === generateForm.customerId ||
                           c.customerCode === generateForm.customerId ||
-                          c.accountId === generateForm.customerId
+                          c.accountId === generateForm.customerId,
                       );
                       return customer ? (
                         <VStack align="start" spacing={1}>
                           <Text>
                             <strong>Name:</strong> {customer.accountName}
-                          </Text>
-                          <Text>
-                            <strong>Rate:</strong> ${customer.rate}/sec
-                          </Text>
-                          <Text>
-                            <strong>Tax Rate:</strong>{" "}
-                            {(customer.taxRate * 100).toFixed(0)}%
                           </Text>
                           <Text>
                             <strong>Email:</strong> {customer.email}

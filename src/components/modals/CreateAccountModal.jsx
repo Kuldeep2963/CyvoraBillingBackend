@@ -32,6 +32,7 @@ import {
   TabPanel,
   SimpleGrid,
   Divider,
+  Flex,
 } from "@chakra-ui/react";
 import {
   FiUser,
@@ -51,8 +52,12 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
     accountType: "prepaid",
     accountStatus: "active",
     accountId: "",
-    authenticationType: 'ip',
-    authenticationValue: '',
+    customerauthenticationType: 'ip',
+    customerauthenticationValue: '',
+    vendorauthenticationType: 'ip',
+    vendorauthenticationValue: '',
+    
+
 
     // CDR Mapping Fields
     customerCode: "",
@@ -89,9 +94,6 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
     timezone: "UTC",
     languages: "en",
 
-    // Description
-    description: "",
-
     // Address
     addressLine1: "",
     addressLine2: "",
@@ -103,39 +105,17 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
     countryCode: "US",
 
     // Billing
-    billingClass: "",
+    billingClass: "paiusa",
     billingType: "prepaid",
     billingTimezone: "UTC",
     billingStartDate: new Date().toISOString().split("T")[0],
     billingCycle: "monthly",
+    lastbillingdate: null,
+    nextbillingdate: null,
 
     // Payment Settings
-    autoPay: false,
-    autoPayMethod: "credit_card",
     sendInvoiceEmail: true,
     lateFeeEnabled: true,
-    lateFeePercentage: 5.0,
-    gracePeriodDays: 15,
-
-    // Telecom Specific
-    telecomProvider: false,
-    wholesaleCustomer: false,
-    retailCustomer: false,
-    carrierType: "tier2",
-
-    // Call Rating
-    defaultRatePerSecond: 0.01,
-    taxRate: 18.0,
-    minimumCharge: 0.01,
-    roundingDecimal: 4,
-
-    // Vendor Specific (for vendors)
-    defaultCostPerSecond: 0.008,
-    marginPercentage: 25.0,
-
-    // CDR Processing
-    cdrProcessingDelay: 0,
-    billingDelay: 0,
   };
 
   const [formData, setFormData] = useState(initialFormData);
@@ -195,11 +175,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
       errors.push("Address Line 1 is required");
     if (!formData.city?.trim()) errors.push("City is required");
     if (!formData.postalCode?.trim()) errors.push("Postal Code is required");
-
-    if (formData.defaultRatePerSecond <= 0)
-      errors.push("Rate must be greater than 0");
-    if (formData.taxRate < 0 || formData.taxRate > 100)
-      errors.push("Tax rate must be between 0 and 100");
+    if (!formData.billingStartDate) errors.push("Billing Start Date is required");
 
     // Validate customer/vendor codes based on role
     if (
@@ -235,10 +211,18 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
 
     setLoading(true);
     try {
+      // Sanitize date fields
+      const sanitizedData = {
+        ...formData,
+        lastbillingdate: formData.lastbillingdate || null,
+        nextbillingdate: formData.nextbillingdate || null,
+        billingClass: formData.billingClass || "paiusa"
+      };
+
       if (selectedCustomer) {
-        await updateCustomer(selectedCustomer.id, formData);
+        await updateCustomer(selectedCustomer.id, sanitizedData);
       } else {
-        await createCustomer(formData);
+        await createCustomer(sanitizedData);
       }
 
       toast({
@@ -467,34 +451,69 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               </FormHelperText>
                             </FormControl>
                           )}
-
-
+                        
+                        {(formData.accountRole === "customer" ||
+                          formData.accountRole === "both") && (
+                            <Flex gap={4} flexDirection={"column"}>
                         <FormControl>
-                          <FormLabel>Authentication Type</FormLabel>
+                          <FormLabel> Customer Authentication Type</FormLabel>
                           <Select
-                            value={formData.authenticationType}
-                            onChange={(e) => setFormData({ ...formData, authenticationType: e.target.value })}
+                            value={formData.customerauthenticationType}
+                            onChange={(e) => setFormData({ ...formData, customerauthenticationType: e.target.value })}
                           >
                             {authTypeOptions.map(opt => (
                               <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
                           </Select>
-                          <FormHelperText>{authTypeOptions.find(o => o.value === formData.authenticationType)?.description}</FormHelperText>
+                          <FormHelperText>{authTypeOptions.find(o => o.value === formData.customerauthenticationType)?.description}</FormHelperText>
                         </FormControl>
 
                         <FormControl>
-                          <FormLabel>Authentication Value</FormLabel>
+                          <FormLabel> customer Authentication Value</FormLabel>
                           <Input
-                            value={formData.authenticationValue}
-                            onChange={(e) => setFormData({ ...formData, authenticationValue: e.target.value })}
+                            value={formData.customerauthenticationValue}
+                            onChange={(e) => setFormData({ ...formData, customerauthenticationValue: e.target.value })}
                             placeholder={
-                              formData.authenticationType === 'ip' ? '192.168.1.100' :
-                                formData.authenticationType === 'gateway' ? 'GW-12345' :
-                                  formData.authenticationType === 'prefix' ? '91' :
+                              formData.customerauthenticationType === 'ip' ? '192.168.1.100' :
+                                formData.customerauthenticationType === 'gateway' ? 'GW-12345' :
+                                  formData.customerauthenticationType === 'prefix' ? '91' :
                                     'Enter value'
                             }
                           />
                         </FormControl>
+                       </Flex>)}
+
+
+                       {(formData.accountRole === "vendor" ||
+                          formData.accountRole === "both") && (
+                            <Flex gap={4} flexDirection={"column"}>
+                         <FormControl>
+                          <FormLabel> Vendor Authentication Type</FormLabel>
+                          <Select
+                            value={formData.vendorauthenticationType}
+                            onChange={(e) => setFormData({ ...formData, vendorauthenticationType: e.target.value })}
+                          >
+                            {authTypeOptions.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </Select>
+                          <FormHelperText>{authTypeOptions.find(o => o.value === formData.vendorauthenticationType)?.description}</FormHelperText>
+                        </FormControl>
+
+                        <FormControl>
+                          <FormLabel>Vendor Authentication Value</FormLabel>
+                          <Input
+                            value={formData.vendorauthenticationValue}
+                            onChange={(e) => setFormData({ ...formData, vendorauthenticationValue: e.target.value })}
+                            placeholder={
+                              formData.vendorauthenticationType === 'ip' ? '192.168.1.100' :
+                                formData.vendorauthenticationType === 'gateway' ? 'GW-12345' :
+                                  formData.vendorauthenticationType === 'prefix' ? '91' :
+                                    'Enter value'
+                            }
+                          />
+                        </FormControl>
+                        </Flex>)}
 
 
                         {/* <FormControl>
@@ -513,125 +532,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                       </SimpleGrid>
                     </Box>
 
-                    {(formData.accountRole === "vendor" ||
-                      formData.accountRole === "both") && (
-                        <>
-                          <Divider />
-                          <Box>
-                            <Heading size="sm" mb={4}>
-                              Vendor Cost Settings
-                            </Heading>
-                            <SimpleGrid columns={2} spacing={4}>
-                              <FormControl>
-                                <FormLabel>Default Cost per Second</FormLabel>
-                                <NumberInput
-                                  value={formData.defaultCostPerSecond}
-                                  onChange={(value) =>
-                                    setFormData({
-                                      ...formData,
-                                      defaultCostPerSecond: parseFloat(value),
-                                    })
-                                  }
-                                  min={0.000001}
-                                  step={0.000001}
-                                  precision={6}
-                                >
-                                  <NumberInputField />
-                                  <NumberInputStepper>
-                                    <NumberIncrementStepper />
-                                    <NumberDecrementStepper />
-                                  </NumberInputStepper>
-                                </NumberInput>
-                                <FormHelperText>
-                                  Vendor cost per second for calls
-                                </FormHelperText>
-                              </FormControl>
-
-                              <FormControl>
-                                <FormLabel>Target Margin %</FormLabel>
-                                <NumberInput
-                                  value={formData.marginPercentage}
-                                  onChange={(value) =>
-                                    setFormData({
-                                      ...formData,
-                                      marginPercentage: parseFloat(value),
-                                    })
-                                  }
-                                  min={0}
-                                  max={100}
-                                  step={0.1}
-                                  precision={2}
-                                >
-                                  <NumberInputField />
-                                  <NumberInputStepper>
-                                    <NumberIncrementStepper />
-                                    <NumberDecrementStepper />
-                                  </NumberInputStepper>
-                                </NumberInput>
-                              </FormControl>
-                            </SimpleGrid>
-                          </Box>
-                        </>
-                      )}
-
                     <Divider />
-
-                    {/* <Box>
-                      <Heading size="sm" mb={4}>
-                        CDR Processing Settings
-                      </Heading>
-                      <SimpleGrid columns={2} spacing={4}>
-                        <FormControl>
-                          <FormLabel>
-                            CDR Processing Delay (hours)
-                          </FormLabel>
-                          <NumberInput
-                            value={formData.cdrProcessingDelay}
-                            onChange={(value) =>
-                              setFormData({
-                                ...formData,
-                                cdrProcessingDelay: parseInt(value),
-                              })
-                            }
-                            min={0}
-                            max={72}
-                          >
-                            <NumberInputField />
-                            <NumberInputStepper>
-                              <NumberIncrementStepper />
-                              <NumberDecrementStepper />
-                            </NumberInputStepper>
-                          </NumberInput>
-                          <FormHelperText>
-                            Hours to delay CDR processing
-                          </FormHelperText>
-                        </FormControl>
-
-                        <FormControl>
-                          <FormLabel>Billing Delay (days)</FormLabel>
-                          <NumberInput
-                            value={formData.billingDelay}
-                            onChange={(value) =>
-                              setFormData({
-                                ...formData,
-                                billingDelay: parseInt(value),
-                              })
-                            }
-                            min={0}
-                            max={30}
-                          >
-                            <NumberInputField />
-                            <NumberInputStepper>
-                              <NumberIncrementStepper />
-                              <NumberDecrementStepper />
-                            </NumberInputStepper>
-                          </NumberInput>
-                          <FormHelperText>
-                            Days to delay billing after CDR generation
-                          </FormHelperText>
-                        </FormControl>
-                      </SimpleGrid>
-                    </Box> */}
                   </VStack>
                 </TabPanel>
 
@@ -752,19 +653,6 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                           <option value="verified">Verified</option>
                           <option value="unverified">Not Verified</option>
                         </Select>
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel>Description</FormLabel>
-                        <Input
-                          value={formData.description}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              description: e.target.value,
-                            })
-                          }
-                          placeholder="Account description"
-                        />
                       </FormControl>
                     </SimpleGrid>
                   </VStack>
@@ -1069,6 +957,32 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                         </Select>
                       </FormControl>
                       <FormControl>
+                        <FormLabel>Last Billing Date</FormLabel>
+                        <Input
+                          type="date"
+                          value={formData.lastbillingdate || ""}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              lastbillingdate: e.target.value,
+                            })
+                          }
+                        />
+                      </FormControl>
+                      <FormControl>
+                        <FormLabel>Next Billing Date</FormLabel>
+                        <Input
+                          type="date"
+                          value={formData.nextbillingdate || ""}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              nextbillingdate: e.target.value,
+                            })
+                          }
+                        />
+                      </FormControl>
+                      <FormControl>
                         <FormLabel>Credit Limit ($)</FormLabel>
                         <NumberInput
                           value={formData.creditLimit}
@@ -1093,38 +1007,6 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                       Payment Settings
                     </Heading>
                     <SimpleGrid columns={2} spacing={4}>
-                      {/* <FormControl>
-                        <FormLabel>Auto Pay</FormLabel>
-                        <Select
-                          value={formData.autoPay}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              autoPay: e.target.value === "true",
-                            })
-                          }
-                        >
-                          <option value="false">Disabled</option>
-                          <option value="true">Enabled</option>
-                        </Select>
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel>Auto Pay Method</FormLabel>
-                        <Select
-                          value={formData.autoPayMethod}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              autoPayMethod: e.target.value,
-                            })
-                          }
-                        >
-                          <option value="credit_card">Credit Card</option>
-                          <option value="bank_transfer">Bank Transfer</option>
-                          <option value="paypal">PayPal</option>
-                          <option value="invoice">Invoice</option>
-                        </Select>
-                      </FormControl> */}
                       <FormControl>
                         <FormLabel>Send Invoice Email</FormLabel>
                         <Select
@@ -1140,264 +1022,9 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                           <option value="false">No</option>
                         </Select>
                       </FormControl>
-                      {/* <FormControl>
-                        <FormLabel>Late Fee</FormLabel>
-                        <Select
-                          value={formData.lateFeeEnabled}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              lateFeeEnabled: e.target.value === "true",
-                            })
-                          }
-                        >
-                          <option value="true">Enabled</option>
-                          <option value="false">Disabled</option>
-                        </Select>
-                      </FormControl> */}
-                      {/* {formData.lateFeeEnabled && (
-                        <FormControl>
-                          <FormLabel>Late Fee (%)</FormLabel>
-                          <NumberInput
-                            value={formData.lateFeePercentage}
-                            onChange={(value) =>
-                              setFormData({
-                                ...formData,
-                                lateFeePercentage: parseFloat(value),
-                              })
-                            }
-                            min={0}
-                            max={100}
-                          >
-                            <NumberInputField />
-                            <NumberInputStepper>
-                              <NumberIncrementStepper />
-                              <NumberDecrementStepper />
-                            </NumberInputStepper>
-                          </NumberInput>
-                        </FormControl>
-                      )}
-                      <FormControl>
-                        <FormLabel>Grace Period (days)</FormLabel>
-                        <NumberInput
-                          value={formData.gracePeriodDays}
-                          onChange={(value) =>
-                            setFormData({
-                              ...formData,
-                              gracePeriodDays: parseInt(value),
-                            })
-                          }
-                          min={0}
-                        >
-                          <NumberInputField />
-                          <NumberInputStepper>
-                            <NumberIncrementStepper />
-                            <NumberDecrementStepper />
-                          </NumberInputStepper>
-                        </NumberInput>
-                      </FormControl> */}
                     </SimpleGrid>
                   </VStack>
                 </TabPanel>
-
-                {/* Tab 5: Telecom Settings */}
-                {/* <TabPanel>
-                  <VStack spacing={4} align="stretch">
-                    <Heading size="sm" mb={2}>
-                      Provider Configuration
-                    </Heading>
-                    <SimpleGrid columns={2} spacing={4}>
-                      <FormControl>
-                        <FormLabel>Telecom Provider</FormLabel>
-                        <Select
-                          value={formData.telecomProvider}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              telecomProvider: e.target.value === "true",
-                            })
-                          }
-                        >
-                          <option value="false">No</option>
-                          <option value="true">Yes</option>
-                        </Select>
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel>Wholesale Customer</FormLabel>
-                        <Select
-                          value={formData.wholesaleCustomer}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              wholesaleCustomer: e.target.value === "true",
-                            })
-                          }
-                        >
-                          <option value="false">No</option>
-                          <option value="true">Yes</option>
-                        </Select>
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel>Retail Customer</FormLabel>
-                        <Select
-                          value={formData.retailCustomer}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              retailCustomer: e.target.value === "true",
-                            })
-                          }
-                        >
-                          <option value="false">No</option>
-                          <option value="true">Yes</option>
-                        </Select>
-                      </FormControl>
-                    </SimpleGrid>
-
-                    <Heading size="sm" mb={2} mt={4}>
-                      Call Rating Settings
-                    </Heading>
-                    <SimpleGrid columns={2} spacing={4}>
-                      <FormControl isRequired>
-                        <FormLabel>Default Rate per Second</FormLabel>
-                        <NumberInput
-                          value={formData.defaultRatePerSecond}
-                          onChange={(value) =>
-                            setFormData({
-                              ...formData,
-                              defaultRatePerSecond: parseFloat(value),
-                            })
-                          }
-                          min={0.0001}
-                          step={0.0001}
-                          precision={6}
-                        >
-                          <NumberInputField />
-                          <NumberInputStepper>
-                            <NumberIncrementStepper />
-                            <NumberDecrementStepper />
-                          </NumberInputStepper>
-                        </NumberInput>
-                        <FormHelperText>
-                          Rate charged per second of call duration
-                        </FormHelperText>
-                      </FormControl>
-                      <FormControl isRequired>
-                        <FormLabel>Tax Rate (%)</FormLabel>
-                        <NumberInput
-                          value={formData.taxRate}
-                          onChange={(value) =>
-                            setFormData({
-                              ...formData,
-                              taxRate: parseFloat(value),
-                            })
-                          }
-                          min={0}
-                          max={100}
-                          step={0.01}
-                          precision={2}
-                        >
-                          <NumberInputField />
-                          <NumberInputStepper>
-                            <NumberIncrementStepper />
-                            <NumberDecrementStepper />
-                          </NumberInputStepper>
-                        </NumberInput>
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel>Minimum Charge</FormLabel>
-                        <NumberInput
-                          value={formData.minimumCharge}
-                          onChange={(value) =>
-                            setFormData({
-                              ...formData,
-                              minimumCharge: parseFloat(value),
-                            })
-                          }
-                          min={0}
-                          step={0.0001}
-                          precision={4}
-                        >
-                          <NumberInputField />
-                          <NumberInputStepper>
-                            <NumberIncrementStepper />
-                            <NumberDecrementStepper />
-                          </NumberInputStepper>
-                        </NumberInput>
-                        <FormHelperText>
-                          Minimum charge per call
-                        </FormHelperText>
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel>Rounding Decimal Places</FormLabel>
-                        <NumberInput
-                          value={formData.roundingDecimal}
-                          onChange={(value) =>
-                            setFormData({
-                              ...formData,
-                              roundingDecimal: parseInt(value),
-                            })
-                          }
-                          min={0}
-                          max={8}
-                        >
-                          <NumberInputField />
-                          <NumberInputStepper>
-                            <NumberIncrementStepper />
-                            <NumberDecrementStepper />
-                          </NumberInputStepper>
-                        </NumberInput>
-                        <FormHelperText>
-                          Decimal places for rounding charges
-                        </FormHelperText>
-                      </FormControl>
-                    </SimpleGrid>
-
-                    <Heading size="sm" mb={2} mt={4}>
-                      Localization
-                    </Heading>
-                    <SimpleGrid columns={2} spacing={4}>
-                      <FormControl>
-                        <FormLabel>Timezone</FormLabel>
-                        <Select
-                          value={formData.timezone}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              timezone: e.target.value,
-                            })
-                          }
-                        >
-                          <option value="UTC">UTC</option>
-                          <option value="EST">EST</option>
-                          <option value="PST">PST</option>
-                          <option value="IST">IST</option>
-                          <option value="GMT">GMT</option>
-                        </Select>
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel>Languages</FormLabel>
-                        <Select
-                          value={formData.languages}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              languages: e.target.value,
-                            })
-                          }
-                        >
-                          <option value="en">English</option>
-                          <option value="es">Spanish</option>
-                          <option value="fr">French</option>
-                          <option value="de">German</option>
-                          <option value="hi">Hindi</option>
-                          <option value="zh">Chinese</option>
-                          <option value="ja">Japanese</option>
-                        </Select>
-                      </FormControl>
-                    </SimpleGrid>
-                  </VStack>
-                </TabPanel> */}
 
                 {/* Tab 6: Usage Statistics (only for editing) */}
                 {selectedCustomer && cdrStats && (

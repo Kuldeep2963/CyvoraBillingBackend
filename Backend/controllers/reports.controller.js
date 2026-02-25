@@ -23,7 +23,14 @@ const getCountryCodes = async () => {
 
 /* ===================== HELPER: FORMAT TIME ===================== */
 const formatTime = (date, hour, isEnd = false) => {
-  const d = new Date(date);
+  if (!date) return null;
+
+  // Handle numeric strings (Unix timestamps)
+  const numericDate = Number(date);
+  const d = !isNaN(numericDate) ? new Date(numericDate) : new Date(date);
+  
+  if (isNaN(d.getTime())) return null;
+
   d.setHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
   
   // Convert to Unix timestamp in milliseconds (same format as CDR)
@@ -54,34 +61,46 @@ const getCountryFromNumber = (number, countryCodes, skipPrefix = false) => {
 const buildAccountConditions = (account, vendorReport) => {
   const or = [];
 
+  // Determine which authentication fields to use
+  const authType = vendorReport 
+    ? (account.vendorauthenticationType || account.customerauthenticationType) 
+    : account.customerauthenticationType;
+  const authValue = vendorReport 
+    ? (account.vendorauthenticationValue || account.customerauthenticationValue) 
+    : account.customerauthenticationValue;
+
   // 1️⃣ IP authentication
-  if (account.authenticationType === 'ip' && account.authenticationValue) {
-    // For vendor reports, check agentip; for customer reports, check callerip
+  if (authType === 'ip' && authValue) {
     if (vendorReport) {
-      or.push({ agentip: account.authenticationValue });
+      // For vendor reports, we check calleeip (where we send calls)
+      or.push({ calleeip: authValue });
     } else {
-      or.push({ callerip: account.authenticationValue });
+      // For customer reports, we check callerip (where calls come from)
+      or.push({ callerip: authValue });
     }
   }
 
-  // 2️⃣ Custom authentication → search entire CDR row
-  // Note: This is slow - consider if you really need all these fields
-  if (account.authenticationType === 'custom' && account.authenticationValue) {
-    const v = `${account.authenticationValue}`;
-    or.push(
-      { customeraccount: { [Op.like]: v }}
-    );
+  // 2️⃣ Custom authentication → search in account fields
+  if (authType === 'custom' && authValue) {
+    const v = `${authValue}`;
+    if (vendorReport) {
+      or.push({ agentaccount: { [Op.like]: v } });
+      or.push({ agentname: { [Op.like]: v } });
+    } else {
+      or.push({ customeraccount: { [Op.like]: v } });
+      or.push({ customername: { [Op.like]: v } });
+    }
   }
 
-  
-
-  // 4️⃣ Fallback to gatewayId only if authenticationValue is not set but type is gateway
-  if (or.length === 0 && account.gatewayId) {
-    or.push(
-      vendorReport
-        ? { agentaccount: account.gatewayId }
-        : { customeraccount: account.gatewayId }
-    );
+  // 3️⃣ Fallback to vendorCode/customerCode or gatewayId if nothing else matched
+  if (or.length === 0) {
+    if (vendorReport) {
+      const vCode = account.vendorCode || account.gatewayId;
+      if (vCode) or.push({ agentaccount: vCode });
+    } else {
+      const cCode = account.customerCode || account.gatewayId;
+      if (cCode) or.push({ customeraccount: cCode });
+    }
   }
 
   return or;
@@ -616,8 +635,8 @@ exports.debugMapping = async (req, res) => {
             accountName: accountById.accountName,
             customerCode: accountById.customerCode,
             vendorCode: accountById.vendorCode,
-            authenticationType: accountById.authenticationType,
-            authenticationValue: accountById.authenticationValue,
+            customerauthenticationType: accountById.customerauthenticationType,
+            customerauthenticationValue: accountById.customerauthenticationValue,
             gatewayId: accountById.gatewayId,
             accountRole: accountById.accountRole
           },
@@ -659,14 +678,14 @@ exports.debugMapping = async (req, res) => {
         customerCode: account.customerCode,
         vendorCode: account.vendorCode,
         gatewayId: account.gatewayId,
-        authenticationType: account.authenticationType,
-        authenticationValue: account.authenticationValue,
+        customerauthenticationType: account.customerauthenticationType,
+        customerauthenticationValue: account.customerauthenticationValue,
         accountRole: account.accountRole
       },
       conditions: conditions,
       sampleCdrs: cdrs,
       message: conditions.length > 0
-        ? `Found ${cdrs.length} sample CDRs using ${account.authenticationType} authentication`
+        ? `Found ${cdrs.length} sample CDRs using ${account.customerauthenticationType} authentication`
         : 'No valid authentication conditions found'
     });
     
@@ -677,27 +696,27 @@ exports.debugMapping = async (req, res) => {
 };
 
 /* ===================== REPORT ACCOUNTS ===================== */
-exports.getReportAccounts = async (req, res) => {
-  try {
-    const accounts = await Account.findAll({
-      attributes: ['id', 'accountId', 'accountName', 'accountRole', 'customerCode', 'vendorCode', 'gatewayId','authenticationType','authenticationValue'],
-      where: { active: true },
-      order: [['accountName', 'ASC']]
-    });
+  exports.getReportAccounts = async (req, res) => {
+    try {
+      const accounts = await Account.findAll({
+        attributes: ['id', 'accountId', 'accountName', 'accountRole', 'customerCode', 'vendorCode', 'gatewayId','customerauthenticationType','customerauthenticationValue'],
+        where: { active: true },
+        order: [['accountName', 'ASC']]
+      });
 
-    const customers = accounts.filter(a => ['customer', 'both'].includes(a.accountRole));
-    const vendors = accounts.filter(a => ['vendor', 'both'].includes(a.accountRole));
+      const customers = accounts.filter(a => ['customer', 'both'].includes(a.accountRole));
+      const vendors = accounts.filter(a => ['vendor', 'both'].includes(a.accountRole));
 
-    res.json({
-      success: true,
-      customers,
-      vendors
-    });
-  } catch (e) {
-    console.error('Get Report Accounts Error:', e);
-    res.status(500).json({ success: false, error: e.message });
-  }
-};
+      res.json({
+        success: true,
+        customers,
+        vendors
+      });
+    } catch (e) {
+      console.error('Get Report Accounts Error:', e);
+      res.status(500).json({ success: false, error: e.message });
+    }
+  };
 
 /* ===================== EXPORT REPORT ===================== */
 exports.exportReport = async (req, res) => {

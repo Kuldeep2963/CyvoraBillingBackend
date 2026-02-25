@@ -153,7 +153,7 @@ const Settings = () => {
   };
 
   return (
-    <Container maxW="container.xl" py={2}>
+    <Box>
       <VStack spacing={6} align="stretch">
         {/* Header */}
         <Box>
@@ -574,7 +574,7 @@ const Settings = () => {
           type="danger"
         />
       </VStack>
-    </Container>
+    </Box>
   );
 };
 

@@ -8,6 +8,8 @@ const cdrRoutes = require('./routes/cdr');
 const reportRoutes = require('./routes/reports');
 const billingRoutes = require('./routes/billing');
 const dashboardRoutes = require('./routes/dashboard');
+const authRoutes = require('./routes/auth');
+const authMiddleware = require('./middleware/auth');
 const uploadCdr = require('./api/upload-cdr');
 const CDRAutoFetcher = require('./services/cdr-auto-fetch');
 
@@ -31,15 +33,18 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Routes
-app.use('/api/accounts', accountRoutes);
-app.use('/api/customers', accountRoutes);
-app.use('/api/customer', accountRoutes);
-app.use('/api/cdr', cdrRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/billing', billingRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.post('/api/upload-cdr', uploadCdr);
+// Public Routes
+app.use('/api/auth', authRoutes);
+
+// Protected Routes
+app.use('/api/accounts', authMiddleware, accountRoutes);
+app.use('/api/customers', authMiddleware, accountRoutes);
+app.use('/api/customer', authMiddleware, accountRoutes);
+app.use('/api/cdr', authMiddleware, cdrRoutes);
+app.use('/api/reports', authMiddleware, reportRoutes);
+app.use('/api/billing', authMiddleware, billingRoutes);
+app.use('/api/dashboard', authMiddleware, dashboardRoutes);
+app.post('/api/upload-cdr', authMiddleware, uploadCdr);
 
 // 404 Handler
 app.use((req, res) => {

@@ -55,11 +55,11 @@ class CDRAutoFetcher {
 
   async init() {
     try {
-      console.log('Initializing CDR Auto-Fetcher...');
+      console.log(' ========================Initializing CDR Auto-Fetcher...');
       
       // Test database connection
       await sequelize.authenticate();
-      console.log('✅ Database connection established');
+      console.log('====== Database connection established ======');
 
       // Create local directory for downloaded files
       const absoluteLocalPath = path.resolve(this.config.localPath);
@@ -74,9 +74,9 @@ class CDRAutoFetcher {
       // Start the scheduler
       this.startScheduler();
       
-      console.log('✅ CDR Auto-Fetcher initialized successfully');
+      console.log('====== CDR Auto-Fetcher initialized successfully ======');
     } catch (error) {
-      console.error('❌ Failed to initialize CDR Auto-Fetcher:', error.message);
+      console.error('======= Failed to initialize CDR Auto-Fetcher:', error.message);
       throw error;
     }
   }
@@ -92,30 +92,30 @@ class CDRAutoFetcher {
         this.processedFiles.add(f.filename);
       });
       
-      console.log(`✅ Loaded ${this.processedFiles.size} processed files from database`);
+      console.log(` ==== Loaded ${this.processedFiles.size} processed files from database`);
     } catch (error) {
-      console.error('❌ Error loading processed files:', error.message);
+      console.error(' ===== Error loading processed files:', error.message);
     }
   }
 
   startScheduler() {
-    console.log(`⏰ Starting CDR auto-fetch scheduler (interval: ${this.config.fetchInterval})`);
+    console.log(` =========== Starting CDR auto-fetch scheduler (interval: ${this.config.fetchInterval})`);
     
     try {
       cron.schedule(this.config.fetchInterval, async () => {
-        console.log('🔄 Scheduled job triggered');
+        console.log(' Scheduled job triggered');
         await this.fetchAndProcessCDRs();
       });
 
-      console.log('✅ Scheduler started successfully');
+      console.log(' Scheduler started successfully');
       
       // Also run immediately on startup
       setTimeout(() => {
-        console.log('🚀 Running initial fetch...');
+        console.log(' Running initial fetch...');
         this.fetchAndProcessCDRs();
       }, 5000);
     } catch (error) {
-      console.error('❌ Failed to start scheduler:', error.message);
+      console.error(' Failed to start scheduler:', error.message);
       throw error;
     }
   }
@@ -144,7 +144,7 @@ class CDRAutoFetcher {
 
   async fetchAndProcessCDRs() {
     if (this.isRunning) {
-      console.log('⏳ Previous fetch still running. Skipping.');
+      console.log(' ### Previous fetch still running. Skipping.');
       return;
     }
 
@@ -153,17 +153,17 @@ class CDRAutoFetcher {
     let processedCount = 0;
 
     try {
-      console.log('📥 Starting CDR auto-fetch process...');
+      console.log('#### Starting CDR auto-fetch process...');
 
       // 1. List files created in last 15 minutes
       const files = await this.listRecentFiles();
       
       if (files.length === 0) {
-        console.log('📭 No new files found.');
+        console.log(' **** No new files found.');
         return;
       }
 
-      console.log(`📁 Found ${files.length} new file(s)`);
+      console.log(` $$$$$$ Found ${files.length} new file(s)`);
 
       // 2. Process each file
       for (const remoteFile of files) {
@@ -173,7 +173,7 @@ class CDRAutoFetcher {
           
           // Skip already processed files
           if (this.processedFiles.has(filename)) {
-            console.log(`⏭️ Skipping already processed file: ${filename}`);
+            console.log(` !!!!!! Skipping already processed file: ${filename}`);
             continue;
           }
 
@@ -185,7 +185,7 @@ class CDRAutoFetcher {
           
           if (!downloaded) {
             await this.recordFileProcessingComplete(filename, 'FAILED', 0, 'Failed to download file');
-            console.log(`❌ Failed to download ${filename}`);
+            console.log(` !!!!! Failed to download ${filename}`);
             continue;
           }
 
@@ -203,16 +203,16 @@ class CDRAutoFetcher {
             this.processedFiles.add(filename);
             await this.recordFileProcessingComplete(filename, 'PROCESSED', processed.cdrs.length);
             
-            console.log(`✅ Processed ${filename}: ${processed.cdrs.length} CDRs`);
+            console.log(` %%%%%%% Processed ${filename}: ${processed.cdrs.length} CDRs`);
             
             // Files are now kept in the local directory for verification as requested
           } else {
             await this.recordFileProcessingComplete(filename, 'FAILED', 0, processed.error);
-            console.log(`❌ Failed to process ${filename}: ${processed.error}`);
+            console.log(`Failed to process ${filename}: ${processed.error}`);
           }
 
         } catch (fileError) {
-          console.error(`❌ Error processing file ${remoteFile}:`, fileError.message);
+          console.error(` !!!!! Error processing file ${remoteFile}:`, fileError.message);
           await this.recordFileProcessingComplete(path.basename(remoteFile), 'ERROR', 0, fileError.message);
         }
 
@@ -220,10 +220,10 @@ class CDRAutoFetcher {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      console.log(`🎉 Auto-fetch completed: ${fetchedCount} files fetched, ${processedCount} CDRs processed`);
+      console.log(` ****** Auto-fetch completed: ${fetchedCount} files fetched, ${processedCount} CDRs processed`);
 
     } catch (error) {
-      console.error('💥 Fatal error in auto-fetch process:', error.message);
+      console.error(' Fatal error in auto-fetch process:', error.message);
     } finally {
       this.isRunning = false;
     }
@@ -236,7 +236,7 @@ class CDRAutoFetcher {
         `find ${this.config.serverPath} -name '${this.config.filePattern}' -type f -mmin -16 2>/dev/null`
       );
 
-      console.log('🔍 Listing files on remote server...');
+      console.log(' Listing files on remote server...');
       const { stdout } = await execPromise(listCommand, { timeout: 30000 });
       
       const files = stdout
@@ -246,7 +246,7 @@ class CDRAutoFetcher {
       
       return files;
     } catch (error) {
-      console.error('❌ Error listing files:', error.message);
+      console.error(' Error listing files:', error.message);
       return [];
     }
   }
@@ -254,11 +254,11 @@ class CDRAutoFetcher {
   async downloadFile(remoteFile, localFile) {
     try {
       const scpCommand = this.buildSCPCommand(remoteFile, localFile);
-      console.log(`📥 Downloading: ${path.basename(remoteFile)}`);
+      console.log(` Downloading: ${path.basename(remoteFile)}`);
       await execPromise(scpCommand, { timeout: 60000 });
       return fs.existsSync(localFile);
     } catch (error) {
-      console.error(`❌ Error downloading file ${remoteFile}:`, error.message);
+      console.error(` Error downloading file ${remoteFile}:`, error.message);
       return false;
     }
   }
@@ -304,7 +304,7 @@ class CDRAutoFetcher {
       await CDR.bulkCreate(chunk, { ignoreDuplicates: true });
     }
     
-    console.log(`💾 Saved ${cdrs.length} CDRs to database`);
+    console.log(` Saved ${cdrs.length} CDRs to database`);
   }
 
   async recordFileProcessingStart(filename) {
@@ -315,7 +315,7 @@ class CDRAutoFetcher {
         started_at: new Date()
       });
     } catch (error) {
-      console.error('❌ Error recording file processing start:', error.message);
+      console.error(' Error recording file processing start:', error.message);
     }
   }
 
@@ -330,7 +330,7 @@ class CDRAutoFetcher {
         where: { filename }
       });
     } catch (error) {
-      console.error('❌ Error recording file processing complete:', error.message);
+      console.error(' Error recording file processing complete:', error.message);
     }
   }
 }

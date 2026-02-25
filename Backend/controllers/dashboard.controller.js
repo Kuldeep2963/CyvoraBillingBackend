@@ -104,7 +104,7 @@ const getDateRange = (range, startDate, endDate) => {
 
 exports.getTopDestinations = async (req, res) => {
   try {
-    const { startDate, endDate, range, sortBy = 'revenue', limit = 10 } = req.query;
+    const { startDate, endDate, range, sortBy = 'cost', limit = 10 } = req.query;
     
     const where = getDateRange(range, startDate, endDate);
 
@@ -158,6 +158,7 @@ exports.getTopDestinations = async (req, res) => {
           destination: item.destination,
           trunk: item.trunk,
           totalCalls: item.totalCalls,
+          completedCalls : item.completedCalls,
           minutes: parseFloat(minutes.toFixed(2)),
           revenue: parseFloat(revenue.toFixed(4)),
           cost: parseFloat(cost.toFixed(4)),
@@ -168,10 +169,10 @@ exports.getTopDestinations = async (req, res) => {
         };
       })
       .sort((a, b) => {
-        if (sortBy === 'totalCalls') return b.totalCalls - a.totalCalls;
+        if (sortBy === 'completedCalls') return b.completedCalls - a.completedCalls;
         if (sortBy === 'minutes') return b.minutes - a.minutes;
         if (sortBy === 'cost') return b.cost - a.cost;
-        return b.revenue - a.revenue; // default to revenue
+        return b.cost - a.cost;
       })
       .slice(0, parseInt(limit));
 
@@ -209,15 +210,23 @@ exports.getDashboardStats = async (req, res) => {
 
     // 2. Hourly Call Distribution: {hours and calls count}
     const hourlyDistribution = await CDR.findAll({
-      attributes: [
-        [H.hour, 'hour'],
-        [fn('COUNT', col('id')), 'callsCount']
-      ],
-      where,
-      group: [H.hour],
-      order: [[H.hour, 'ASC']],
-      raw: true
-    });
+  attributes: [
+    [H.hour, 'hour'],
+
+    // total calls
+    [fn('COUNT', col('id')), 'callsCount'],
+
+    // total duration (seconds)
+    [fn('SUM', H.durationSec), 'totalDurationSec'],
+
+    // total cost
+    [fn('SUM', H.cost), 'totalCost']
+  ],
+  where,
+  group: [H.hour],
+  order: [[H.hour, 'ASC']],
+  raw: true
+});
 
     // 4. Top Customers Distribution: {customerName, totalCalls}
     const customerDistributionRaw = await CDR.findAll({
@@ -259,10 +268,17 @@ exports.getDashboardStats = async (req, res) => {
           totalDuration: parseFloat((Number(stats.totalDuration || 0) / 60).toFixed(2)), // in minutes
           activeCustomers: Number(stats.activeCustomers || 0)
         },
-        hourlyDistribution: hourlyDistribution.map(h => ({
-          hour: parseInt(h.hour),
-          callsCount: Number(h.callsCount)
-        })),
+        hourlyDistribution: hourlyDistribution.map(h => {
+  const durationSec = Number(h.totalDurationSec || 0);
+  const cost = Number(h.totalCost || 0);
+
+  return {
+    hour: parseInt(h.hour),
+    callsCount: Number(h.callsCount || 0),
+    minutes: parseFloat((durationSec / 60).toFixed(2)),
+    cost: parseFloat(cost.toFixed(4))
+  };
+}),
         customerDistribution: topCustomers,
         financialSummary: {
           totalRevenue: parseFloat(Number(financialSummary.totalRevenue || 0).toFixed(4)),

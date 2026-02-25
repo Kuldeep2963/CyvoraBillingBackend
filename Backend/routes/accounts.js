@@ -50,7 +50,6 @@ router.get('/search/autocomplete', async (req, res) => {
       [Op.or]: [
         { accountName: { [Op.iLike]: `%${query}%` } },
         { email: { [Op.iLike]: `%${query}%` } },
-        { accountNumber: { [Op.iLike]: `%${query}%` } },
         { customerCode: { [Op.iLike]: `%${query}%` } },
         { vendorCode: { [Op.iLike]: `%${query}%` } }
       ]
@@ -151,7 +150,6 @@ router.get('/', async (req, res) => {
         { accountName: { [Op.iLike]: `%${search}%` } },
         { email: { [Op.iLike]: `%${search}%` } },
         { phone: { [Op.iLike]: `%${search}%` } },
-        { accountNumber: { [Op.iLike]: `%${search}%` } },
         { accountId: { [Op.iLike]: `%${search}%` } },
         { customerCode: { [Op.iLike]: `%${search}%` } },
         { vendorCode: { [Op.iLike]: `%${search}%` } }

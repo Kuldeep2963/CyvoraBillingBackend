@@ -33,6 +33,7 @@ import {
   Th,
   Td,
   TableContainer,
+  StackDivider,
   ButtonGroup,
   Avatar,
   AvatarGroup,
@@ -40,6 +41,7 @@ import {
   Spinner,
   Divider,
   Select,
+  CardHeader,
 } from "@chakra-ui/react";
 import {
   FiPhoneCall,
@@ -75,6 +77,7 @@ import {
   Legend,
   ResponsiveContainer,
   AreaChart,
+  ComposedChart,
   Area,
   LineChart,
   Line,
@@ -82,24 +85,19 @@ import {
   RadialBar,
   PolarAngleAxis,
 } from "recharts";
-import {
-  fetchDashboardStats,
-  
-  fetchTopDestinations,
-} from "../utils/api";
+import { fetchDashboardStats, fetchTopDestinations } from "../utils/api";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
-import { BlinkBlur } from "react-loading-indicators";
+import { BlinkBlur, Slab } from "react-loading-indicators";
 
 const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [chartData, setChartData] = useState({});
   const [financialData, setFinancialData] = useState({});
-  const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [topDestLoading, setTopDestLoading] = useState(false);
   const [timeRange, setTimeRange] = useState("today");
-  const [topDestSort, setTopDestSort] = useState("revenue");
+  const [topDestSort, setTopDestSort] = useState("cost");
   const [topDestinations, setTopDestinations] = useState([]);
   const [currentTime, setCurrentTime] = useState(new Date());
   // Modern color palette
@@ -114,17 +112,6 @@ const Dashboard = () => {
     light: "#F9FAFB",
   };
 
-  const CHART_COLORS = [
-    "#6366F1",
-    "#8B5CF6",
-    "#EC4899",
-    "#10B981",
-    "#F59E0B",
-    "#EF4444",
-    "#3B82F6",
-    "#06B6D4",
-  ];
-
   const navigate = useNavigate();
   const toast = useToast();
 
@@ -136,8 +123,7 @@ const Dashboard = () => {
     return () => clearInterval(timer);
   }, []);
 
-  
-  const loadTopDestinations = async (range = "today", sortBy = "revenue") => {
+  const loadTopDestinations = async (range = "today", sortBy = "cost") => {
     try {
       setTopDestLoading(true);
       const response = await fetchTopDestinations({ range, sortBy });
@@ -155,12 +141,7 @@ const Dashboard = () => {
     try {
       setLoading(true);
 
-      const [dashData, customersData] = await Promise.all([
-        fetchDashboardStats({ range }),
-        
-      ]);
-
-      setCustomers(customersData);
+      const dashData = await fetchDashboardStats({ range });
 
       if (dashData.success) {
         const {
@@ -200,17 +181,20 @@ const Dashboard = () => {
   const refreshData = () => {
     loadDashboardData(timeRange);
     loadTopDestinations(timeRange, topDestSort);
-  };  
+  };
   useEffect(() => {
-  // initial load
-  refreshData();
-
-  const interval = setInterval(() => {
+    // initial load
     refreshData();
-  }, 10 * 60 * 1000); // 15 minutes
 
-  return () => clearInterval(interval); // cleanup on unmount
-}, [timeRange, topDestSort]);
+    const interval = setInterval(
+      () => {
+        refreshData();
+      },
+      10 * 60 * 1000,
+    ); // 15 minutes
+
+    return () => clearInterval(interval); // cleanup on unmount
+  }, [timeRange, topDestSort]);
 
   const formatDuration = (minutes) => {
     if (!minutes) return "0m";
@@ -219,16 +203,30 @@ const Dashboard = () => {
     return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
   };
 
+  const formatACD = (decimalMinutes) => {
+  if (!decimalMinutes || decimalMinutes === 0) return "0:00";
+  
+  const totalSeconds = Math.floor(decimalMinutes * 60);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+};
+
   // ✅ SAFE early return (no hooks inside)
   if (loading || !stats) {
     return (
       <Box w={"full"}>
-        <Center height="100vh">
+        <Center height="90vh">
           <VStack spacing={4} width="full">
-
-            <BlinkBlur color="#3182ce"/>
-            <Text fontSize="lg" fontStyle={"italic"} color={"gray.500"} fontWeight="medium">
-              Loading dashboard analytics... 
+            <BlinkBlur color="#3182ce" />
+            <Text
+              fontSize="lg"
+              fontStyle={"italic"}
+              color={"gray.500"}
+              fontWeight="medium"
+            >
+              Loading dashboard analytics...
             </Text>
           </VStack>
         </Center>
@@ -237,29 +235,30 @@ const Dashboard = () => {
   }
 
   return (
-    <Container maxW="container.xl" py={2}>
+    <Box>
       <VStack spacing={4} align="stretch">
-        {/* Header with title and refresh */}
-        <Flex justify="space-between" align="center">
+        <Flex
+          justify="space-between"
+          align="center"
+          bgGradient="linear(to-r,blue.100,blue.200,blue.300)"
+          px={4}
+          py={2}
+          borderRadius={"12px"}
+        >
           <Box>
-            <Heading
-              size="xl"
-              mb={2}
-              fontWeight="700"
-              bgGradient="linear(to-r, purple.600, blue.500)"
-              bgClip="text"
-            >
+            <Heading size="xl" fontWeight="700" color={"gray.600"}>
               CDR Analytics Dashboard
             </Heading>
-            <Text color="gray.600" fontSize="md">
-              Real-time insights into call data records and billing
+            <Text color="gray.500" fontSize="sm">
+              Real-time insights into call data records, destinations and
+              customers
             </Text>
           </Box>
           <HStack spacing={4}>
             <Box
               px={4}
-              py={2}
-              bg="white"
+              py={1}
+              bg="gray.200"
               borderRadius="md"
               border="1px solid"
               borderColor="gray.100"
@@ -292,7 +291,8 @@ const Dashboard = () => {
               width="150px"
               size="sm"
               borderRadius="md"
-              bg="white"
+              border={"1px solid gray"}
+              bg="gray.200"
             >
               <option value="today">Today</option>
               <option value="week">Weekly</option>
@@ -300,7 +300,7 @@ const Dashboard = () => {
               <option value="monthly">Monthly</option>
               <option value="3month">3 Months</option>
             </Select>
-            <Button
+            {/* <Button
               leftIcon={<FiRefreshCw />}
               colorScheme="purple"
               variant="outline"
@@ -314,7 +314,7 @@ const Dashboard = () => {
               transition="all 0.3s"
             >
               Refresh Data
-            </Button>
+            </Button> */}
           </HStack>
         </Flex>
 
@@ -371,23 +371,17 @@ const Dashboard = () => {
           {/* Top Destinations Table */}
           <GridItem>
             <Card
-              h={"490px"}
+              h={"460px"}
               bg="white"
               border="1px solid"
               borderColor="gray.100"
-              borderRadius="2xl"
+              borderRadius="lg"
               boxShadow="md"
               overflow="hidden"
             >
-              <CardBody p={6}>
-                <HStack
-                  spacing={3}
-                  mb={6}
-                  pb={4}
-                  borderBottom="1px solid"
-                  borderColor="gray.100"
-                  justify="space-between"
-                >
+              <CardHeader py={2} bg={"blue.200"}>
+                {" "}
+                <HStack justify="space-between">
                   <HStack spacing={3}>
                     <Icon as={FiGlobe} w={5} h={5} color="blue.600" />
                     <VStack align="start" spacing={0}>
@@ -400,25 +394,27 @@ const Dashboard = () => {
                     </VStack>
                   </HStack>
                   <HStack spacing={2}>
-                    <Text fontSize="sm" fontWeight={"bold"} color="gray.600">
+                    <Text fontSize="sm" fontWeight={"bold"} color="gray.800">
                       Sort by:
                     </Text>
 
                     <Select
                       borderRadius={"md"}
+                      bg={"white"}
                       size="sm"
                       w="150px"
                       value={topDestSort}
                       onChange={(e) => setTopDestSort(e.target.value)}
                     >
-                      <option value="revenue">Revenue</option>
+                      {/* <option value="revenue">Revenue</option> */}
                       <option value="cost">Cost</option>
-                      <option value="totalCalls">Calls</option>
+                      <option value="completedCalls">Calls</option>
                       <option value="minutes">Minutes</option>
                     </Select>
                   </HStack>
                 </HStack>
-
+              </CardHeader>
+              <CardBody p={0}>
                 <TableContainer>
                   <Table variant="simple" size="sm">
                     <Thead bg="gray.200" h={"30px"}>
@@ -429,8 +425,21 @@ const Dashboard = () => {
                         <Th color={"black"} fontWeight={"bold"}>
                           Trunk
                         </Th>
-                        <Th color={"black"} fontWeight={"bold"} isNumeric>
-                          Calls
+                        <Th
+                          color={"black"}
+                          fontWeight={"bold"}
+                          maxW={"100px"}
+                          isNumeric
+                        >
+                          total Calls
+                        </Th>
+                        <Th
+                          color={"black"}
+                          fontWeight={"bold"}
+                          maxW={"100px"}
+                          isNumeric
+                        >
+                          Cmpt. Calls
                         </Th>
                         <Th color={"black"} fontWeight={"bold"} isNumeric>
                           Minutes
@@ -441,9 +450,9 @@ const Dashboard = () => {
                         <Th color={"black"} fontWeight={"bold"} isNumeric>
                           ACD (m)
                         </Th>
-                        <Th color={"black"} fontWeight={"bold"} isNumeric>
+                        {/* <Th color={"black"} fontWeight={"bold"} isNumeric>
                           Revenue
-                        </Th>
+                        </Th> */}
                         <Th color={"black"} fontWeight={"bold"} isNumeric>
                           Cost
                         </Th>
@@ -458,13 +467,19 @@ const Dashboard = () => {
                     <Tbody>
                       {topDestLoading ? (
                         <Tr>
-                          <Td colSpan={9} textAlign="center" py={10}>
-                            <Spinner size="md" color="blue.500" />
+                          <Td colSpan={10} textAlign="center" py={10}>
+                            <Box
+                              display="flex"
+                              justifyContent="center"
+                              alignItems="center"
+                            >
+                              <Slab color="#3182ce" />
+                            </Box>
                           </Td>
                         </Tr>
                       ) : topDestinations?.length > 0 ? (
                         topDestinations.map((d, i) => (
-                          <Tr key={i}>
+                          <Tr key={i} _hover={{ bg: "gray.100" }} transition="background 0.15s" bg={d.margin < 0 && "red.200"}>
                             <Td
                               maxW="170px"
                               overflowX="auto"
@@ -487,33 +502,35 @@ const Dashboard = () => {
                               </Badge>
                             </Td>
                             <Td isNumeric>{d.totalCalls}</Td>
+                            <Td color={"green.700"} isNumeric>
+                              {d.completedCalls}
+                            </Td>
                             <Td isNumeric>{d.minutes}</Td>
                             <Td isNumeric>
-                              <Badge
-                                
+                              <Badge px={2}
                                 colorScheme={d.ASR > 50 ? "green" : "orange"}
                               >
                                 {d.ASR}%
                               </Badge>
                             </Td>
-                            <Td isNumeric>{d.ACD}</Td>
-                            <Td
+                            <Td isNumeric>{formatACD(d.ACD)}</Td>
+                            {/* <Td
                               isNumeric
                               fontWeight="semibold"
                               color={"green.600"}
                             >
                               ${d.revenue.toFixed(4)}
-                            </Td>
+                            </Td> */}
                             <Td
                               isNumeric
                               fontWeight="semibold"
-                              color={"blue.600"}
+                              color={"blue.400"}
                             >
                               ${d.cost.toFixed(4)}
                             </Td>
                             <Td
                               isNumeric
-                              color={d.margin >= 0 ? "green.600" : "red.600"}
+                              color={d.margin >= 0 ? "green.700" : "red.700"}
                             >
                               ${d.margin.toFixed(5)}
                             </Td>
@@ -521,8 +538,8 @@ const Dashboard = () => {
                               isNumeric
                               color={
                                 d.marginPercentage >= 0
-                                  ? "green.600"
-                                  : "red.600"
+                                  ? "green.700"
+                                  : "red.700"
                               }
                             >
                               {d.marginPercentage.toFixed(4)}%
@@ -545,36 +562,29 @@ const Dashboard = () => {
           {/* Financial Metrics Card */}
           <GridItem>
             <Card
-              w={{ base: "full", lg: "100%" }}
+              // w={{ base: "full", lg: "170px" }}
               bg="white"
               border="1px solid"
               borderColor="gray.100"
-              borderRadius="2xl"
+              borderRadius="lg"
               boxShadow="lg"
               overflow="hidden"
               _hover={{ boxShadow: "0 20px 60px rgba(0, 0, 0, 0.08)" }}
               transition="all 0.3s ease"
             >
-              <CardBody py={2} px={4}>
-                <HStack
-                  spacing={2}
-                  mb={6}
-                  pb={4}
-                  borderBottom="1px solid"
-                  borderColor="gray.100"
-                >
+              <CardHeader bg={"blue.200"} mb={6} py={2}>
+                {" "}
+                <HStack spacing={2}>
                   <Icon as={FiDollarSign} w={5} h={5} color="green.600" />
 
                   <VStack align="start" spacing={0}>
                     <Heading size="md" color="gray.800" fontWeight="semibold">
                       Financial Summary
                     </Heading>
-                    <Text fontSize="xs" color="gray.500">
-                      Revenue & cost breakdown
-                    </Text>
                   </VStack>
                 </HStack>
-
+              </CardHeader>
+              <CardBody py={2} px={4}>
                 <VStack spacing={3} align="stretch">
                   <MetricItem
                     label="Total Revenue"
@@ -583,9 +593,7 @@ const Dashboard = () => {
                     color="green"
                     subtext="From all calls"
                   />
-
                   <Divider />
-
                   <MetricItem
                     label="Tax Collected"
                     value={`$${financialData.taxCollected?.toFixed(2) || "0.00"}`}
@@ -593,9 +601,7 @@ const Dashboard = () => {
                     color="purple"
                     subtext="Total tax amount"
                   />
-
                   <Divider />
-
                   <MetricItem
                     label="Income Fee"
                     value={`$${financialData.incomeFee?.toFixed(2) || "0.00"}`}
@@ -603,9 +609,7 @@ const Dashboard = () => {
                     color="blue"
                     subtext="Service income"
                   />
-
                   <Divider />
-
                   <MetricItem
                     label="Agent Fees"
                     value={`$${financialData.agentFee?.toFixed(2) || "0.00"}`}
@@ -626,53 +630,57 @@ const Dashboard = () => {
               bg="white"
               border="1px solid"
               borderColor="gray.100"
-              borderRadius="2xl"
+              borderRadius="lg"
               boxShadow="lg"
               overflow="hidden"
               _hover={{ boxShadow: "0 20px 60px rgba(0, 0, 0, 0.08)" }}
               transition="all 0.3s ease"
             >
-              <CardBody p={6}>
-                <HStack
-                  spacing={3}
-                  mb={6}
-                  pb={4}
-                  borderBottom="1px solid"
-                  borderColor="gray.100"
-                >
-                  <Icon as={FiActivity} w={5} h={5} color="blue.600" />
+              <CardHeader bg={"blue.200"} py={2}>
+                <HStack spacing={3}>
+                  <Icon as={FiActivity} w={5} h={5} color="blue" />
                   <VStack align="start" spacing={0}>
                     <Heading size="md" color="gray.800" fontWeight="semibold">
                       Hourly Call Distribution
                     </Heading>
-                    <Text fontSize="xs" color="gray.500">
+                    <Text fontSize="xs" color="gray.600">
                       Call volume by hour
                     </Text>
                   </VStack>
                 </HStack>
-
+              </CardHeader>
+              <CardBody p={6}>
                 <Box height="300px">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData.hourlyCalls}>
+                    <ComposedChart data={chartData.hourlyCalls}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                       <XAxis dataKey="hour" stroke="#6B7280" fontSize={12} />
-                      <YAxis stroke="#6B7280" fontSize={12} />
-                      <Tooltip
-                        formatter={(value) => [value, "Calls"]}
-                        contentStyle={{
-                          backgroundColor: "white",
-                          border: "1px solid #E5E7EB",
-                          borderRadius: "8px",
-                          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                        }}
+                      <YAxis yAxisId="left" stroke="#6B7280" fontSize={12} />
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        stroke="#6B7280"
+                        fontSize={12}
                       />
+                      <Tooltip />
+                      <Legend />
                       <Bar
+                        yAxisId="left"
                         dataKey="calls"
-                        fill="#6366F1"
+                        fill="#039b68"
                         radius={[4, 4, 0, 0]}
-                        name="Calls"
+                        name="Call Volume"
                       />
-                    </BarChart>
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="calls"
+                        stroke="#f59e0b"
+                        name="Trend Line"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </Box>
               </CardBody>
@@ -685,120 +693,130 @@ const Dashboard = () => {
               bg="white"
               border="1px solid"
               borderColor="gray.100"
-              borderRadius="2xl"
+              borderRadius="lg"
               boxShadow="lg"
               overflow="hidden"
               _hover={{ boxShadow: "0 20px 60px rgba(0, 0, 0, 0.08)" }}
               transition="all 0.3s ease"
             >
-              <CardBody p={6}>
-                <HStack
-                  spacing={3}
-                  mb={6}
-                  pb={2}
-                  borderBottom="1px solid"
-                  borderColor="gray.100"
-                >
+              <CardHeader bg="blue.200" py={2}>
+                <HStack spacing={3}>
                   <Icon as={FiUsers} w={5} h={5} color="purple.600" />
                   <VStack align="start" spacing={0}>
                     <Heading size="md" color="gray.800" fontWeight="semibold">
                       Top Customers
                     </Heading>
-                    <Text fontSize="xs" color="gray.500">
+                    <Text fontSize="xs" color="gray.600">
                       Distribution by Total Calls
                     </Text>
                   </VStack>
                 </HStack>
+              </CardHeader>
 
-                <Box position="relative" height="200px">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={chartData.customerDistribution || []}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={90}
-                        paddingAngle={5}
-                        dataKey="value"
-                        nameKey="name"
-                      >
-                        {(chartData.customerDistribution || []).map(
-                          (entry, index) => (
-                            <Cell
-                              key={`cell-${index}`}
-                              fill={CHART_COLORS[index % CHART_COLORS.length]}
-                            />
-                          ),
-                        )}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </Box>
-
-                <VStack
-                  mt={6}
-                  spacing={2}
-                  align="stretch"
-                  maxH="200px"
-                  overflowY="auto"
-                >
+              <CardBody p={0} pb={2}>
+                <VStack spacing={0} align="stretch">
                   {/* Sticky Header */}
                   <HStack
                     justify="space-between"
-                    p={2}
-                    py={1}
-                    position="sticky"
-                    top={0}
-                    bg="gray.200" // or gray.100 / your theme bg
-                    zIndex={1}
+                    px={6}
+                    py={2}
+                    bg="gray.200"
                     borderBottom="1px solid"
                     borderColor="gray.200"
+                    position="sticky"
+                    top={0}
+                    zIndex={1}
                   >
-                    <Text fontSize="xs" fontWeight="bold">
-                      CUSTOMERS
+                    <Text
+                      fontSize="xs"
+                      fontWeight="bold"
+                      color="gray.800"
+                      letterSpacing="wide"
+                    >
+                      CUSTOMER
                     </Text>
-                    <Text fontSize="xs" fontWeight="bold">
+                    <Text
+                      fontSize="xs"
+                      fontWeight="bold"
+                      color="gray.800"
+                      letterSpacing="wide"
+                    >
                       TOTAL CALLS
                     </Text>
                   </HStack>
 
-                  {/* Scrollable Rows */}
-                  {chartData.customerDistribution?.map((item, index) => (
-                    <HStack
-                      key={index}
-                      justify="space-between"
-                      borderRadius="md"
-                      _hover={{ bg: "gray.50" }}
+                  {/* Scrollable Rows Container */}
+                  <Box
+                    maxH="300px"
+                    overflowY="auto"
+                    sx={{
+                      "&::-webkit-scrollbar": {
+                        width: "4px",
+                      },
+                      "&::-webkit-scrollbar-track": {
+                        width: "6px",
+                        background: "gray.100",
+                      },
+                      "&::-webkit-scrollbar-thumb": {
+                        background: "gray.400",
+                        borderRadius: "24px",
+                      },
+                    }}
+                  >
+                    <VStack
+                      spacing={0}
+                      align="stretch"
+                      divider={<StackDivider borderColor="gray.100" />}
                     >
-                      <HStack spacing={3}>
-                        <Box
-                          w={3}
-                          h={3}
-                          borderRadius="full"
-                          bg={CHART_COLORS[index % CHART_COLORS.length]}
-                        />
-                        <Text
-                          fontSize="sm"
-                          fontWeight="medium"
-                          color="gray.700"
+                      {chartData.customerDistribution?.map((item, index) => (
+                        <HStack
+                          key={index}
+                          justify="space-between"
+                          px={3}
+                          py={3}
+                          _hover={{ bg: "gray.50" }}
+                          transition="background 0.2s ease"
                         >
-                          {item.name}
-                        </Text>
-                      </HStack>
-                      <Text fontSize="sm" fontWeight="bold" color="gray.800">
-                        {item.value} calls
-                      </Text>
-                    </HStack>
-                  ))}
+                          <HStack spacing={3}>
+                            <Box
+                              w={2.5}
+                              h={2.5}
+                              borderRadius="full"
+                              boxShadow="sm"
+                            />
+<Avatar bg="green.500" size="xs" name={item.name} />
+                            <Text
+                              fontSize="sm"
+                              fontWeight="500"
+                              color="gray.700"
+                            >
+                              {item.name}
+                            </Text>
+                          </HStack>
+
+                          <HStack spacing={2}>
+                            <Text
+                              fontSize="sm"
+                              fontWeight="600"
+                              color="gray.900"
+                            >
+                              {item.value}
+                            </Text>
+                            <Text fontSize="xs" color="gray.500">
+                              calls
+                            </Text>
+                          </HStack>
+                        </HStack>
+                      ))}
+                    </VStack>
+                  </Box>
                 </VStack>
               </CardBody>
             </Card>
           </GridItem>
         </Grid>
       </VStack>
-    </Container>
+    </Box>
   );
 };
 
@@ -814,10 +832,11 @@ const StatCard = ({
 }) => {
   return (
     <Card
-      bg="white"
+      bgGradient="linear(to-tr,blue.200, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
+      backdropFilter="blur(10px)"
       border="1px solid"
       borderColor="gray.100"
-      borderRadius="2xl"
+      borderRadius="lg"
       boxShadow="md"
       overflow="hidden"
       _hover={{
@@ -831,10 +850,10 @@ const StatCard = ({
         <Flex direction="column" height="100%">
           <Flex justify="space-between" align="start" mb={4}>
             <Box flex="1">
-              <Text color="gray.500" fontSize="sm" fontWeight="medium" mb={1}>
+              <Text color="gray.700" fontSize="sm" fontWeight="medium" mb={1}>
                 {title}
               </Text>
-              <Text fontSize="2xl" fontWeight="bold" color="gray.800">
+              <Text fontSize="2xl" fontWeight="bold" color="gray.700">
                 {value}
               </Text>
             </Box>

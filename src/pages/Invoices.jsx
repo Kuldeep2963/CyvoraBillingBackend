@@ -117,15 +117,16 @@ import ViewInvoiceModal from "../components/modals/ViewInvoiceModal";
 import GenerateInvoiceModal from "../components/modals/GenerateInvoiceModal";
 import RecordPaymentModal from "../components/modals/RecordPaymentModal";
 import {
+  fetchInvoiceItems,
   fetchInvoices,
   generateInvoice as apiGenerateInvoice,
   fetchReportAccounts,
   deleteInvoice as apiDeleteInvoice,
   updateInvoiceStatus,
   recordPayment,
+  downloadInvoice,
 } from "../utils/api";
 import { format, differenceInDays, isBefore, subDays } from "date-fns";
-import html2pdf from "html2pdf.js";
 
 const Invoices = () => {
   const [invoices, setInvoices] = useState([]);
@@ -138,6 +139,7 @@ const Invoices = () => {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [generateForm, setGenerateForm] = useState({
+    // invoiceType: "customer",
     customerId: "",
     periodStart: format(new Date().setDate(1), "yyyy-MM-dd"),
     periodEnd: format(new Date(), "yyyy-MM-dd"),
@@ -307,10 +309,10 @@ const Invoices = () => {
       }
 
       const response = await apiGenerateInvoice({
+        // invoiceType: generateForm.invoiceType,
         customerId: generateForm.customerId,
         billingPeriodStart: generateForm.periodStart,
         billingPeriodEnd: generateForm.periodEnd,
-        notes: `Generated manually for period ${generateForm.periodStart} to ${generateForm.periodEnd}`,
       });
 
       if (response.success) {
@@ -326,6 +328,7 @@ const Invoices = () => {
         loadData();
         setIsGenerateModalOpen(false);
         setGenerateForm({
+          // invoiceType: "customer",
           customerId: "",
           periodStart: format(new Date().setDate(1), "yyyy-MM-dd"),
           periodEnd: format(new Date(), "yyyy-MM-dd"),
@@ -360,329 +363,40 @@ const Invoices = () => {
   };
 
   const handleDownloadInvoice = async (invoice) => {
-    let invoiceWithItems = invoice;
+    try {
+      toast({
+        title: "Preparing Download",
+        description: "Your invoice PDF is being generated...",
+        status: "info",
+        duration: 2000,
+        isClosable: true,
+        position: "top-right",
+      });
 
-    // Fetch items if missing
-    if (!invoice.items || invoice.items.length === 0) {
-      try {
-        const response = await fetchInvoiceItems(invoice.id);
-        if (response.success) {
-          invoiceWithItems = { ...invoice, items: response.items };
-        }
-      } catch (error) {
-        console.error("Error fetching items for PDF:", error);
-        toast({
-          title: "Error fetching items",
-          description: "Could not fetch items for PDF generation",
-          status: "error",
-          duration: 3000,
-          isClosable: true,
-        });
-        return;
-      }
+      await downloadInvoice(invoice.id, invoice.invoiceNumber);
+
+      toast({
+        title: "Download Started",
+        description: "Your invoice PDF is downloading",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+        position: "top-right",
+      });
+    } catch (error) {
+      console.error("Error downloading PDF:", error);
+      toast({
+        title: "Download Failed",
+        description: error.message || "Failed to download invoice PDF",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+        position: "top-right",
+      });
     }
-
-    const invoiceHtml = `
-      <html>
-        <head>
-          <title>Invoice ${invoiceWithItems.invoiceNumber}</title>
-          <style>
-            body { 
-              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-              margin: 0; 
-              padding: 0;
-              color: #333;
-              background-color: #fff;
-            }
-            .invoice-container {
-              padding: 40px;
-              max-width: 800px;
-              margin: 0 auto;
-            }
-            .invoice-header {
-              display: flex;
-              justify-content: space-between;
-              margin-bottom: 40px;
-              border-bottom: 3px solid #1a365d;
-              padding-bottom: 20px;
-            }
-            .company-logo {
-              height: 40px;
-              width: auto;
-              display: block;
-              object-fit: contain;
-            }
-            .invoice-title {
-              font-size: 32px;
-              font-weight: bold;
-              color: #2d3748;
-              text-align: right;
-            }
-            .address-section {
-              display: flex;
-              justify-content: space-between;
-              margin-bottom: 40px;
-            }
-            .address-box {
-              width: 45%;
-            }
-            .address-label {
-              font-weight: bold;
-              color: #4a5568;
-              text-transform: uppercase;
-              font-size: 12px;
-              margin-bottom: 8px;
-              border-bottom: 1px solid #e2e8f0;
-              padding-bottom: 4px;
-            }
-            .address-content {
-              font-size: 14px;
-              line-height: 1.6;
-            }
-            .details-grid {
-              display: grid;
-              grid-template-columns: repeat(4, 1fr);
-              gap: 20px;
-              background-color: #f7fafc;
-              padding: 20px;
-              border-radius: 8px;
-              margin-bottom: 40px;
-              border: 1px solid #e2e8f0;
-            }
-            .detail-item {
-              display: flex;
-              flex-direction: column;
-            }
-            .detail-label {
-              font-size: 11px;
-              color: #718096;
-              text-transform: uppercase;
-              font-weight: bold;
-            }
-            .detail-value {
-              font-size: 14px;
-              color: #2d3748;
-              font-weight: 600;
-            }
-            .table-section {
-              margin-bottom: 40px;
-            }
-            .invoice-table {
-              width: 100%;
-              border-collapse: collapse;
-              font-size: 12px;
-            }
-            .invoice-table th {
-              background-color: #1a365d;
-              color: white;
-              text-align: left;
-              padding: 12px 8px;
-              text-transform: uppercase;
-              font-weight: 600;
-            }
-            .invoice-table td {
-              padding: 10px 8px;
-              border-bottom: 1px solid #e2e8f0;
-            }
-            .invoice-table tr:nth-child(even) {
-              background-color: #f8fafc;
-            }
-            .text-right { text-align: right; }
-            .totals-section {
-              display: flex;
-              justify-content: flex-end;
-              margin-bottom: 40px;
-            }
-            .totals-box {
-              width: 250px;
-            }
-            .total-row {
-              display: flex;
-              justify-content: space-between;
-              padding: 8px 0;
-              font-size: 14px;
-            }
-            .total-grand {
-              border-top: 2px solid #1a365d;
-              margin-top: 8px;
-              padding-top: 12px;
-              font-weight: bold;
-              font-size: 18px;
-              color: #1a365d;
-            }
-            .bank-section {
-              background-color: #f8fafc;
-              padding: 20px;
-              border-radius: 8px;
-              border-left: 4px solid #1a365d;
-              font-size: 12px;
-            }
-            .bank-title {
-              font-weight: bold;
-              margin-bottom: 10px;
-              color: #1a365d;
-              text-transform: uppercase;
-            }
-            .footer {
-              margin-top: 60px;
-              text-align: center;
-              font-size: 11px;
-              color: #a0aec0;
-              border-top: 1px solid #e2e8f0;
-              padding-top: 20px;
-            }
-            .page-break { page-break-before: always; }
-          </style>
-        </head>
-        <body>
-          <div id="invoice-content" class="invoice-container">
-            <div class="invoice-header">
-            <div>
-  <img class="company-logo" src="/pai-telecom-logo.png" alt="PAI TELECOMM" />
-</div>
-              <div class="invoice-title">${invoiceWithItems.invoiceNumber}</div>
-            </div>
-
-            <div class="address-section">
-              <div class="address-box">
-                <div class="address-label">From</div>
-                <div class="address-content">
-                  <strong>Pai Telecomm Private Limited</strong><br>
-                  810, 8th floor, vipul bussiness park<br>
-                  sector-46, Gurgaon<br>
-                  122018<br>
-                  Email: accounts@paitelecomm.com
-                </div>
-              </div>
-              <div class="address-box">
-                <div class="address-label">Bill To</div>
-                <div class="address-content">
-                  <strong>${invoiceWithItems.customerName || "Customer"}</strong><br>
-                  ${invoiceWithItems.customerAddress || ""}<br>
-                  ${invoiceWithItems.customerEmail || ""}<br>
-                  ${invoiceWithItems.customerPhone || ""}
-                </div>
-              </div>
-            </div>
-
-            <div class="details-grid">
-              <div class="detail-item">
-                <span class="detail-label">Invoice Number</span>
-                <span class="detail-value">${invoiceWithItems.invoiceNumber}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Invoice Date</span>
-                <span class="detail-value">${format(new Date(parseInt(invoiceWithItems.invoiceDate)), "dd-MM-yyyy")}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Due Date</span>
-                <span class="detail-value">${format(new Date(parseInt(invoiceWithItems.dueDate)), "dd-MM-yyyy")}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Billing Period</span>
-                <span class="detail-value">${format(new Date(parseInt(invoiceWithItems.billingPeriodStart)), "dd MMM")} - ${format(new Date(parseInt(invoiceWithItems.billingPeriodEnd)), "dd MMM yyyy")}</span>
-              </div>
-            </div>
-
-            <div class="table-section">
-              <table class="invoice-table">
-                <thead>
-                  <tr>
-                    <th>Trunk</th>
-                    <th>Prefix</th>
-                    <th>Destination</th>
-                    <th>Description</th>
-                    <th class="text-right">Calls</th>
-                    <th class="text-right">Duration (Min)</th>
-                    <th class="text-right">Rate</th>
-                    <th class="text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${invoiceWithItems.items
-                    ?.map(
-                      (item) => `
-                    <tr>
-                      <td>${item.trunk || "-"}</td>
-                      <td>${item.prefix || "-"}</td>
-                      <td>${item.destination || "-"}</td>
-                      <td>${item.description || "-"}</td>
-                      <td class="text-right">${item.totalCalls}</td>
-                      <td class="text-right">${(item.duration / 60).toFixed(2)}</td>
-                      <td class="text-right">$${parseFloat(item.unitPrice).toFixed(4)}</td>
-                      <td class="text-right">$${parseFloat(item.amount).toFixed(4)}</td>
-                    </tr>
-                  `,
-                    )
-                    .join("")}
-                </tbody>
-              </table>
-            </div>
-
-            <div class="totals-section">
-              <div class="totals-box">
-                <div class="total-row">
-                  <span>Subtotal</span>
-                  <span>$${parseFloat(invoiceWithItems.subtotal).toFixed(4)}</span>
-                </div>
-                <div class="total-row">
-                  <span>Tax (${invoiceWithItems.taxRate}%)</span>
-                  <span>$${parseFloat(invoiceWithItems.taxAmount).toFixed(4)}</span>
-                </div>
-                <div class="total-row">
-                  <span>Discount</span>
-                  <span>-$${parseFloat(invoiceWithItems.discountAmount || 0).toFixed(4)}</span>
-                </div>
-                <div class="total-row total-grand">
-                  <span>Total Amount</span>
-                  <span>$${parseFloat(invoiceWithItems.totalAmount).toFixed(4)}</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="bank-section">
-              <div class="bank-title">Payment Information</div>
-              <strong>Bank Name:</strong> Bank Of China<br>
-              <strong>Account Name:</strong> Pai Telecommunications Limited<br>
-              <strong>Account Number:</strong> 012-687-2-011894-5 (USD)<br>
-              <strong>Swift Code:</strong> BKCHHKHHXXX<br>
-              <strong>Bank Address:</strong> Bank of China Tower, 1 Garden Road, Central, Hong Kong
-            </div>
-
-            <div class="footer">
-              Thank you for your business. Please contact accounts@paitelecomm.com for any billing inquiries.<br>
-              Generated by CDR Billing System
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
-
-    const element = document.createElement("div");
-    element.innerHTML = invoiceHtml;
-
-    const options = {
-      margin: 0,
-      filename: `Invoice_${invoice.invoiceNumber}.pdf`,
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-    };
-
-    html2pdf().from(element).set(options).save();
-
-    toast({
-      title: "Generating PDF",
-      description:
-        "Your invoice PDF is being generated and will download shortly",
-      status: "success",
-      duration: 3000,
-      isClosable: true,
-      position: "top-right",
-    });
   };
 
-  // Helper function to format duration (you may need to adjust this based on your data structure)
+  // Helper function to format duration
   const formatDuration = (seconds) => {
     if (!seconds) return "0:00";
     const hours = Math.floor(seconds / 3600);
@@ -1032,24 +746,12 @@ const Invoices = () => {
   };
 
   return (
-    <Container maxW="100%" px={4} py={6}>
-      {/* Breadcrumb Navigation */}
-      {/* <Breadcrumb spacing={2} mb={8} separator={<FiChevronRight />}>
-        <BreadcrumbItem>
-          <BreadcrumbLink href="/" display="flex" alignItems="center">
-            <FiHome />
-            <Text ml={2}>Home</Text>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbItem isCurrentPage>
-          <BreadcrumbLink>Invoices</BreadcrumbLink>
-        </BreadcrumbItem>
-      </Breadcrumb> */}
+    <Box>
 
       {/* Header Section */}
-      <Flex justify="space-between" align="center" mb={8}>
+      <Flex justify="space-between" align="center" bgGradient="linear(to-r,blue.100,blue.200,blue.300)" px={4} py={2} borderRadius={"12px"} mb={6}>
         <Box>
-          <Heading size="lg" color="gray.800" mb={2}>
+          <Heading size="xl" color="gray.600">
             Invoice Management
           </Heading>
           <Text color="gray.600" fontSize="sm">
@@ -1062,8 +764,8 @@ const Invoices = () => {
             <MenuButton
               as={Button}
               leftIcon={<FiPlus />}
-              borderRadius={"2px"}
-              colorScheme="blue"
+              borderRadius={"md"}
+              colorScheme="green"
               size="sm"
               px={2}
               _hover={{ transform: "translateY(-2px)", boxShadow: "lg" }}
@@ -1097,6 +799,7 @@ const Invoices = () => {
           <Menu>
             <MenuButton
               as={Button}
+              colorScheme="black"
               leftIcon={<FiSettings />}
               variant="outline"
               size="sm"
@@ -1735,7 +1438,7 @@ const Invoices = () => {
         customers={customers}
         onRecordPayment={handleRecordPayment}
       />
-    </Container>
+    </Box>
   );
 };
 
