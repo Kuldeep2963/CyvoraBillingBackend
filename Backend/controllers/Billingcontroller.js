@@ -11,6 +11,9 @@ const PaymentAllocation = require('../models/PaymentAllocation');
 const CDR = require('../models/CDR');
 const Account = require('../models/Account');
 const CountryCode = require('../models/CountryCode');
+const Dispute = require('../models/Dispute');
+const BillingAutomationService = require('../services/BillingAutomationService');
+const EmailService = require('../services/EmailService');
 
 /* ===================== HELPER: FORMAT TIME ===================== */
 const formatTime = (date, hour = 0, isEnd = false) => {
@@ -169,6 +172,7 @@ exports.generateInvoice = async (req, res) => {
   try {
     const {
       customerId,
+      invoiceType = 'customer',
       billingPeriodStart,
       billingPeriodEnd,
       taxRate = 0,
@@ -178,32 +182,34 @@ exports.generateInvoice = async (req, res) => {
       customerNotes
     } = req.body;
 
+    const isVendor = invoiceType === 'vendor';
+
     // Validate required fields
     if (!customerId || !billingPeriodStart || !billingPeriodEnd) {
       return res.status(400).json({
         success: false,
-        error: 'customerId, billingPeriodStart, and billingPeriodEnd are required'
+        error: `${isVendor ? 'vendorId' : 'customerId'}, billingPeriodStart, and billingPeriodEnd are required`
       });
     }
 
-    // Get customer details - find by gatewayId, customerCode, or accountId
+    // Get account details - find by gatewayId, customerCode/vendorCode, or accountId
     const isNumeric = /^\d+$/.test(customerId);
-    const customerWhere = {
+    const accountWhere = {
       [Op.or]: [
         { gatewayId: customerId },
-        { customerCode: customerId }
+        { [isVendor ? 'vendorCode' : 'customerCode']: customerId }
       ]
     };
-    if (isNumeric) customerWhere[Op.or].push({ accountId: customerId });
+    if (isNumeric) accountWhere[Op.or].push({ accountId: customerId });
 
-    const customer = await Account.findOne({
-      where: customerWhere
+    const account = await Account.findOne({
+      where: accountWhere
     });
 
-    if (!customer) {
+    if (!account) {
       return res.status(404).json({
         success: false,
-        error: 'Customer not found'
+        error: `${isVendor ? 'Vendor' : 'Customer'} not found`
       });
     }
 
@@ -211,12 +217,12 @@ exports.generateInvoice = async (req, res) => {
     const countryCodes = await CountryCode.findAll({ raw: true });
 
     // ✅ Build CDR WHERE conditions using authentication logic
-    const authConditions = buildAccountConditions(customer, false); // false = customer report
+    const authConditions = buildAccountConditions(account, isVendor);
     
     if (authConditions.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Unable to build authentication conditions for this customer'
+        error: `Unable to build authentication conditions for this ${isVendor ? 'vendor' : 'customer'}`
       });
     }
 
@@ -230,8 +236,8 @@ exports.generateInvoice = async (req, res) => {
     // Fetch CDR data for the billing period using authentication conditions
     const cdrs = await CDR.findAll({
       attributes: [
-        'customeraccount',
-        'customername',
+        isVendor ? 'agentaccount' : 'customeraccount',
+        isVendor ? 'agentname' : 'customername',
         'callere164',
         'calleee164',
         'calleegatewayid',
@@ -239,17 +245,17 @@ exports.generateInvoice = async (req, res) => {
         [fn('SUM', H.completedCall), 'completedCalls'],
         [fn('SUM', H.failedCall), 'failedCalls'],
         [fn('SUM', H.durationSec), 'duration'],
-        [fn('SUM', H.revenue), 'revenue']
+        [fn('SUM', isVendor ? H.cost : H.revenue), 'revenue']
       ],
       where: cdrWhere,
-      group: ['customeraccount', 'customername', 'callere164', 'calleee164', 'calleegatewayid'],
+      group: [isVendor ? 'agentaccount' : 'customeraccount', isVendor ? 'agentname' : 'customername', 'callere164', 'calleee164', 'calleegatewayid'],
       raw: true
     });
 
     if (cdrs.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'No CDR records found for this customer in the billing period'
+        error: `No CDR records found for this ${isVendor ? 'vendor' : 'customer'} in the billing period`
       });
     }
 
@@ -370,18 +376,19 @@ exports.generateInvoice = async (req, res) => {
     const totalAmount = subtotal + taxAmount - discountAmount;
 
     // Create invoice
-    const customerGatewayId = (customer.customerauthenticationType === 'gateway' && customer.customerauthenticationValue) 
-      ? customer.customerauthenticationValue 
-      : customer.gatewayId;
+    const customerGatewayId = (isVendor ? (account.vendorauthenticationType === 'gateway' && account.vendorauthenticationValue) : (account.customerauthenticationType === 'gateway' && account.customerauthenticationValue))
+      ? (isVendor ? account.vendorauthenticationValue : account.customerauthenticationValue)
+      : account.gatewayId;
 
     const invoice = await Invoice.create({
       invoiceNumber,
+      invoiceType,
       customerGatewayId,
-      customerName: customer.accountName,
-      customerCode: customer.customerCode,
-      customerEmail: customer.email,
-      customerAddress: customer.address,
-      customerPhone: customer.phone,
+      customerName: account.accountName,
+      customerCode: isVendor ? account.vendorCode : account.customerCode,
+      customerEmail: account.email,
+      customerAddress: account.addressLine1 + (account.addressLine2 ? ', ' + account.addressLine2 : ''),
+      customerPhone: account.phone,
       billingPeriodStart: formatTime(billingPeriodStart),
       billingPeriodEnd: formatTime(billingPeriodEnd, 23, true),
       invoiceDate,
@@ -407,6 +414,15 @@ exports.generateInvoice = async (req, res) => {
       }, { transaction });
     }
 
+    // Update account balance/credit limit
+    if (account.billingType === 'postpaid') {
+      // For postpaid, credit limit decreases as usage (invoice) increases
+      await account.decrement('creditLimit', { by: totalAmount, transaction });
+    } else {
+      // For prepaid, balance decreases as usage (invoice) increases
+      await account.decrement('balance', { by: totalAmount, transaction });
+    }
+
     await transaction.commit();
 
     // Fetch complete invoice with items
@@ -415,6 +431,11 @@ exports.generateInvoice = async (req, res) => {
         model: InvoiceItem,
         as: 'items'
       }]
+    });
+
+    // Send email notification (async - don't wait for response to speed up API)
+    EmailService.sendInvoiceEmail(completeInvoice, account).catch(err => {
+      console.error('Failed to send invoice email:', err);
     });
 
     res.json({
@@ -438,6 +459,7 @@ exports.getAllInvoices = async (req, res) => {
   try {
     const {
       customerId,
+      invoiceType,
       status,
       startDate,
       endDate,
@@ -447,25 +469,34 @@ exports.getAllInvoices = async (req, res) => {
 
     const where = {};
 
+    if (invoiceType) {
+      where.invoiceType = invoiceType;
+    }
+
     if (customerId) {
       const isNumeric = /^\d+$/.test(customerId);
-      const customerWhere = {
+      const isVendor = invoiceType === 'vendor';
+
+      const accountWhere = {
         [Op.or]: [
           { gatewayId: customerId },
-          { customerCode: customerId }
+          { [isVendor ? 'vendorCode' : 'customerCode']: customerId }
         ]
       };
       
       // Only add accountId to search if customerId is numeric
       if (isNumeric) {
-        customerWhere[Op.or].push({ accountId: customerId });
+        accountWhere[Op.or].push({ accountId: customerId });
       }
 
-      const customer = await Account.findOne({
-        where: customerWhere
+      const account = await Account.findOne({
+        where: accountWhere
       });
-      if (customer) {
-        where.customerCode = customer.customerCode;
+      if (account) {
+        where.customerCode = isVendor ? account.vendorCode : account.customerCode;
+      } else {
+        // Fallback: search by customerId directly in the invoice's customerCode column
+        where.customerCode = customerId;
       }
     }
 
@@ -608,8 +639,68 @@ exports.downloadInvoice = async (req, res) => {
   }
 };
 
-/* ===================== HELPER: GENERATE PDF ===================== */
-exports.generatePdf = async (invoice, res) => {
+/* ===================== SEND INVOICE EMAIL ===================== */
+exports.sendInvoiceEmail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const isNumeric = /^\d+$/.test(id);
+    if (!isNumeric) {
+      return res.status(404).json({ success: false, error: 'Invoice not found' });
+    }
+
+    const invoice = await Invoice.findByPk(id, {
+      include: [{
+        model: InvoiceItem,
+        as: 'items'
+      }]
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ success: false, error: 'Invoice not found' });
+    }
+
+    if (!invoice.customerEmail) {
+      return res.status(400).json({ success: false, error: 'Customer has no email address' });
+    }
+
+    const pdfBuffer = await generateInvoicePDFBuffer(invoice);
+    
+    // Fetch account to get billing email
+    const account = await Account.findOne({
+      where: {
+        [Op.or]: [
+          { gatewayId: invoice.customerGatewayId },
+          { customerCode: invoice.customerCode },
+          { accountName: invoice.customerName }
+        ]
+      }
+    });
+
+    const recipientEmail = account?.billingEmail || account?.email || invoice.customerEmail;
+    
+    await EmailService.sendInvoiceWithAttachment(recipientEmail, invoice, pdfBuffer);
+
+    // Update status to 'sent' if it was 'generated' or 'pending'
+    if (['generated', 'pending'].includes(invoice.status)) {
+      await invoice.update({ status: 'sent' });
+    }
+
+    res.json({
+      success: true,
+      message: `Invoice email sent to ${invoice.customerEmail}`
+    });
+
+  } catch (error) {
+    console.error('Send Invoice Email Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+/* ===================== HELPER: GENERATE PDF BUFFER ===================== */
+const generateInvoicePDFBuffer = async (invoice) => {
   let browser;
   try {
     const invoiceData = invoice.toJSON();
@@ -913,13 +1004,23 @@ exports.generatePdf = async (invoice, res) => {
     });
 
     await browser.close();
-
-    res.contentType("application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename=Invoice_${invoiceData.invoiceNumber}.pdf`);
-    res.send(pdf);
-
+    return pdf;
   } catch (error) {
     if (browser) await browser.close();
+    throw error;
+  }
+};
+
+/* ===================== HELPER: GENERATE PDF AND SEND ===================== */
+exports.generatePdf = async (invoice, res) => {
+  try {
+    const pdf = await generateInvoicePDFBuffer(invoice);
+    const invoiceNumber = invoice.invoiceNumber;
+
+    res.contentType("application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=Invoice_${invoiceNumber}.pdf`);
+    res.send(pdf);
+  } catch (error) {
     console.error('PDF Generation Error:', error);
     res.status(500).json({ success: false, error: 'Failed to generate PDF' });
   }
@@ -1168,6 +1269,14 @@ exports.recordPayment = async (req, res) => {
         status: newStatus,
         paymentDate: newStatus === 'paid' ? formatTime(paymentDate) : invoice.paymentDate
       }, { transaction });
+
+      // Reset credit limit for postpaid accounts when invoice is fully paid
+      if (newStatus === 'paid' && customer.billingType === 'postpaid') {
+        const originalCreditLimit = customer.originalCreditLimit || customer.creditLimit;
+        await customer.update({
+          creditLimit: originalCreditLimit
+        }, { transaction });
+      }
     }
 
     await transaction.commit();
@@ -1183,6 +1292,14 @@ exports.recordPayment = async (req, res) => {
         }]
       }]
     });
+
+    // Send payment confirmation email
+    if (completePayment.allocations && completePayment.allocations.length > 0) {
+      const firstInvoice = completePayment.allocations[0].invoice;
+      EmailService.sendPaymentConfirmation(completePayment, firstInvoice, customer).catch(err => {
+        console.error('Failed to send payment confirmation email:', err);
+      });
+    }
 
     res.json({
       success: true,
@@ -1437,8 +1554,12 @@ exports.getAgingReport = async (req, res) => {
 /* ===================== GET LITE INVOICES (FOR DROPDOWNS) ===================== */
 exports.getLiteInvoices = async (req, res) => {
   try {
-    const { customerId, status, startDate, endDate } = req.query;
+    const { customerId, status, startDate, endDate, invoiceType } = req.query;
     const where = {};
+
+    if (invoiceType) {
+      where.invoiceType = invoiceType;
+    }
 
     if (customerId) {
       where.customerCode = customerId;
@@ -1459,7 +1580,7 @@ exports.getLiteInvoices = async (req, res) => {
 
     const invoices = await Invoice.findAll({
       where,
-      attributes: ['id', 'invoiceNumber', 'customerName', 'customerCode', 'status', 'totalAmount', 'balanceAmount', 'invoiceDate', 'dueDate','billingPeriodStart', 'billingPeriodEnd'],
+      attributes: ['id', 'invoiceNumber', 'customerName', 'customerCode', 'status', 'totalAmount', 'balanceAmount', 'invoiceDate', 'dueDate','billingPeriodStart', 'billingPeriodEnd', 'invoiceType'],
       order: [['createdAt', 'DESC']]
     });
 
@@ -1543,10 +1664,21 @@ exports.getVendorUsage = async (req, res) => {
       results.push({
         id: `usage_${startDate}_${endDate}`,
         invoiceNumber: 'USAGE-ONLY',
+        invoiceType: 'vendor',
+        customerGatewayId: (vendor.vendorauthenticationType === 'gateway' && vendor.vendorauthenticationValue) ? vendor.vendorauthenticationValue : vendor.gatewayId,
+        customerName: vendor.accountName,
+        customerCode: vendor.vendorCode,
+        customerEmail: vendor.email,
+        customerAddress: vendor.addressLine1 + (vendor.addressLine2 ? ', ' + vendor.addressLine2 : ''),
+        customerPhone: vendor.phone,
         invoiceDate: Date.now(),
         billingPeriodStart: formatTime(startDate),
         billingPeriodEnd: formatTime(endDate, 23, true),
         dueDate: Date.now(),
+        subtotal: totalAmount,
+        taxRate: 0,
+        taxAmount: 0,
+        discountAmount: 0,
         totalAmount,
         balanceAmount: totalAmount,
         totalCalls,
@@ -1562,6 +1694,276 @@ exports.getVendorUsage = async (req, res) => {
   } catch (error) {
     console.error('Error fetching vendor usage:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch vendor usage' });
+  }
+};
+
+/* ===================== RUN BILLING AUTOMATION ===================== */
+exports.runBillingAutomation = async (req, res) => {
+  try {
+    const results = await BillingAutomationService.runAutomation();
+    res.json({
+      success: true,
+      message: 'Billing automation process completed',
+      results
+    });
+  } catch (error) {
+    console.error('Billing Automation Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+/* ===================== RAISE DISPUTE ===================== */
+exports.raiseDispute = async (req, res) => {
+  try {
+    const { customerId, comment, mismatchedCount, invoiceNumber, disputeAmount, invoiceIds } = req.body;
+
+    // Validate required fields
+    if (!customerId || !customerId.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Customer ID is required'
+      });
+    }
+
+    if (!comment || !comment.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Dispute comment is required'
+      });
+    }
+
+    if (!invoiceNumber || !invoiceNumber.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invoice number(s) are required'
+      });
+    }
+
+    if (mismatchedCount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Mismatch count must be greater than 0'
+      });
+    }
+
+    const customer = await Account.findOne({
+      where: {
+        [Op.or]: [
+          { customerCode: customerId },
+          { gatewayId: customerId },
+          { accountId: customerId }
+        ]
+      }
+    });
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        error: 'Customer not found'
+      });
+    }
+
+    // Save dispute to database
+    const dispute = await Dispute.create({
+      customerCode: customer.customerCode,
+      customerName: customer.accountName,
+      comment: comment.trim(),
+      mismatchedCount: parseInt(mismatchedCount) || 0,
+      invoiceNumber: invoiceNumber.trim(),
+      disputeAmount: parseFloat(disputeAmount) || 0,
+      invoiceIds: Array.isArray(invoiceIds) ? invoiceIds : [],
+      status: 'open'
+    });
+
+    // Send email notification
+    await EmailService.sendDisputeRaisedNotification({
+      comment,
+      mismatchedCount,
+      invoiceNumber,
+      disputeAmount,
+      customerName: customer.accountName
+    }, customer);
+
+    res.json({
+      success: true,
+      message: 'Dispute raised and notification sent successfully',
+      data: {
+        disputeId: dispute.id,
+        status: dispute.status
+      }
+    });
+
+  } catch (error) {
+    console.error('Raise Dispute Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to raise dispute'
+    });
+  }
+};
+
+/* ===================== GET ALL DISPUTES ===================== */
+exports.getAllDisputes = async (req, res) => {
+  try {
+    console.log('GET All Disputes - querying database...');
+    const disputes = await Dispute.findAll({
+      order: [['createdAt', 'DESC']]
+    });
+    console.log(`GET All Disputes - found ${disputes.length} disputes`);
+    res.json({
+      success: true,
+      data: disputes
+    });
+  } catch (error) {
+    console.error('Get All Disputes Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+
+/* ===================== DELETE DISPUTE ===================== */
+exports.deleteDispute = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const dispute = await Dispute.findByPk(id);
+
+    if (!dispute) {
+      return res.status(404).json({
+        success: false,
+        error: 'Dispute not found'
+      });
+    }
+
+    await dispute.destroy();
+
+    res.json({
+      success: true,
+      message: 'Dispute deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Delete Dispute Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+/* ===================== ACCOUNT TOPUP FOR PREPAID ===================== */
+exports.topupAccount = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const {
+      customerId,
+      amount,
+      paymentMethod,
+      paymentReference,
+      paymentProof,
+      notes,
+      topupDate
+    } = req.body;
+
+    // Validate required fields
+    if (!customerId || !amount || !paymentMethod) {
+      return res.status(400).json({
+        success: false,
+        error: 'customerId, amount, and paymentMethod are required'
+      });
+    }
+
+    // Validate amount is positive
+    if (parseInt(amount) <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Amount must be greater than zero'
+      });
+    }
+
+    // Get customer
+    const customer = await Account.findOne({
+      where: {
+        [Op.or]: [
+          { customerCode: customerId },
+          { gatewayId: customerId },
+          { accountId: customerId }
+        ]
+      },
+      transaction
+    });
+
+    if (!customer) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        error: 'Customer not found'
+      });
+    }
+
+    // Verify account is prepaid
+    if (customer.billingType !== 'prepaid') {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        error: 'Topup is only available for prepaid accounts'
+      });
+    }
+
+    // Update balance
+    const newBalance = Number(customer.balance) + Number(amount);
+    await customer.update({
+      balance: parseFloat(newBalance.toFixed(2))
+    }, { transaction });
+
+    // Record topup as a payment
+    const paymentNumber = await generatePaymentNumber();
+    const receiptNumber = `RCP-${paymentNumber.split('-').slice(1).join('-')}`;
+
+    const topupPayment = await Payment.create({
+      paymentNumber,
+      receiptNumber,
+      customerGatewayId: customer.gatewayId,
+      customerCode: customer.customerCode,
+      customerName: customer.accountName,
+      amount: parseFloat(amount),
+      paymentDate: formatTime(topupDate || Date.now()),
+      paymentMethod,
+      transactionId: paymentReference,
+      referenceNumber: paymentReference,
+      status: 'completed',
+      allocatedAmount: 0,
+      unappliedAmount: parseFloat(amount),
+      notes: `Prepaid Topup - ${notes || ''}`,
+      recordedBy: req.user?.id || null,
+      recordedDate: Date.now()
+    }, { transaction });
+
+    await transaction.commit();
+
+    const completePayment = await Payment.findByPk(topupPayment.id);
+
+    res.json({
+      success: true,
+      message: 'Account topup successful',
+      newBalance: parseFloat(newBalance.toFixed(2)),
+      payment: completePayment
+    });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Topup Account Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 

@@ -5,17 +5,11 @@ require('dotenv').config();
 
 const seedUser = async () => {
   try {
-    await sequelize.sync();
+    // Drop and sync the table
+    await sequelize.sync({ force: true });
     
-    const username = 'admin';
-    const password = 'adminpassword';
-    
-    // Check if user already exists
-    const existingUser = await User.findOne({ where: { username } });
-    if (existingUser) {
-      console.log('User already exists');
-      process.exit(0);
-    }
+    const email = 'admin@gmail.com';
+    const password = 'admin@12345';
     
     // Hash password
     const salt = await bcrypt.genSalt(10);
@@ -23,14 +17,16 @@ const seedUser = async () => {
     
     // Create user
     await User.create({
-      username,
-      password: hashedPassword,
-      role: 'admin'
+      email,
+      hashedpassword: hashedPassword,
+      role: 'admin',
+      first_name: 'Admin',
+      last_name: 'User'
     });
     
     console.log('Admin user seeded successfully');
-    console.log('Username: admin');
-    console.log('Password: adminpassword');
+    console.log('Email: admin@gmail.com');
+    console.log('Password: admin@12345');
     process.exit(0);
   } catch (error) {
     console.error('Error seeding user:', error);

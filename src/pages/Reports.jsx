@@ -1286,7 +1286,7 @@ const Reports = () => {
                       onClick={() => handleSort("custDestination")}
                     >
                       <HStack>
-                        <Text>Dest</Text>
+                        <Text>Source Country</Text>
                         {getSortIcon("custDestination")}
                       </HStack>
                     </Th>

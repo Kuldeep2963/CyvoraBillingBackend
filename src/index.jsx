@@ -8,7 +8,7 @@ import App from './App';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
-  <ChakraProvider theme={theme}>
+ <ChakraProvider theme={theme} toastOptions={{ defaultOptions: { position: "top-right" } }}>
     <AuthProvider>
       <App />
     </AuthProvider>

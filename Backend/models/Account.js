@@ -146,7 +146,13 @@ const Account = sequelize.define('Account', {
     defaultValue: 10000.00,
     comment: 'Maximum credit/prepaid balance allowed'
   },
-  
+
+  originalCreditLimit: {
+    type: DataTypes.DECIMAL(15, 2),
+    defaultValue: 10000.00,
+    comment: 'Original credit limit to reset to when invoice is paid (for postpaid accounts)'
+  },
+
   balance: {
     type: DataTypes.DECIMAL(15, 2),
     defaultValue: 0.00,

@@ -54,7 +54,7 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const toast = useToast();
   const [formData, setFormData] = useState({
-    username: "",
+    email: "",
     password: "",
     rememberMe: false,
   });
@@ -71,7 +71,7 @@ const LoginPage = () => {
     e.preventDefault();
     setIsLoading(true);
     try {
-      await login(formData.username, formData.password);
+      await login(formData.email, formData.password, formData.rememberMe);
       toast({
         title: "Login successful",
         status: "success",
@@ -187,15 +187,15 @@ const LoginPage = () => {
                       fontWeight="medium"
                       fontSize="sm"
                     >
-                      Username
+                      Email
                     </FormLabel>
                     <InputGroup size="md">
                       <Input
-                        name="username"
-                        type="text"
-                        value={formData.username}
+                        name="email"
+                        type="email"
+                        value={formData.email}
                         onChange={handleChange}
-                        placeholder="Enter username..."
+                        placeholder="Enter email..."
                         bg="rgba(0, 0, 0, 0.5)"
                         border="1px solid"
                         borderColor="rgba(255, 255, 255, 0.1)"
@@ -216,7 +216,7 @@ const LoginPage = () => {
                         left={3}
                         top="50%"
                         transform="translateY(-50%)"
-                        color={formData.username ? "#667eea" : "gray.600"}
+                        color={formData.email ? "#667eea" : "gray.600"}
                         zIndex={2}
                         transition="color 0.2s"
                       />

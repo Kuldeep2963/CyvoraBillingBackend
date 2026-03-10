@@ -136,7 +136,13 @@ router.get('/', async (req, res) => {
     const where = {};
 
     if (role && role !== 'all') {
-      where.accountRole = role;
+      if (role === 'vendor') {
+        where.accountRole = { [Op.in]: ['vendor', 'both'] };
+      } else if (role === 'customer') {
+        where.accountRole = { [Op.in]: ['customer', 'both'] };
+      } else {
+        where.accountRole = role;
+      }
     }
 
     if (status && status !== 'all') {

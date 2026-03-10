@@ -38,6 +38,12 @@ const DataTable = ({
   onEdit,
   onDelete,
   onView,
+  /**
+   * Optional function that returns additional elements to render inside the
+   * actions cell for a given row. Used by callers (e.g. Accounts page) to show
+   * buttons such as "Topup" alongside the built‑in menu.
+   */
+  rowActions,
   actions = true,
   compact = false,
   striped = false,
@@ -202,7 +208,7 @@ const DataTable = ({
               ))}
               {actions && (
                 <Th 
-                  width="80px" 
+                  width="140px" 
                   textAlign="right"
                 >
                   Actions
@@ -253,10 +259,14 @@ const DataTable = ({
                   ))}
                   {actions && (
                     <Td 
-                      width="80px" 
+                      width="140px" 
                       textAlign="right"
                     >
-                      <Flex justify="flex-end">
+                      <Flex justify="flex-end" align="center">
+                        {/* allow consumer to insert extra elements (buttons, badges,
+                            etc.) before the menu */}
+                        {rowActions && rowActions(item)}
+
                         <Menu placement="bottom-end" isLazy>
                           <MenuButton
                             as={IconButton}

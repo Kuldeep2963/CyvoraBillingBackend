@@ -23,6 +23,12 @@ router.get('/invoices/:id', billingController.getInvoiceById);
 // Download invoice PDF
 router.get('/invoices/:id/download', billingController.downloadInvoice);
 
+// Send invoice email
+router.post('/invoices/:id/send-email', billingController.sendInvoiceEmail);
+
+// Run billing automation manually
+router.post('/automation/run', billingController.runBillingAutomation);
+
 // Get invoice items
 router.get('/invoices/:id/items', billingController.getInvoiceItems);
 
@@ -32,6 +38,13 @@ router.put('/invoices/:id', billingController.updateInvoice);
 // Delete invoice
 router.delete('/invoices/:id', billingController.deleteInvoice);
 
+// Raise dispute
+router.post('/dispute/raise', billingController.raiseDispute);
+
+// Get all disputes
+router.get('/disputes', billingController.getAllDisputes);
+router.delete('/disputes/:id', billingController.deleteDispute);
+
 /* ===================== PAYMENT ROUTES ===================== */
 
 // Record payment
@@ -39,6 +52,9 @@ router.post('/payments', billingController.recordPayment);
 
 // Get all payments
 router.get('/payments', billingController.getAllPayments);
+
+// Account topup for prepaid
+router.post('/account/topup', billingController.topupAccount);
 
 /* ===================== CUSTOMER OUTSTANDING ROUTES ===================== */
 

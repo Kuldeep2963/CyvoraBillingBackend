@@ -7,6 +7,7 @@ import CDRUpload from './pages/CDRUpload';
 import Customers from './pages/Accounts';
 import Invoices from './pages/Invoices';
 import Payments from './pages/Payments';
+import Disputes from './pages/Disputes';
 import Settings from './pages/Settings';
 import Report from './pages/Reports';
 import LoginPage from './pages/LoginPage';
@@ -46,6 +47,7 @@ function App() {
             <Route path="/accounts" element={<Customers />} />
             <Route path="/invoices" element={<Invoices />} />
             <Route path="/payments" element={<Payments />} />
+            <Route path="/disputes" element={<Disputes />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/reports" element={<Report />} />
           </Route>

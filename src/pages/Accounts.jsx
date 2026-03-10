@@ -33,10 +33,12 @@ import {
   FiGlobe,
   FiClock,
   FiTrendingUp,
+  FiArrowUp,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
 import ConfirmDialog from "../components/ConfirmDialog";
 import CreateAccountModal from "../components/modals/CreateAccountModal";
+import TopupModal from "../components/modals/TopupModal";
 import {
   fetchCustomers,
   createCustomer,
@@ -133,6 +135,8 @@ const Accounts = () => {
   const [loading, setLoading] = useState(false);
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
+  const [selectedAccountForTopup, setSelectedAccountForTopup] = useState(null);
 
   const toast = useToast();
   const cardBg = useColorModeValue("white", "gray.800");
@@ -384,6 +388,32 @@ const Accounts = () => {
     setIsModalOpen(true);
   };
 
+  const handleTopup = (customer) => {
+    if (customer.billingType !== 'prepaid') {
+      toast({
+        title: "Not applicable",
+        description: "Topup is only available for prepaid accounts",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+    setSelectedAccountForTopup(customer);
+    setIsTopupModalOpen(true);
+  };
+
+  const handleTopupSuccess = (newBalance) => {
+    toast({
+      title: "Topup successful",
+      description: `Account balance updated to $${newBalance.toFixed(2)}`,
+      status: "success",
+      duration: 3000,
+      isClosable: true,
+    });
+    loadCustomers();
+  };
+
   const handleSave = async () => {
     const validationErrors = validateForm();
     if (validationErrors.length > 0) {
@@ -632,6 +662,8 @@ const Accounts = () => {
       header: "Next Billing",
       render: (value) => value || "N/A",
     },
+    // remove the billingType column since actions will be handled by the shared
+    // actions column via the `rowActions` prop on DataTable
   ];
 
   return (
@@ -866,6 +898,22 @@ const Accounts = () => {
             onEdit={handleEdit}
             onDelete={handleDelete}
             onView={handleView}
+            // render a topup button beside the three‑dot menu when the account is
+            // prepaid; this keeps both actions in the same column
+            rowActions={(row) =>
+              row.billingType === 'prepaid' ? (
+                <Button
+                  size="xs"
+                  colorScheme="green"
+                  variant="outline"
+                  leftIcon={<FiArrowUp />}
+                  onClick={() => handleTopup(row)}
+                  mr={2}
+                >
+                  Topup
+                </Button>
+              ) : null
+            }
             striped={true}
             height="calc(100vh - 337px)"
           />
@@ -875,17 +923,16 @@ const Accounts = () => {
         <CreateAccountModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          loading={loading}
+          onSuccess={loadCustomers}
           selectedCustomer={selectedCustomer}
-          formData={formData}
-          setFormData={setFormData}
-          handleSave={handleSave}
-          handleAccountRoleChange={handleAccountRoleChange}
           cdrStats={cdrStats}
-          accountRoleOptions={accountRoleOptions}
-          statusOptions={statusOptions}
-          carrierTypeOptions={carrierTypeOptions}
-          authTypeOptions={authTypeOptions}
+        />
+        {/* Topup Modal */}
+        <TopupModal
+          isOpen={isTopupModalOpen}
+          onClose={() => setIsTopupModalOpen(false)}
+          account={selectedAccountForTopup}
+          onTopupSuccess={handleTopupSuccess}
         />
         {/* Delete Confirmation */}
         <ConfirmDialog

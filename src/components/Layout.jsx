@@ -21,16 +21,23 @@ import {
   Spacer,
   Tooltip,
   Collapse,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
+  MenuDivider,
 } from "@chakra-ui/react";
 import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import ConfirmDialog from "./ConfirmDialog";
+import ChangePasswordModal from "./modals/ChangePasswordModal";
 import {
   FiHome,
   FiUpload,
   FiList,
   FiUsers,
   FiUser,
+  FiLock,
   FiFileText,
   FiSettings,
   FiDollarSign,
@@ -41,6 +48,7 @@ import {
   FiChevronDown,
   FiChevronRight,
   FiFile,
+  FiAlertTriangle,
 } from "react-icons/fi";
 
 const SidebarContent = ({ onClose, ...rest }) => {
@@ -48,17 +56,8 @@ const SidebarContent = ({ onClose, ...rest }) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { isOpen: isLogoutOpen, onOpen: onLogoutOpen, onClose: onLogoutClose } = useDisclosure();
-  const [isBillingOpen, setIsBillingOpen] = useState(false);
-
-  // Check if any billing subitem is active
-  const isBillingActive = ['/soa', '/invoices'].includes(location.pathname);
-  
-  // Auto-expand billing if a subitem is active
-  React.useEffect(() => {
-    if (isBillingActive) {
-      setIsBillingOpen(true);
-    }
-  }, [isBillingActive]);
+  const { isOpen: isChangePasswordOpen, onOpen: onChangePasswordOpen, onClose: onChangePasswordClose } = useDisclosure();
+  const [openDropdown, setOpenDropdown] = useState(null);
 
   const navItems = [
     { path: "/dashboard", label: "Dashboard", icon: FiHome },
@@ -67,21 +66,30 @@ const SidebarContent = ({ onClose, ...rest }) => {
       label: "Billing",
       icon: FiDollarSign,
       isDropdown: true,
-      isOpen: isBillingOpen,
-      onClick: () => setIsBillingOpen(!isBillingOpen),
       subItems: [
         { path: "/invoices", label: "Invoices", icon: FiFileText },
         { path: "/soa", label: "Account Statement", icon: FiDollarSign },
         { path: "/vendorinvoice", label: "Vendor Invoices", icon: FiFile },
-        
-
-      ]
+      ],
     },
     { path: "/payments", label: "Payments", icon: FiCreditCard },
+    { path: "/disputes", label: "Disputes", icon: FiAlertTriangle },
     { path: "/reports", label: "Reports", icon: FiFileText },
     { path: "/settings", label: "Settings", icon: FiSettings },
     { path: "/adduser", label: "Add User", icon: FiUser },
   ];
+
+  // Auto-expand dropdown if a subitem is active on mount / route change
+  React.useEffect(() => {
+    navItems.forEach((item) => {
+      if (item.isDropdown) {
+        const isActive = item.subItems.some((sub) => sub.path === location.pathname);
+        if (isActive) {
+          setOpenDropdown(item.label);
+        }
+      }
+    });
+  }, [location.pathname]);
 
   const handleLogout = () => {
     onLogoutOpen();
@@ -95,14 +103,17 @@ const SidebarContent = ({ onClose, ...rest }) => {
 
   const renderNavItem = (item) => {
     if (item.isDropdown) {
+      const isActive = item.subItems.some((sub) => sub.path === location.pathname);
+      const isOpen = openDropdown === item.label;
+
       return (
         <Box key={item.label}>
           <Flex
             p={3}
             borderRadius="md"
-            bg={isBillingActive ? "gray.800" : "transparent"}
-            color={isBillingActive ? "white" : "gray.400"}
-            fontWeight={isBillingActive ? "600" : "500"}
+            bg={isActive ? "gray.800" : "transparent"}
+            color={isActive ? "white" : "gray.400"}
+            fontWeight={isActive ? "600" : "500"}
             _hover={{
               bg: "gray.800",
               textDecoration: "none",
@@ -112,19 +123,16 @@ const SidebarContent = ({ onClose, ...rest }) => {
             justifyContent="space-between"
             cursor="pointer"
             transition="all 0.2s"
-            onClick={item.onClick}
+            onClick={() => setOpenDropdown(isOpen ? null : item.label)}
           >
             <Flex alignItems="center">
               <Icon as={item.icon} mr={3} />
               {item.label}
             </Flex>
-            <Icon 
-              as={item.isOpen ? FiChevronDown : FiChevronRight} 
-              boxSize={4}
-            />
+            <Icon as={isOpen ? FiChevronDown : FiChevronRight} boxSize={4} />
           </Flex>
-          
-          <Collapse in={item.isOpen} animateOpacity>
+
+          <Collapse in={isOpen} animateOpacity>
             <VStack spacing={1} align="stretch" mt={1} ml={6}>
               {item.subItems.map((subItem) => (
                 <ChakraLink
@@ -176,7 +184,10 @@ const SidebarContent = ({ onClose, ...rest }) => {
         display="flex"
         alignItems="center"
         transition="all 0.2s"
-        onClick={onClose}
+        onClick={() => {
+          setOpenDropdown(null);
+          onClose();
+        }}
       >
         <Icon as={item.icon} mr={3} />
         {item.label}
@@ -206,7 +217,12 @@ const SidebarContent = ({ onClose, ...rest }) => {
         confirmText="Logout"
         type="danger"
       />
-      
+
+      <ChangePasswordModal 
+        isOpen={isChangePasswordOpen}
+        onClose={onChangePasswordClose}
+      />
+
       {/* Header Section */}
       <Flex direction="column" align="center" mb={8}>
         <Image
@@ -226,67 +242,88 @@ const SidebarContent = ({ onClose, ...rest }) => {
       </VStack>
 
       {/* Footer Section - pinned to bottom */}
-      <Box
-        pt={3}
-        mt={4}
-        borderTop="1px solid"
-        borderColor="gray.800"
-        flexShrink={0}
-      >
-        <HStack spacing={3} p={2} borderRadius="md">
-          <Avatar size="sm" name={user?.username || "Admin User"} color={"white"} bg="green.700" />
+<Box
+  pt={3}
+  mt={4}
+  borderTop="1px solid"
+  borderColor="gray.800"
+  flexShrink={0}
+>
+  <HStack
+    spacing={3}
+    p={2}
+    borderRadius="md"
+    cursor="pointer"
+    _hover={{ bg: "gray.900" }}
+    transition="all 0.2s"
+  >
+    <Menu placement="top-start">
+      <MenuButton as={Box} display="flex" alignItems="center" gap={3} flex={1} minW={0}>
+        <HStack spacing={3}>
+          <Avatar
+            size="sm"
+            name={user?.email || "Admin User"}
+            color="white"
+            bg="green.700"
+          />
           <Box flex={2} minW={0}>
-            <Text
-              fontWeight="medium"
-              color={"white"}
-              fontSize="sm"
-              noOfLines={1}
-            >
-              {user?.username || "Admin User"}
+            <Text fontWeight="medium" color="white" fontSize="sm" noOfLines={1}>
+              {user?.email || "Admin User"}
             </Text>
             <Text fontSize="xs" color="gray.400" textTransform="capitalize">
               {user?.role || "Administrator"}
             </Text>
           </Box>
-          <HStack
-            spacing={3}
-            flex={1}
-            alignItems="center"
-            justifyContent="flex-end"
-          >
-            <Box position="relative">
-              <Icon
-                boxSize={5}
-                as={FiBell}
-                color="blue.400"
-                cursor="pointer"
-                _hover={{ color: "blue.300" }}
-              />
-              <Badge
-                position="absolute"
-                top="-6px"
-                right="-6px"
-                fontSize="2xs"
-                colorScheme="red"
-                borderRadius="full"
-                boxSize="16px"
-                display="flex"
-                alignItems="center"
-                justifyContent="center"
-              >
-                3
-              </Badge>
-            </Box>
-            <Icon
-              as={FiLogOut}
-              color="gray.400"
-              cursor="pointer"
-              _hover={{ color: "red.400" }}
-              onClick={handleLogout}
-            />
-          </HStack>
         </HStack>
+      </MenuButton>
+
+      <MenuList bg="gray.800" borderColor="gray.700" shadow="md" minW="150px">
+        <MenuItem
+          icon={<Icon as={FiLock} />}
+          bg="gray.800"
+          color="white"
+          _hover={{ bg: "gray.700" }}
+          onClick={onChangePasswordOpen}
+        >
+          Change Password
+        </MenuItem>
+      </MenuList>
+    </Menu>
+
+    <HStack spacing={3} alignItems="center">
+      <Box position="relative">
+        <Icon
+          boxSize={5}
+          as={FiBell}
+          color="blue.400"
+          cursor="pointer"
+          _hover={{ color: "blue.300" }}
+        />
+        <Badge
+          position="absolute"
+          top="-6px"
+          right="-6px"
+          fontSize="2xs"
+          colorScheme="red"
+          borderRadius="full"
+          boxSize="16px"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          3
+        </Badge>
       </Box>
+      <Icon
+        as={FiLogOut}
+        color="gray.400"
+        cursor="pointer"
+        _hover={{ color: "red.400" }}
+        onClick={handleLogout}
+      />
+    </HStack>
+  </HStack>
+</Box>
     </Box>
   );
 };
@@ -297,10 +334,7 @@ const Layout = ({ children }) => {
   return (
     <Box minH="100vh" bg={useColorModeValue("gray.50", "gray.900")}>
       {/* Desktop Sidebar */}
-      <SidebarContent
-        onClose={onClose}
-        display={{ base: "none", md: "block" }}
-      />
+      <SidebarContent onClose={onClose} display={{ base: "none", md: "block" }} />
 
       {/* Mobile Drawer */}
       <Drawer
@@ -333,6 +367,7 @@ const Layout = ({ children }) => {
         position="sticky"
         top={0}
         zIndex={10}
+        gap={6}
       >
         <IconButton
           variant="outline"
@@ -340,9 +375,12 @@ const Layout = ({ children }) => {
           aria-label="open menu"
           icon={<FiMenu />}
         />
-        <Text fontSize="2xl" ml="8" fontWeight="bold">
-          PAI Telecom
-        </Text>
+        <Image
+         src="./pai-telecom-logo.png"
+         alt="PAI Telecom logo"
+         boxSize="60px"
+         objectFit="contain"
+         />
       </Flex>
 
       {/* Main Content */}

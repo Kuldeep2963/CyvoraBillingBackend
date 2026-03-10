@@ -375,7 +375,7 @@ const Payments = () => {
               <Flex justify="space-between" align="center" bgGradient="linear(to-r,blue.100,blue.200,blue.300)" px={4} py={2} borderRadius={"12px"} >
         
           <Box>
-            <Heading size="lg" mt={2}>
+            <Heading color={"gray.600"} size="lg">
               Payment Records
             </Heading>
             <Text color="gray.500">Manage and track all customer payments</Text>

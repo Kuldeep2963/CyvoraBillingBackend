@@ -52,7 +52,7 @@ const GenerateInvoiceModal = ({
         <ModalBody>
           <VStack spacing={6} align="stretch">
             {/* Invoice Type selection */}
-            {/* <FormControl>
+            <FormControl>
               <FormLabel fontWeight={"bold"} color={"blue.700"}>
                 Invoice Type
               </FormLabel>
@@ -71,14 +71,14 @@ const GenerateInvoiceModal = ({
                   <Radio value="vendor">Vendor Invoice</Radio>
                 </HStack>
               </RadioGroup>
-            </FormControl> */}
+            </FormControl>
             {/* Customer Selection */}
             <FormControl isRequired>
               <FormLabel fontWeight={"bold"} color={"blue.700"}>
-                Select Customer
+                Select {generateForm.invoiceType === "vendor" ? "Vendor" : "Customer"}
               </FormLabel>
               <Select
-                placeholder="Choose a customer..."
+                placeholder={`Choose a ${generateForm.invoiceType === "vendor" ? "vendor" : "customer"}...`}
                 value={generateForm.customerId}
                 onChange={(e) =>
                   setGenerateForm({
@@ -88,19 +88,31 @@ const GenerateInvoiceModal = ({
                 }
                 size="md"
               >
-                {customers.map((customer) => (
-                  <option
-                    key={customer.accountId}
-                    value={
-                      customer.gatewayId ||
-                      customer.customerCode ||
-                      customer.accountId
+                {customers
+                  .filter((c) => {
+                    if (generateForm.invoiceType === "vendor") {
+                      return c.accountRole === "vendor" || c.accountRole === "both";
                     }
-                  >
-                    {customer.accountName} (
-                    {customer.gatewayId || customer.customerCode})
-                  </option>
-                ))}
+                    return c.accountRole === "customer" || c.accountRole === "both";
+                  })
+                  .map((customer) => (
+                    <option
+                      key={customer.accountId}
+                      value={
+                        customer.gatewayId ||
+                        (generateForm.invoiceType === "vendor"
+                          ? customer.vendorCode
+                          : customer.customerCode) ||
+                        customer.accountId
+                      }
+                    >
+                      {customer.accountName} (
+                      {(generateForm.invoiceType === "vendor"
+                        ? customer.vendorCode
+                        : customer.customerCode) || customer.gatewayId}
+                      )
+                    </option>
+                  ))}
               </Select>
             </FormControl>
 
@@ -141,7 +153,7 @@ const GenerateInvoiceModal = ({
             </Box>
 
             {/* Billing Cycle */}
-            <FormControl>
+            {/* <FormControl>
               <FormLabel fontWeight={"bold"} color={"blue.700"}>
                 Billing Cycle
               </FormLabel>
@@ -161,10 +173,10 @@ const GenerateInvoiceModal = ({
                 <option value="quarterly">Quarterly</option>
                 <option value="annually">Annually</option>
               </Select>
-            </FormControl>
+            </FormControl> */}
 
             {/* Customer Preview */}
-            {generateForm.customerId && (
+            {/* {generateForm.customerId && (
               <Alert status="info" borderRadius="md">
                 <AlertIcon />
                 <Box>
@@ -191,7 +203,7 @@ const GenerateInvoiceModal = ({
                   </AlertDescription>
                 </Box>
               </Alert>
-            )}
+            )} */}
           </VStack>
         </ModalBody>
         <ModalFooter borderTopWidth="1px">

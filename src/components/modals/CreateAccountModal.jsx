@@ -126,6 +126,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
     } else {
       setFormData({
         ...initialFormData,
+        accountId: `ACC${Math.floor(1000 + Math.random() * 9000)}`,
         customerCode: `C_${Math.floor(10000 + Math.random() * 90000)}`,
       });
     }
@@ -233,7 +234,9 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
         isClosable: true,
       });
       
-      onSuccess();
+      if (onSuccess && typeof onSuccess === "function") {
+        onSuccess();
+      }
       onClose();
     } catch (error) {
       toast({
