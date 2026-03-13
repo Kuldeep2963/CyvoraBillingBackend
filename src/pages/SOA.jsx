@@ -32,6 +32,8 @@ import {
   fetchVendorInvoices,
   fetchInvoices,
   exportReport,
+  exportSOA,
+  sendSOAEmail,
   getAllDisputes,
 } from "../utils/api";
 import FilterCard from "../components/formats/DateField";
@@ -260,6 +262,7 @@ const ComparisonSummary = ({
   uploadedVendorInvoices,
   hasMismatch,
   onExport,
+  onEmail,
   onDispute,
   hasExistingDispute = false,
 }) => {
@@ -367,6 +370,7 @@ const ComparisonSummary = ({
               _hover={{ bg: "green.700" }}
               _active={{ bg: "green.800" }}
               minW="130px"
+              onClick={onEmail}
             >
               Send on Email
             </Button>
@@ -747,31 +751,37 @@ const SOAPage = () => {
   const handleExport = useCallback(async () => {
     if (!selectedAccount) return;
     try {
-      const exportData = [
-        ...customerInvoices.map((inv) => ({ ...inv, category: "Customer" })),
-        ...generatedVendorInvoices.map((inv) => ({
-          ...inv,
-          category: "Vendor-Generated",
-        })),
-        ...uploadedVendorInvoices.map((inv) => ({
-          ...inv,
-          category: "Vendor-Uploaded",
-        })),
-      ];
-      await exportReport(
-        exportData,
-        "csv",
-        `SOA_${selectedAccount.accountName}_${startDate}_${endDate}`,
-      );
+      await exportSOA({
+        account: selectedAccount,
+        startDate,
+        endDate,
+      });
       toast({ title: "SOA exported successfully", status: "success" });
     } catch {
       toast({ title: "Failed to export SOA", status: "error" });
     }
   }, [
     selectedAccount,
-    customerInvoices,
-    generatedVendorInvoices,
-    uploadedVendorInvoices,
+    startDate,
+    endDate,
+    toast,
+  ]);
+
+  // ── Email ──────────────────────────────────────────────────────────────────
+  const handleEmail = useCallback(async () => {
+    if (!selectedAccount) return;
+    try {
+      await sendSOAEmail({
+        account: selectedAccount,
+        startDate,
+        endDate,
+      });
+      toast({ title: "SOA sent via email successfully", status: "success" });
+    } catch {
+      toast({ title: "Failed to send SOA via email", status: "error" });
+    }
+  }, [
+    selectedAccount,
     startDate,
     endDate,
     toast,
@@ -898,6 +908,7 @@ const SOAPage = () => {
             uploadedVendorInvoices={uploadedVendorInvoices}
             hasMismatch={mismatchedInvoices.length > 0}
             onExport={handleExport}
+            onEmail={handleEmail}
             onDispute={handleDispute}
             hasExistingDispute={hasExistingDispute}
           />

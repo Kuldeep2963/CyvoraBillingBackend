@@ -55,12 +55,16 @@ exports.createVendorInvoice = async (req, res) => {
       status: 'pending'
     }, { transaction });
 
-    // Update account balance/credit limit
+    // Update account balance/credit limit (same semantics as customer invoices)
     if (account.billingType === 'postpaid') {
-      // For postpaid, credit limit decreases as usage (invoice) increases
+      if (Number(account.creditLimit) < grandTotal) {
+        throw new Error('Credit limit exceeded – cannot generate vendor invoice');
+      }
       await account.decrement('creditLimit', { by: grandTotal, transaction });
     } else {
-      // For prepaid, balance decreases as usage (invoice) increases
+      if (Number(account.balance) < grandTotal) {
+        throw new Error('Insufficient prepaid balance – cannot generate vendor invoice');
+      }
       await account.decrement('balance', { by: grandTotal, transaction });
     }
 
@@ -131,8 +135,20 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
       return res.status(404).json({ message: 'Vendor invoice not found' });
     }
 
+    const prevStatus = invoice.status;
     invoice.status = status;
     await invoice.save();
+
+    // mirror credit-limit restoration for postpaid vendors when they pay
+    if (prevStatus !== 'paid' && status === 'paid') {
+      const account = await Account.findByPk(invoice.vendorId);
+      if (account && account.billingType === 'postpaid') {
+        const orig = parseFloat(account.originalCreditLimit) || 0;
+        let newLimit = parseFloat(account.creditLimit) + Number(invoice.grandTotal);
+        if (orig && newLimit > orig) newLimit = orig;
+        await account.update({ creditLimit: newLimit });
+      }
+    }
 
     res.status(200).json({
       message: 'Vendor invoice status updated successfully',
@@ -142,6 +158,62 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
     console.error('Error updating vendor invoice status:', error);
     res.status(500).json({
       message: 'Failed to update vendor invoice status',
+      error: error.message
+    });
+  }
+};
+
+
+/* ===================== DELETE VENDOR INVOICE ===================== */
+exports.deleteVendorInvoice = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const invoice = await VendorInvoice.findByPk(id);
+    if (!invoice) {
+      return res.status(404).json({ message: 'Vendor invoice not found' });
+    }
+
+    // restore any funds/credit that were deducted when the invoice was created
+    if (invoice.vendorId) {
+      const account = await Account.findByPk(invoice.vendorId, { transaction });
+      if (account) {
+        const amount = Number(invoice.grandTotal) || 0;
+        if (account.billingType === 'postpaid') {
+          const orig = parseFloat(account.originalCreditLimit) || 0;
+          let newLimit = parseFloat(account.creditLimit) + amount;
+          if (orig && newLimit > orig) newLimit = orig;
+          await account.update({ creditLimit: newLimit }, { transaction });
+        } else {
+          let newBal = parseFloat(account.balance) + amount;
+          await account.update({ balance: newBal }, { transaction });
+        }
+      }
+    }
+
+    // delete any uploaded files associated with this invoice
+    if (invoice.filePaths) {
+      try {
+        const paths = JSON.parse(invoice.filePaths);
+        paths.forEach(p => {
+          if (p && fs.existsSync(p)) {
+            fs.unlinkSync(p);
+          }
+        });
+      } catch (e) {
+        console.warn('Failed to parse or delete invoice files', e);
+      }
+    }
+
+    await invoice.destroy({ transaction });
+    await transaction.commit();
+
+    res.status(200).json({ message: 'Vendor invoice deleted successfully' });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error deleting vendor invoice:', error);
+    res.status(500).json({
+      message: 'Failed to delete vendor invoice',
       error: error.message
     });
   }

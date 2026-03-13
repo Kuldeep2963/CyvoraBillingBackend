@@ -25,4 +25,7 @@ router.post('/', upload.array('files'), vendorInvoiceController.createVendorInvo
 router.get('/', vendorInvoiceController.getVendorInvoices);
 router.put('/:id/status', vendorInvoiceController.updateVendorInvoiceStatus);
 
+// allow removal of a vendor invoice (refunds account and deletes files)
+router.delete('/:id', vendorInvoiceController.deleteVendorInvoice);
+
 module.exports = router;

@@ -199,6 +199,7 @@ const RecordPaymentModal = ({
                 }
               >
                 <option value="bank_transfer">Bank Transfer</option>
+                <option value="ustd">USTD</option>
                 <option value="cash">Cash</option>
                 <option value="cheque">Cheque</option>
                 <option value="credit_card">Credit Card</option>

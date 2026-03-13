@@ -361,10 +361,14 @@ class InvoiceService {
 
       // Update account balance/credit limit
       if (account.billingType === 'postpaid') {
-        // For postpaid, credit limit decreases as usage (invoice) increases
+        if (Number(account.creditLimit) < totalAmount) {
+          throw new Error('Credit limit exceeded – cannot generate invoice');
+        }
         await account.decrement('creditLimit', { by: totalAmount, transaction });
       } else {
-        // For prepaid, balance decreases as usage (invoice) increases
+        if (Number(account.balance) < totalAmount) {
+          throw new Error('Insufficient prepaid balance – cannot generate invoice');
+        }
         await account.decrement('balance', { by: totalAmount, transaction });
       }
 
@@ -438,6 +442,29 @@ class InvoiceService {
         status: newStatus,
         balanceAmount: parseFloat(balance.toFixed(4))
       });
+
+      // restore credit for postpaid customers when invoice becomes paid
+      if (newStatus === 'paid') {
+        const customer = await Account.findOne({
+          where: {
+            [Op.or]: [
+              { gatewayId: invoice.customerGatewayId },
+              { customerCode: invoice.customerCode },
+              { accountName: invoice.customerName }
+            ]
+          }
+        });
+
+        if (customer && customer.billingType === 'postpaid') {
+          const orig = parseFloat(customer.originalCreditLimit) || 0;
+          const restoreAmt = Number(invoice.totalAmount) - Number(invoice.paidAmount || 0);
+          if (restoreAmt > 0) {
+            let newLimit = parseFloat(customer.creditLimit) + restoreAmt;
+            if (orig && newLimit > orig) newLimit = orig;
+            await customer.update({ creditLimit: newLimit });
+          }
+        }
+      }
     }
 
     return invoice;

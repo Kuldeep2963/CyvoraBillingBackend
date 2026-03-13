@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Outlet, Navigate } from 'react-router-dom';
 import { ChakraProvider, Box } from '@chakra-ui/react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
@@ -15,11 +15,11 @@ import SOAPage from './pages/SOA';
 import AddUser from './pages/AddUser';
 import Vendorinvoice from './pages/Vendorinvoice';
 import ProtectedRoute from './components/ProtectedRoute';
+import Unauthorized from './pages/Unauthorized';
 import { useAuth } from './context/AuthContext';
-import { Navigate } from 'react-router-dom';
 
 const AppLayout = () => (
-  <ProtectedRoute>
+  <ProtectedRoute allowedRoles={["admin", "sales-manager", "rates-dept", "noc-dept", "view only"]}>
     <Layout>
       <Box>
         <Outlet />
@@ -38,20 +38,88 @@ function App() {
     <ChakraProvider>
       <Router>
         <Routes>
+          {/* Public */}
           <Route path="/" element={<LoginRoute />} />
+          <Route path="/unauthorized" element={<Unauthorized />} />
+
+          {/* Protected routes */}
           <Route element={<AppLayout />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path='/vendorinvoice' element={<Vendorinvoice />} />
-            <Route path="/adduser" element={<AddUser />} />
-            <Route path="/soa" element={<SOAPage />} />
-            <Route path="/accounts" element={<Customers />} />
-            <Route path="/invoices" element={<Invoices />} />
-            <Route path="/payments" element={<Payments />} />
-            <Route path="/disputes" element={<Disputes />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/reports" element={<Report />} />
+
+            {/* All roles */}
+            <Route path="/dashboard" element={
+              <ProtectedRoute allowedRoles={["admin", "sales-manager", "rates-dept", "noc-dept", "view only"]}>
+                <Dashboard />
+              </ProtectedRoute>
+            } />
+
+            {/* All roles */}
+            <Route path="/reports" element={
+              <ProtectedRoute allowedRoles={["admin", "sales-manager", "rates-dept", "noc-dept", "view only"]}>
+                <Report />
+              </ProtectedRoute>
+            } />
+
+            {/* admin, sales-manager, rates-dept, view only */}
+            <Route path="/accounts" element={
+              <ProtectedRoute allowedRoles={["admin", "sales-manager", "rates-dept", "view only"]}>
+                <Customers />
+              </ProtectedRoute>
+            } />
+
+            {/* admin, sales-manager, view only */}
+            <Route path="/invoices" element={
+              <ProtectedRoute allowedRoles={["admin", "sales-manager", "view only"]}>
+                <Invoices />
+              </ProtectedRoute>
+            } />
+
+            {/* admin, sales-manager, view only */}
+            <Route path="/soa" element={
+              <ProtectedRoute allowedRoles={["admin", "sales-manager", "view only"]}>
+                <SOAPage />
+              </ProtectedRoute>
+            } />
+
+            {/* admin, rates-dept, view only */}
+            <Route path="/vendorinvoice" element={
+              <ProtectedRoute allowedRoles={["admin", "rates-dept", "view only"]}>
+                <Vendorinvoice />
+              </ProtectedRoute>
+            } />
+
+            {/* admin, sales-manager, rates-dept, view only */}
+            <Route path="/payments" element={
+              <ProtectedRoute allowedRoles={["admin", "sales-manager", "rates-dept", "view only"]}>
+                <Payments />
+              </ProtectedRoute>
+            } />
+
+            {/* admin, sales-manager, noc-dept, view only */}
+            <Route path="/disputes" element={
+              <ProtectedRoute allowedRoles={["admin", "sales-manager", "noc-dept", "view only"]}>
+                <Disputes />
+              </ProtectedRoute>
+            } />
+
+            {/* admin only */}
+            <Route path="/settings" element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <Settings />
+              </ProtectedRoute>
+            } />
+
+            {/* admin only */}
+            <Route path="/adduser" element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <AddUser />
+              </ProtectedRoute>
+            } />
+
           </Route>
+
+          {/* Catch all */}
           <Route path="*" element={<Navigate to="/" replace />} />
+
         </Routes>
       </Router>
     </ChakraProvider>

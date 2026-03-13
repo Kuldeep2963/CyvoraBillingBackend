@@ -43,6 +43,7 @@ router.post('/dispute/raise', billingController.raiseDispute);
 
 // Get all disputes
 router.get('/disputes', billingController.getAllDisputes);
+router.put('/disputes/:id', billingController.updateDispute);
 router.delete('/disputes/:id', billingController.deleteDispute);
 
 /* ===================== PAYMENT ROUTES ===================== */

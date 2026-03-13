@@ -26,6 +26,7 @@ import {
   InputGroup,
   InputLeftElement,
 } from "@chakra-ui/react";
+import PageNavBar from "../components/PageNavBar";
 import {
   FiDollarSign,
   FiCalendar,
@@ -372,35 +373,32 @@ const Payments = () => {
   return (
     <Box>
       <VStack spacing={6} align="stretch">
-              <Flex justify="space-between" align="center" bgGradient="linear(to-r,blue.100,blue.200,blue.300)" px={4} py={2} borderRadius={"12px"} >
-        
-          <Box>
-            <Heading color={"gray.600"} size="lg">
-              Payment Records
-            </Heading>
-            <Text color="gray.500">Manage and track all customer payments</Text>
-          </Box>
-          <HStack spacing={3}>
-            <Button
-              leftIcon={<FiDownload />}
-              variant="outline"
-              size="sm"
-              colorScheme="black"
-              onClick={handleExport}
-              isDisabled={filteredPayments.length === 0}
-            >
-              Export
-            </Button>
-            <Button
-              leftIcon={<FiDollarSign />}
-              colorScheme="green"
-              size="sm"
-              onClick={() => setIsPaymentModalOpen(true)}
-            >
-              Record Payment
-            </Button>
-          </HStack>
-        </Flex>
+        <PageNavBar
+          title="Payment Records"
+          description="Manage and track all customer payments"
+          rightContent={
+            <>
+              <Button
+                leftIcon={<FiDownload />}
+                variant="outline"
+                size="sm"
+                colorScheme="black"
+                onClick={handleExport}
+                isDisabled={filteredPayments.length === 0}
+              >
+                Export
+              </Button>
+              <Button
+                leftIcon={<FiDollarSign />}
+                colorScheme="green"
+                size="sm"
+                onClick={() => setIsPaymentModalOpen(true)}
+              >
+                Record Payment
+              </Button>
+            </>
+          }
+        />
 
         {/* Stats Section */}
         <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>

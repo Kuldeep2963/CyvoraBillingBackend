@@ -118,7 +118,7 @@ const TopupModal = ({
     <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside">
       <ModalOverlay />
       <ModalContent>
-        <ModalHeader bg="green.500" color="white" borderTopRadius="md">
+        <ModalHeader bg="blue.500" color="white" borderTopRadius="md">
           <Heading size="md">Account Topup</Heading>
         </ModalHeader>
         <ModalCloseButton color="white" isDisabled={isLoading} />
@@ -132,9 +132,9 @@ const TopupModal = ({
             )}
 
             {account && (
-              <Box bg="green.50" p={4} borderRadius="md">
+              <Box bg="blue.50" p={4} borderRadius="md">
                 <Text fontSize="sm" color="gray.600">
-                  <strong>Account:</strong> {account.accountName}
+                  <strong>Account:</strong>   {account.accountName}
                 </Text>
                 <Text fontSize="sm" color="gray.600">
                   <strong>Current Balance:</strong> ${parseFloat(account.balance || 0).toFixed(2)}
@@ -173,6 +173,7 @@ const TopupModal = ({
                 onChange={handleInputChange}
               >
                 <option value="bank_transfer">Bank Transfer</option>
+                <option value="ustd">USTD</option>
                 <option value="credit_card">Credit Card</option>
                 <option value="debit_card">Debit Card</option>
                 <option value="paypal">PayPal</option>
@@ -246,7 +247,7 @@ const TopupModal = ({
             Cancel
           </Button>
           <Button
-            colorScheme="green"
+            colorScheme="blue"
             onClick={handleSubmit}
             isDisabled={!topupForm.amount || parseInt(topupForm.amount) <= 0}
             isLoading={isLoading}

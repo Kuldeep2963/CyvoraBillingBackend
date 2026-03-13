@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('./db');
+const User = require('./User');
 
 const Account = sequelize.define('Account', {
   // Primary Key & Account Identifiers
@@ -77,10 +78,23 @@ const Account = sequelize.define('Account', {
   },
   
   accountOwner: {
-    type: DataTypes.STRING,
-    comment: 'Account manager/sales rep'
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    comment: 'User ID of the account owner (references Users.id)'
   },
   
+  contactPerson: {
+    type: DataTypes.STRING,
+    comment: 'Primary contact person name'
+  },
+  
+  contactPersonEmail: {
+    type: DataTypes.STRING,
+    validate: {
+      isEmail: true
+    },
+    comment: 'Email of the primary contact person'
+  },
   
   // Contact Information
   email: {
@@ -99,6 +113,30 @@ const Account = sequelize.define('Account', {
     }
   },
   
+  soaEmail: {
+    type: DataTypes.STRING,
+    validate: {
+      isEmail: true
+    },
+    comment: 'Email for Statement of Account delivery'
+  },
+  
+  disputeEmail: {
+    type: DataTypes.STRING,
+    validate: {
+      isEmail: true
+    },
+    comment: 'Email for dispute notifications'
+  },
+  
+  nocEmail: {
+    type: DataTypes.STRING,
+    validate: {
+      isEmail: true
+    },
+    comment: 'Email for Network Operations Center notifications'
+  },
+  
   phone: {
     type: DataTypes.STRING,
     allowNull: false,
@@ -107,6 +145,12 @@ const Account = sequelize.define('Account', {
   
   vendorFax: {
     type: DataTypes.STRING
+  },
+  
+  // Carrier Information
+  carrierType: {
+    type: DataTypes.ENUM('tier1', 'tier2', 'tier3', 'mobile', 'voip', 'other'),
+    comment: 'Type of carrier or provider'
   },
   
   // Account Status & Verification
@@ -255,6 +299,12 @@ const Account = sequelize.define('Account', {
     defaultValue: true
   },
   
+  lateFeeEnabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    comment: 'Enable late fees for postpaid accounts'
+  },
+  
   // Localization
   timezone: {
     type: DataTypes.STRING,
@@ -301,6 +351,22 @@ const Account = sequelize.define('Account', {
 /**
  * Get full formatted address
  */
+// ============================================================================
+// ASSOCIATIONS
+// ============================================================================
+Account.belongsTo(User, {
+  foreignKey: 'accountOwner',
+  as: 'owner'
+});
+
+// For backward compatibility with any code expecting the associate method
+Account.associate = function(models) {
+  Account.belongsTo(models.User, {
+    foreignKey: 'accountOwner',
+    as: 'owner'
+  });
+};
+
 Account.prototype.getFullAddress = function() {
   const parts = [
     this.addressLine1,

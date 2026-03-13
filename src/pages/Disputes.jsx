@@ -41,7 +41,13 @@ import {
   Skeleton,
   SkeletonText,
   IconButton,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
+  Textarea,
 } from "@chakra-ui/react";
+import PageNavBar from "../components/PageNavBar";
 import {
   FiAlertCircle,
   FiSearch,
@@ -55,10 +61,13 @@ import {
   FiDollarSign,
   FiCalendar,
   FiMessageSquare,
+  FiMoreVertical,
   FiTrash2,
+  FiMessageCircle,
 } from "react-icons/fi";
-import { getAllDisputes, deleteDispute } from "../utils/api";
+import { getAllDisputes, deleteDispute, updateDisputeStatus } from "../utils/api";
 import ConfirmDialog from "../components/ConfirmDialog";
+import CommentsModal from "../components/modals/CommentsModal";
 import { format } from "date-fns";
 
 // ── Status helpers ────────────────────────────────────────────
@@ -115,6 +124,15 @@ const Disputes = () => {
   const [stats, setStats] = useState({
     openDisputes: 0, totalDisputes: 0, totalDisputedAmount: 0, inReviewCount: 0,
   });
+  // status update modal
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [statusToUpdate, setStatusToUpdate] = useState(null);
+  const [newStatus, setNewStatus] = useState("");
+  const [statusComment, setStatusComment] = useState("");
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  // comments modal
+  const [isCommentsModalOpen, setIsCommentsModalOpen] = useState(false);
+  const [selectedDisputeForComments, setSelectedDisputeForComments] = useState(null);
 
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { isOpen: isConfirmOpen, onOpen: onConfirmOpen, onClose: onConfirmClose } = useDisclosure();
@@ -167,6 +185,77 @@ const Disputes = () => {
   const handleDeleteClick = (dispute) => {
     setDisputeToDelete(dispute);
     onConfirmOpen();
+  };
+
+  const handleUpdateStatus = (dispute) => {
+    setStatusToUpdate(dispute);
+    setNewStatus(dispute.status);
+    setStatusComment("");
+    setIsStatusModalOpen(true);
+  };
+
+  const submitStatusChange = async () => {
+    if (!statusToUpdate) return;
+    
+    // Check if there's a status change OR a comment to add
+    const hasStatusChange = newStatus && newStatus !== statusToUpdate.status;
+    const hasComment = statusComment.trim().length > 0;
+    
+    if (!hasStatusChange && !hasComment) {
+      toast({ title: "No change", description: "Please select a different status or add a comment.", status: "warning", duration: 2000, isClosable: true });
+      return;
+    }
+    
+    setIsUpdatingStatus(true);
+    try {
+      const res = await updateDisputeStatus(statusToUpdate.id, { 
+        status: hasStatusChange ? newStatus : undefined,
+        comment: hasComment ? statusComment.trim() : undefined
+      });
+      if (res.success) {
+        const message = hasStatusChange && hasComment 
+          ? `Dispute status updated and comment added.`
+          : hasStatusChange 
+          ? `Dispute status set to ${newStatus.replace('_',' ')}.`
+          : `Comment added successfully.`;
+        
+        toast({ title: "Success", description: message, status: "success", duration: 3000, isClosable: true });
+        setIsStatusModalOpen(false);
+        setStatusToUpdate(null);
+        setStatusComment("");
+        loadDisputes();
+      } else {
+        toast({ title: "Failed", description: res.error || "Could not save changes.", status: "error", duration: 3000, isClosable: true });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: err.message, status: "error", duration: 3000, isClosable: true });
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleOpenCommentsModal = (dispute) => {
+    setSelectedDisputeForComments(dispute);
+    setIsCommentsModalOpen(true);
+  };
+
+  const handleAddComment = async (commentText) => {
+    if (!selectedDisputeForComments) return;
+    try {
+      const res = await updateDisputeStatus(selectedDisputeForComments.id, { 
+        comment: commentText
+      });
+      if (res.success) {
+        toast({ title: "Comment added", description: "Your comment has been recorded.", status: "success", duration: 3000, isClosable: true });
+        // Update the selectedDisputeForComments with the updated data from the response
+        setSelectedDisputeForComments(res.data);
+        loadDisputes();
+      } else {
+        toast({ title: "Failed", description: res.error || "Could not add comment.", status: "error", duration: 3000, isClosable: true });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: err.message, status: "error", duration: 3000, isClosable: true });
+    }
   };
 
   const handleConfirmDelete = async () => {
@@ -277,16 +366,78 @@ const Disputes = () => {
       ),
     },
     {
+      header: "Comments",
+      cell: (d) => (
+        <Button
+          size="xs"
+          variant="ghost"
+          colorScheme="blue"
+          onClick={() => handleOpenCommentsModal(d)}
+          _hover={{ bg: "blue.50" }}
+          p={1}
+        >
+          <HStack spacing={1}>
+            {d.comments && d.comments.length > 0 ? (
+              <>
+                <Badge colorScheme="blue" fontSize="xs">
+                  {d.comments.length}
+                </Badge>
+                <Text fontSize="xs" color="blue.600">
+                  {d.comments.length === 1 ? "comment" : "comments"}
+                </Text>
+              </>
+            ) : (
+              <Text fontSize="xs" color="gray.400">—</Text>
+            )}
+          </HStack>
+        </Button>
+      ),
+    },
+    {
       header: "Actions",
       cell: (d) => (
-        <HStack spacing={2}>
+        <HStack spacing={1}>
           <IconButton
-            size="xs" colorScheme="red" icon={<FiTrash2/>} onClick={() => handleDeleteClick(d)} variant="ghost"
+            as={IconButton}
+            icon={<FiMessageCircle />}
+            variant="ghost"
+            size="xs"
+            colorScheme="blue"
+            title="View and add comments"
+            onClick={() => handleOpenCommentsModal(d)}
           />
-          <Button size="xs" colorScheme="blue" variant="ghost"
-            leftIcon={<FiEye />} borderRadius="6px" onClick={() => handleView(d)}>
-            View
-          </Button>
+          <Menu>
+            <MenuButton
+              as={IconButton}
+              icon={<FiMoreVertical />}
+              variant="ghost"
+              size="xs"
+            />
+            <MenuList minW="160px">
+            <MenuItem
+              icon={<FiEye />}
+              _hover={{ bg: "blue.50" }}
+              onClick={() => handleView(d)}
+            >
+              View
+            </MenuItem>
+            <MenuItem
+              icon={<FiTrash2 />}
+              color="red.400"
+              _hover={{ bg: "red.50" }}
+              onClick={() => handleDeleteClick(d)}
+            >
+              Delete
+            </MenuItem>
+            <MenuItem
+              icon={<FiRefreshCw />}
+              _hover={{ bg: "blue.50" }}
+              onClick={() => handleUpdateStatus(d)}
+            >
+              Update Status
+            </MenuItem>
+          </MenuList>
+          </Menu>
         </HStack>
       ),
     },
@@ -295,24 +446,20 @@ const Disputes = () => {
   return (
     <Box>
       {/* ── Header ─────────────────────────────────────────── */}
-      <Flex
-        mb={5} px={5} py={2} borderRadius="12px"
-        bgGradient="linear(to-r, blue.100, blue.200, blue.300)"
-        align="center" justify="space-between"
-      >
-        <Box>
-          <Heading size="lg" color="gray.600">Dispute Management</Heading>
-          <Text color="gray.500" fontSize="sm">Track and manage all raised disputes</Text>
-        </Box>
-        <Button leftIcon={<FiRefreshCw />} size="sm" colorScheme="blue"
-          variant="outline" onClick={loadDisputes} isLoading={isLoading}
-          bg="white" _hover={{ bg: "blue.50" }}>
-          Refresh
-        </Button>
-      </Flex>
+      <PageNavBar
+        title="Dispute Management"
+        description="Track and manage all raised disputes"
+        rightContent={
+          <Button leftIcon={<FiRefreshCw />} size="sm" colorScheme="blue"
+            variant="outline" onClick={loadDisputes} isLoading={isLoading}
+            bg="white" _hover={{ bg: "blue.50" }}>
+            Refresh
+          </Button>
+        }
+      />
 
       {/* ── Stat Cards ─────────────────────────────────────── */}
-      <SimpleGrid columns={{ base: 2, md: 4 }} spacing={3} mb={5}>
+      <SimpleGrid columns={{ base: 2, md: 4 }} spacing={3} mt={4} mb={4}>
         {statCards.map(({ label, value, color }) => (
           <Card key={label} bg={cardBg} borderWidth="1px" borderColor={borderColor}
             shadow="sm" borderRadius="10px">
@@ -526,6 +673,33 @@ const Disputes = () => {
                   </Text>
                 </DetailRow>
 
+                <Divider />
+
+                <Box>
+                  <HStack spacing={2} mb={2}>
+                    <Icon as={FiMessageSquare} color="blue.400" boxSize={3.5} />
+                    <Text fontSize="11px" fontWeight="700" color="gray.400"
+                      textTransform="uppercase" letterSpacing="0.08em">
+                      Comments
+                    </Text>
+                    {selectedDispute.comments && selectedDispute.comments.length > 0 && (
+                      <Badge colorScheme="blue" fontSize="xs">{selectedDispute.comments.length}</Badge>
+                    )}
+                  </HStack>
+                  <Button
+                    size="sm"
+                    colorScheme="blue"
+                    variant="outline"
+                    width="full"
+                    onClick={() => handleOpenCommentsModal(selectedDispute)}
+                    leftIcon={<FiMessageCircle />}
+                  >
+                    {selectedDispute.comments && selectedDispute.comments.length > 0
+                      ? `View ${selectedDispute.comments.length} Comment${selectedDispute.comments.length !== 1 ? "s" : ""}`
+                      : "Add Comment"}
+                  </Button>
+                </Box>
+
               </VStack>
             )}
           </ModalBody>
@@ -540,6 +714,49 @@ const Disputes = () => {
       </Modal>
 
       {/* ── Delete Confirmation Dialog ─────────────────────── */}
+      <Modal isOpen={isStatusModalOpen} onClose={() => setIsStatusModalOpen(false)} size="md">
+        <ModalOverlay backdropFilter="blur(3px)" />
+        <ModalContent borderRadius="lg">
+          <ModalHeader borderTopRadius={"lg"} bg={"blue.500"} color="white">Update Status</ModalHeader>
+          <ModalCloseButton color={"white"} />
+          <ModalBody py={5}>
+            <VStack spacing={4} align="stretch">
+              <Box>
+                <Text fontSize="12px" fontWeight="700" color="gray.500" textTransform="uppercase" mb={2}>
+                  Select New Status
+                </Text>
+                <Select value={newStatus} onChange={(e) => setNewStatus(e.target.value)} borderRadius="8px">
+                  <option value="open">Open</option>
+                  <option value="in_review">In Review</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="closed">Closed</option>
+                </Select>
+              </Box>
+              <Divider />
+              <Box>
+                <Text fontSize="12px" fontWeight="700" color="gray.500" textTransform="uppercase" mb={2}>
+                  Add Comment (Optional)
+                </Text>
+                <Textarea
+                  placeholder="Add a note about this status update..."
+                  value={statusComment}
+                  onChange={(e) => setStatusComment(e.target.value)}
+                  borderRadius="8px"
+                  minH="100px"
+                  resize="vertical"
+                  fontSize="13px"
+                  isDisabled={isUpdatingStatus}
+                />
+              </Box>
+            </VStack>
+          </ModalBody>
+          <ModalFooter borderTop="1px" borderColor="gray.100">
+            <Button size="sm" variant="ghost" mr={3} onClick={() => setIsStatusModalOpen(false)} isDisabled={isUpdatingStatus}>Cancel</Button>
+            <Button size="sm" colorScheme="blue" onClick={submitStatusChange} isLoading={isUpdatingStatus}>Save</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
       <ConfirmDialog
         isOpen={isConfirmOpen}
         onClose={onConfirmClose}
@@ -554,6 +771,14 @@ const Disputes = () => {
         cancelText="Cancel"
         type="danger"
         isLoading={isDeleting}
+      />
+
+      <CommentsModal
+        isOpen={isCommentsModalOpen}
+        onClose={() => setIsCommentsModalOpen(false)}
+        comments={selectedDisputeForComments?.comments || []}
+        onAddComment={handleAddComment}
+        disputeInfo={selectedDisputeForComments ? `${selectedDisputeForComments.customerName} · ${selectedDisputeForComments.invoiceNumber}` : null}
       />
     </Box>
   );

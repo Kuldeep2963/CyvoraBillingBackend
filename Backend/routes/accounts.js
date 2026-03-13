@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Customer = require('../models/Account');
+const User = require('../models/User');
 const sequelize = require('../models/db');
 const { Op } = require('sequelize');
 
@@ -164,6 +165,7 @@ router.get('/', async (req, res) => {
 
     const offset = (page - 1) * limit;
 
+    // Fetch accounts first, then manually fetch owners to avoid type mismatch in JOIN
     const { count, rows } = await Customer.findAndCountAll({
       where,
       limit: parseInt(limit),
@@ -171,8 +173,30 @@ router.get('/', async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    // Manually fetch and attach owner information
+    const ownerIds = [...new Set(rows.filter(r => r.accountOwner).map(r => r.accountOwner))];
+    const owners = ownerIds.length > 0 
+      ? await User.findAll({
+          where: { id: { [Op.in]: ownerIds } },
+          attributes: ['id', 'first_name', 'last_name', 'email'],
+          raw: true
+        })
+      : [];
+    const ownerMap = {};
+    owners.forEach(owner => {
+      ownerMap[owner.id] = owner;
+    });
+    
+    // Attach owners to rows
+    rows.forEach(row => {
+      row.owner = ownerMap[row.accountOwner] || null;
+    });
+
     res.json({
-      accounts: rows,
+      accounts: rows.map(r => ({
+        ...r.toJSON ? r.toJSON() : r,
+        owner: r.owner
+      })),
       total: count,
       page: parseInt(page),
       totalPages: Math.ceil(count / limit)
@@ -188,7 +212,17 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const account = await Customer.findByPk(req.params.id);
+    const accountId = parseInt(req.params.id);
+    const account = await Customer.findByPk(accountId);
+    
+    // Manually fetch and attach owner
+    if (account && account.accountOwner) {
+      account.owner = await User.findByPk(account.accountOwner, {
+        attributes: ['id', 'first_name', 'last_name', 'email']
+      });
+    } else {
+      account.owner = null;
+    }
     if (!account) return res.status(404).json({ error: 'Account not found' });
     res.json(account);
   } catch (err) {
@@ -199,8 +233,56 @@ router.get('/:id', async (req, res) => {
 // Create new account
 router.post('/', async (req, res) => {
   try {
-    const account = await Customer.create(req.body);
-    res.status(201).json(account);
+    const data = { ...req.body };
+
+    // require last billing date
+    if (!data.lastbillingdate) {
+      return res.status(400).json({ error: 'lastbillingdate is required' });
+    }
+
+    // make billing-type-specific adjustments before creating
+    if (data.billingType === 'prepaid') {
+      // prepaid accounts should only use balance
+      data.creditLimit = 0;
+      data.originalCreditLimit = 0;
+    } else if (data.billingType === 'postpaid') {
+      // ensure original is seeded from incoming limit
+      if (data.creditLimit != null) {
+        data.originalCreditLimit = data.creditLimit;
+      }
+      // prepaid balance must be zero for postpaid accounts
+      data.balance = 0;
+    }
+
+    // calculate next billing date based on lastbillingdate and cycle
+    const computeNext = (last, cycle) => {
+      const dt = new Date(last);
+      switch (cycle) {
+        case 'daily': dt.setDate(dt.getDate() + 1); break;
+        case 'weekly': dt.setDate(dt.getDate() + 7); break;
+        case 'biweekly': dt.setDate(dt.getDate() + 14); break;
+        case 'monthly': dt.setMonth(dt.getMonth() + 1); break;
+        case 'quarterly': dt.setMonth(dt.getMonth() + 3); break;
+        case 'annually': dt.setFullYear(dt.getFullYear() + 1); break;
+        default: break;
+      }
+      return dt.toISOString().split('T')[0];
+    };
+    if (data.lastbillingdate && data.billingCycle) {
+      data.nextbillingdate = computeNext(data.lastbillingdate, data.billingCycle);
+    }
+
+    let account = await Customer.create(data);
+    // reload to include owner info
+    account = await Customer.findByPk(account.id);
+    if (account && account.accountOwner) {
+      account.owner = await User.findByPk(account.accountOwner, {
+        attributes: ['id', 'first_name', 'last_name', 'email']
+      });
+    } else {
+      account.owner = null;
+    }
+    res.status(201).json(account.toJSON ? account.toJSON() : account);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -209,10 +291,65 @@ router.post('/', async (req, res) => {
 // Update account
 router.put('/:id', async (req, res) => {
   try {
-    const account = await Customer.findByPk(req.params.id);
+    const account = await Customer.findByPk(parseInt(req.params.id));
     if (!account) return res.status(404).json({ error: 'Account not found' });
-    await account.update(req.body);
-    res.json(account);
+
+    const updates = { ...req.body };
+
+    if (!updates.lastbillingdate) {
+      return res.status(400).json({ error: 'lastbillingdate is required' });
+    }
+
+    // if billing type is changing, clear/seed appropriate fields
+    if (updates.billingType && updates.billingType !== account.billingType) {
+      if (updates.billingType === 'prepaid') {
+        updates.creditLimit = 0;
+        updates.originalCreditLimit = 0;
+        // maybe keep existing balance
+      } else if (updates.billingType === 'postpaid') {
+        updates.balance = 0;
+        if (updates.creditLimit != null) {
+          updates.originalCreditLimit = updates.creditLimit;
+        } else {
+          // if no new limit supplied, keep old-credit as original
+          updates.originalCreditLimit = account.creditLimit;
+        }
+      }
+    }
+
+    // otherwise just update originalCreditLimit when limit changes on postpaid
+    if (updates.creditLimit != null && account.billingType === 'postpaid') {
+      updates.originalCreditLimit = updates.creditLimit;
+    }
+
+    // recalc nextBilling if last or cycle changed
+    const computeNext2 = (last, cycle) => {
+      const dt = new Date(last);
+      switch (cycle) {
+        case 'daily': dt.setDate(dt.getDate() + 1); break;
+        case 'weekly': dt.setDate(dt.getDate() + 7); break;
+        case 'monthly': dt.setMonth(dt.getMonth() + 1); break;
+        case 'quarterly': dt.setMonth(dt.getMonth() + 3); break;
+        case 'annually': dt.setFullYear(dt.getFullYear() + 1); break;
+        default: break;
+      }
+      return dt.toISOString().split('T')[0];
+    };
+    if (updates.lastbillingdate && updates.billingCycle) {
+      updates.nextbillingdate = computeNext2(updates.lastbillingdate, updates.billingCycle);
+    }
+
+    await account.update(updates);
+    // reload with owner
+    const updated = await Customer.findByPk(account.id);
+    if (updated && updated.accountOwner) {
+      updated.owner = await User.findByPk(updated.accountOwner, {
+        attributes: ['id', 'first_name', 'last_name', 'email']
+      });
+    } else {
+      updated.owner = null;
+    }
+    res.json(updated.toJSON ? updated.toJSON() : updated);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -221,7 +358,7 @@ router.put('/:id', async (req, res) => {
 // Delete account
 router.delete('/:id', async (req, res) => {
   try {
-    const account = await Customer.findByPk(req.params.id);
+    const account = await Customer.findByPk(parseInt(req.params.id));
     if (!account) return res.status(404).json({ error: 'Account not found' });
     await account.destroy();
     res.json({ message: 'Account deleted successfully' });

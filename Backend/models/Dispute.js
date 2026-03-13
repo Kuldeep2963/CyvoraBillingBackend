@@ -51,6 +51,12 @@ const Dispute = sequelize.define('Dispute', {
   resolvedBy: {
     type: DataTypes.INTEGER,
     comment: 'User ID who resolved the dispute'
+  },
+  comments: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    defaultValue: [],
+    comment: 'Array of comment objects with {text, timestamp, userId, userName}'
   }
 }, {
   tableName: 'disputes',

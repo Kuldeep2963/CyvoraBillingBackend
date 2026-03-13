@@ -4,6 +4,20 @@ const sequelize = require('./models/db');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
+// Load all models first to ensure associations are properly set up
+require('./models/User');
+require('./models/Account');
+require('./models/CDR');
+require('./models/Invoice');
+require('./models/InvoiceItem');
+require('./models/Payment');
+require('./models/PaymentAllocation');
+require('./models/Allocation');
+require('./models/Dispute');
+require('./models/CountryCode');
+require('./models/ProcessedFile');
+require('./models/Vendorinvoice');
+
 const accountRoutes = require('./routes/accounts');
 const cdrRoutes = require('./routes/cdr');
 const reportRoutes = require('./routes/reports');
@@ -16,6 +30,7 @@ const authMiddleware = require('./middleware/auth');
 const uploadCdr = require('./api/upload-cdr');
 const CDRAutoFetcher = require('./services/cdr-auto-fetch');
 const BillingScheduler = require('./schedulers/BillingScheduler');
+const runMigrations = require('./utils/runMigrations');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -58,10 +73,10 @@ app.use((req, res) => {
   res.status(404).json({ error: `Cannot ${req.method} ${req.url}` });
 });
 
-// DB + Server
-require('./models/Allocation');
-require('./models/Dispute');
-sequelize.sync().then(() => {
+// Start server and sync database
+runMigrations().then(() => {
+  return sequelize.sync();
+}).then(() => {
   console.log('Database synced successfully');
 
   new CDRAutoFetcher();

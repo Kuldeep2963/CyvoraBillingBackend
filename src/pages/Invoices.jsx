@@ -76,6 +76,7 @@ import {
   Accordion,
   Checkbox,
 } from "@chakra-ui/react";
+import PageNavBar from "../components/PageNavBar";
 import {
   FiFileText,
   FiDownload,
@@ -116,6 +117,7 @@ import ExportButton from "../components/ExportButton";
 import ViewInvoiceModal from "../components/modals/ViewInvoiceModal";
 import GenerateInvoiceModal from "../components/modals/GenerateInvoiceModal";
 import RecordPaymentModal from "../components/modals/RecordPaymentModal";
+import ConfirmDialog from "../components/ConfirmDialog";
 import {
   fetchInvoiceItems,
   fetchInvoices,
@@ -517,11 +519,21 @@ const Invoices = () => {
     }
   };
 
-  const handleDeleteInvoice = async (invoiceId) => {
-    if (!window.confirm("Are you sure you want to delete this invoice?")) return;
+  // deletion flow using confirmation dialog instead of window.confirm
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState(null);
+
+  const handleDeleteInvoice = (invoice) => {
+    setInvoiceToDelete(invoice);
+    setIsDeleteOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!invoiceToDelete) return;
+    setIsDeleteOpen(false);
 
     try {
-      await apiDeleteInvoice(invoiceId);
+      await apiDeleteInvoice(invoiceToDelete.id);
       loadData();
       toast({
         title: "Invoice deleted",
@@ -541,6 +553,7 @@ const Invoices = () => {
         isClosable: true,
       });
     }
+    setInvoiceToDelete(null);
   };
 
   const handleRecordPayment = async () => {
@@ -831,71 +844,64 @@ const Invoices = () => {
   return (
     <Box>
       {/* ── Header ─────────────────────────────────────────────── */}
-      <Flex
-        justify="space-between"
-        align="center"
-        bgGradient="linear(to-r,blue.100,blue.200,blue.300)"
-        px={4} py={2} borderRadius="12px" mb={6}
-      >
-        <Box>
-          <Heading size="lg" color="gray.600">Invoice Management</Heading>
-          <Text color="gray.600" fontSize="sm">
-            Manage customer invoices, track payments, and generate reports
-          </Text>
-        </Box>
-        <HStack spacing={4}>
-          <Menu>
-            <MenuButton
-              as={Button} leftIcon={<FiPlus />} borderRadius="md"
-              colorScheme="green" size="sm" px={2}
-              _hover={{ transform: "translateY(-2px)", boxShadow: "lg" }}
-              transition="all 0.2s"
-            >
-              Generate Invoice
-            </MenuButton>
-            <MenuList>
-              <MenuItem icon={<FiFileText />} onClick={() => setIsGenerateModalOpen(true)}>
-                Manual Invoice
-                <Text fontSize="xs" color="gray.500">Generate invoice for specific customer/period</Text>
-              </MenuItem>
-              <MenuItem icon={<FiRefreshCw />} onClick={handleAutoGenerateInvoices}>
-                Automatic Invoices
-                <Text fontSize="xs" color="gray.500">Generate invoices for all due customers</Text>
-              </MenuItem>
-            </MenuList>
-          </Menu>
+      <PageNavBar
+        title="Invoice Management"
+        description="Manage customer invoices, track payments, and generate reports"
+        rightContent={
+          <>
+            <Menu>
+              <MenuButton
+                as={Button} leftIcon={<FiPlus />} borderRadius="md"
+                colorScheme="green" size="sm" px={2}
+                _hover={{ transform: "translateY(-2px)", boxShadow: "lg" }}
+                transition="all 0.2s"
+              >
+                Generate Invoice
+              </MenuButton>
+              <MenuList>
+                <MenuItem icon={<FiFileText />} onClick={() => setIsGenerateModalOpen(true)}>
+                  Manual Invoice
+                  <Text fontSize="xs" color="gray.500">Generate invoice for specific customer/period</Text>
+                </MenuItem>
+                <MenuItem icon={<FiRefreshCw />} onClick={handleAutoGenerateInvoices}>
+                  Automatic Invoices
+                  <Text fontSize="xs" color="gray.500">Generate invoices for all due customers</Text>
+                </MenuItem>
+              </MenuList>
+            </Menu>
 
-          <Menu>
-            <MenuButton as={Button} colorScheme="black" leftIcon={<FiSettings />} variant="outline" size="sm">
-              Actions
-            </MenuButton>
-            <MenuList>
-              <MenuItem icon={<FiCreditCard />} onClick={() => setIsPaymentModalOpen(true)}>Record Payment</MenuItem>
-              <MenuDivider />
-              <MenuItem icon={<FiMail />} onClick={handleSendBulkEmail}>Send Bulk Email</MenuItem>
-              <MenuItem icon={<FiSend />} onClick={handleSendSelectedInvoices}>Send Selected Invoices</MenuItem>
-              <MenuDivider />
-              <MenuItem icon={<FiDownload />} onClick={handleDownloadSelected}>Download Selected</MenuItem>
-              <MenuItem icon={<FiFile />} onClick={handleExportToSage}>
-                <Box><Text>Sage Export</Text><Text fontSize="xs" color="gray.500">Export to accounting software</Text></Box>
-              </MenuItem>
-              <MenuDivider />
-              <MenuGroup title="Change Status">
-                <MenuItem icon={<FiCheckCircle />} onClick={() => handleBulkStatusChange("paid")}>Mark as Paid</MenuItem>
-                <MenuItem icon={<FiClock />} onClick={() => handleBulkStatusChange("sent")}>Mark as Sent</MenuItem>
-                <MenuItem icon={<FiAlertTriangle />} onClick={() => handleBulkStatusChange("overdue")}>Mark as Overdue</MenuItem>
-                <MenuItem icon={<FiXCircle />} onClick={() => handleBulkStatusChange("cancelled")}>Mark as Cancelled</MenuItem>
-              </MenuGroup>
-              <MenuDivider />
-              <MenuItem icon={<FiEdit />} onClick={handleRegenerateSelected}>Regenerate Selected</MenuItem>
-              <MenuItem icon={<FiTrash2 />} onClick={handleDeleteSelected} color="red.500">Delete Selected</MenuItem>
-            </MenuList>
-          </Menu>
-        </HStack>
-      </Flex>
+            <Menu>
+              <MenuButton as={Button} colorScheme="black" leftIcon={<FiSettings />} variant="outline" size="sm">
+                Actions
+              </MenuButton>
+              <MenuList>
+                <MenuItem icon={<FiCreditCard />} onClick={() => setIsPaymentModalOpen(true)}>Record Payment</MenuItem>
+                <MenuDivider />
+                <MenuItem icon={<FiMail />} onClick={handleSendBulkEmail}>Send Bulk Email</MenuItem>
+                <MenuItem icon={<FiSend />} onClick={handleSendSelectedInvoices}>Send Selected Invoices</MenuItem>
+                <MenuDivider />
+                <MenuItem icon={<FiDownload />} onClick={handleDownloadSelected}>Download Selected</MenuItem>
+                <MenuItem icon={<FiFile />} onClick={handleExportToSage}>
+                  <Box><Text>Sage Export</Text><Text fontSize="xs" color="gray.500">Export to accounting software</Text></Box>
+                </MenuItem>
+                <MenuDivider />
+                <MenuGroup title="Change Status">
+                  <MenuItem icon={<FiCheckCircle />} onClick={() => handleBulkStatusChange("paid")}>Mark as Paid</MenuItem>
+                  <MenuItem icon={<FiClock />} onClick={() => handleBulkStatusChange("sent")}>Mark as Sent</MenuItem>
+                  <MenuItem icon={<FiAlertTriangle />} onClick={() => handleBulkStatusChange("overdue")}>Mark as Overdue</MenuItem>
+                  <MenuItem icon={<FiXCircle />} onClick={() => handleBulkStatusChange("cancelled")}>Mark as Cancelled</MenuItem>
+                </MenuGroup>
+                <MenuDivider />
+                <MenuItem icon={<FiEdit />} onClick={handleRegenerateSelected}>Regenerate Selected</MenuItem>
+                <MenuItem icon={<FiTrash2 />} onClick={handleDeleteSelected} color="red.500">Delete Selected</MenuItem>
+              </MenuList>
+            </Menu>
+          </>
+        }
+      />
 
       {/* ── Dashboard Stats ─────────────────────────────────────── */}
-      <Grid templateColumns={{ base: "1fr", md: "2fr 1fr" }} gap={4} mb={4}>
+      <Grid templateColumns={{ base: "1fr", md: "2fr 1fr" }} gap={4} mt={4} mb={4}>
         <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
           {[
             { label: "Total Revenue",        value: `$${dashboardStats.totalRevenue.toFixed(2)}`,   color: "green.600",  helper: <><StatArrow type="increase" />12.5% from last month</> },
@@ -1136,9 +1142,11 @@ const Invoices = () => {
                             <MenuItem icon={<FiClock />} fontSize="13px" onClick={() => handleUpdateStatus(invoice.id, "sent")}>Mark as Sent</MenuItem>
                             <MenuItem icon={<FiAlertTriangle />} fontSize="13px" onClick={() => handleUpdateStatus(invoice.id, "overdue")}>Mark as Overdue</MenuItem>
                             <MenuDivider />
-                            <MenuItem icon={<FiTrash2 />} fontSize="13px" color="red.500" onClick={() => handleDeleteInvoice(invoice.id)}>Delete Invoice</MenuItem>
+                            <MenuItem icon={<FiTrash2 />} fontSize="13px" color="red.500" onClick={() => handleDeleteInvoice(invoice)}>Delete Invoice</MenuItem>
                           </MenuList>
                         </Menu>
+                            <IconButton bg={"white"} icon={<FiEye />} fontSize="13px" onClick={() => handleViewInvoice(invoice)}/>
+
                       </Td>
                     </Tr>
                   );
@@ -1193,6 +1201,17 @@ const Invoices = () => {
         setPaymentForm={setPaymentForm}
         customers={customers}
         onRecordPayment={handleRecordPayment}
+      />
+
+      {/* delete confirmation */}
+      <ConfirmDialog
+        isOpen={isDeleteOpen}
+        onClose={() => setIsDeleteOpen(false)}
+        onConfirm={confirmDelete}
+        title="Delete Invoice"
+        message={`Are you sure you want to delete invoice ${invoiceToDelete?.invoiceNumber}? This action cannot be undone.`}
+        confirmText="Delete Invoice"
+        type="danger"
       />
     </Box>
   );

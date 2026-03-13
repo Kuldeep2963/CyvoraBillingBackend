@@ -25,7 +25,7 @@ router.post('/login', async (req, res) => {
 
     // Generate JWT
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
+      { id: user.id, email: user.email, role: user.role, firstName: user.first_name, lastName: user.last_name },
       process.env.JWT_SECRET,
       { expiresIn: '2h' }
     );
@@ -35,7 +35,9 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        role: user.role
+        role: user.role,
+        firstName: user.first_name,
+        lastName: user.last_name
       }
     });
   } catch (error) {

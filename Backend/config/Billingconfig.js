@@ -48,6 +48,7 @@ module.exports = {
   // Payment Methods
   paymentMethods: [
     { value: 'bank_transfer', label: 'Bank Transfer' },
+    { value: 'ustd', label: 'USTD' },
     { value: 'credit_card', label: 'Credit Card' },
     { value: 'debit_card', label: 'Debit Card' },
     { value: 'paypal', label: 'PayPal' },

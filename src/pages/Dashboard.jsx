@@ -31,6 +31,7 @@ import {
   Center,
   Spinner,
 } from "@chakra-ui/react";
+import PageNavBar from "../components/PageNavBar";
 import {
   FiPhoneCall,
   FiDollarSign,
@@ -71,7 +72,7 @@ const StatCard = ({ title, value, change, icon: IconComp, color, helpText, trend
     _hover={{ transform: "translateY(-4px)", boxShadow: "0 12px 40px rgba(0,0,0,0.1)" }}
     transition="all 0.3s ease"
   >
-    <CardBody p={{ base: 4, md: 6 }}>
+    <CardBody p={{ base: 4, md: 4 }}>
       <Flex direction="column" height="100%">
         <Flex justify="space-between" align="start" mb={4}>
           <Box flex="1" minW={0} mr={3}>
@@ -221,69 +222,49 @@ const Dashboard = () => {
   return (
     <Box>
       <VStack spacing={4} align="stretch">
-
         {/* ── Header ─────────────────────────────────────────── */}
-        <Flex
-          justify="space-between"
-          align={{ base: "start", md: "center" }}
-          direction={{ base: "column", md: "row" }}
-          gap={{ base: 3, md: 0 }}
-          bgGradient="linear(to-r,blue.100,blue.200,blue.300)"
-          px={4} py={3} borderRadius="12px"
-        >
-          <Box>
-            <Heading size={{ base: "lg", md: "xl" }} fontWeight="700" color="gray.600">
-              CDR Analytics Dashboard
-            </Heading>
-            <Text color="gray.500" fontSize="sm">
-              Real-time insights into call data records, destinations and customers
-            </Text>
-          </Box>
-
-          {/* FIX: on mobile stack clock + select vertically */}
-          <HStack
-            spacing={3}
-            flexWrap={{ base: "wrap", md: "nowrap" }}
-            w={{ base: "full", md: "auto" }}
-          >
-            {/* Clock box */}
-            <Box
-              px={3} py={1} bg="gray.200" borderRadius="md"
-              border="1px solid" borderColor="gray.100" boxShadow="sm"
-              w={{ base: "full", md: "auto" }}
-            >
-              <HStack spacing={3} justify={{ base: "center", md: "start" }}>
-                <HStack spacing={2}>
-                  <Icon as={FiCalendar} color="purple.500" />
-                  <Text fontSize="sm" fontWeight="bold" color="gray.700">
-                    {format(currentTime, "MMM dd, yyyy")}
-                  </Text>
+        <PageNavBar
+          title="CDR Analytics Dashboard"
+          description="Real-time insights into call data records, destinations and customers"
+          rightContent={
+            <>
+              <Box
+                px={3} py={1} bg="gray.200" borderRadius="md"
+                border="1px solid" borderColor="gray.100" boxShadow="sm"
+                w={{ base: "full", md: "auto" }}
+              >
+                <HStack spacing={3} justify={{ base: "center", md: "start" }}>
+                  <HStack spacing={2}>
+                    <Icon as={FiCalendar} color="purple.500" />
+                    <Text fontSize="sm" fontWeight="bold" color="gray.700">
+                      {format(currentTime, "MMM dd, yyyy")}
+                    </Text>
+                  </HStack>
+                  <Divider orientation="vertical" height="20px" />
+                  <HStack spacing={2}>
+                    <Icon as={FiClock} color="blue.500" />
+                    <Text fontSize="sm" fontWeight="bold" color="gray.700" minW="72px">
+                      {format(currentTime, "HH:mm:ss")}
+                    </Text>
+                  </HStack>
                 </HStack>
-                <Divider orientation="vertical" height="20px" />
-                <HStack spacing={2}>
-                  <Icon as={FiClock} color="blue.500" />
-                  <Text fontSize="sm" fontWeight="bold" color="gray.700" minW="72px">
-                    {format(currentTime, "HH:mm:ss")}
-                  </Text>
-                </HStack>
-              </HStack>
-            </Box>
-
-            <Select
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value)}
-              w={{ base: "full", md: "150px" }}
-              size="sm" borderRadius="md"
-              border="1px solid gray" bg="gray.200"
-            >
-              <option value="today">Today</option>
-              <option value="week">Weekly</option>
-              <option value="biweekly">Biweekly</option>
-              <option value="monthly">Monthly</option>
-              <option value="3month">3 Months</option>
-            </Select>
-          </HStack>
-        </Flex>
+              </Box>
+              <Select
+                value={timeRange}
+                onChange={(e) => setTimeRange(e.target.value)}
+                w={{ base: "full", md: "150px" }}
+                size="sm" borderRadius="md"
+                border="1px solid gray" bg="gray.200"
+              >
+                <option value="today">Today</option>
+                <option value="week">Weekly</option>
+                <option value="biweekly">Biweekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="3month">3 Months</option>
+              </Select>
+            </>
+          }
+        />
 
         {/* ── Stat Cards ─────────────────────────────────────── */}
         <SimpleGrid columns={{ base: 1, sm: 2, lg: 4 }} spacing={4}>

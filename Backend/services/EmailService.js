@@ -84,7 +84,7 @@ class EmailService {
   }
 
   async sendWelcomeEmail(user, password) {
-    const portalUrl = process.env.BASE_API_URL || 'http://localhost:3000';
+    const portalUrl = process.env.BASE_API_URL;
     return this.sendEmail(
       user.email,
       'Welcome to CDR Billing System - Your Login Credentials',
@@ -97,6 +97,27 @@ class EmailService {
         role: user.role,
         phone: user.phone,
         portalUrl
+      }
+    );
+  }
+
+  async sendSOAEmail(account, startDate, endDate, soaData) {
+    const accountEmail = account.billingEmail || account.email;
+    if (!accountEmail) {
+      throw new Error('Account has no email address');
+    }
+
+    const subject = `Statement of Account - ${account.accountName} (${startDate} to ${endDate})`;
+
+    return this.sendEmail(
+      accountEmail,
+      subject,
+      'soa-statement',
+      {
+        account,
+        startDate,
+        endDate,
+        soaData
       }
     );
   }

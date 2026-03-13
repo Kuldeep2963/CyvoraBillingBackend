@@ -37,21 +37,23 @@ import {
   useColorModeValue,
   FormControl,
   FormLabel,
-  Switch,
   useToast,
-  Modal,
-  ModalOverlay,
-  ModalContent,
-  ModalHeader,
-  ModalFooter,
-  ModalBody,
-  ModalCloseButton,
   Spinner,
   Center,
+  RadioGroup,
+  Radio,
   Alert,
   AlertIcon,
   AlertTitle,
   AlertDescription,
+  Grid,
+  GridItem,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverBody,
+  PopoverArrow,
+  PopoverCloseButton,
   NumberInput,
   NumberInputField,
   NumberInputStepper,
@@ -80,6 +82,7 @@ import {
   AccordionPanel,
   AccordionIcon,
 } from "@chakra-ui/react";
+import PageNavBar from "../components/PageNavBar";
 import {
   DownloadIcon,
   CalendarIcon,
@@ -113,6 +116,10 @@ import {
   FiRefreshCw,
   FiEye,
   FiEyeOff,
+  FiClock,
+  FiCalendar,
+  FiFileText,
+  FiUser,
 } from "react-icons/fi";
 import {
   LineChart,
@@ -152,10 +159,11 @@ const Reports = () => {
     startDate: new Date(new Date().setDate(new Date().getDate() - 30)),
     endDate: new Date(),
     startHour: 0,
+    startMinute: 0,
     endHour: 23,
+    endMinute: 59,
   });
   const [activeTab, setActiveTab] = useState(0);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState("all");
   const [accounts, setAccounts] = useState({ customers: [], vendors: [] });
   const [accountsLoading, setAccountsLoading] = useState(false);
@@ -233,6 +241,30 @@ const Reports = () => {
       return;
     }
 
+    // Validate hour range
+    if (dateRange.endHour < dateRange.startHour) {
+      toast({
+        title: "Invalid hour range",
+        description: "End hour must be after or equal to start hour",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    // Validate minute range if same hour
+    if (dateRange.endHour === dateRange.startHour && dateRange.endMinute < dateRange.startMinute) {
+      toast({
+        title: "Invalid time range",
+        description: "End time must be after start time",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
     const daysDiff = Math.ceil(
       (dateRange.endDate - dateRange.startDate) / (1000 * 60 * 60 * 24),
     );
@@ -250,13 +282,27 @@ const Reports = () => {
     setLoading(true);
     try {
       let reportType = "";
+      
+      // Get owner name from selected account
+      let ownerName = "";
+      if (selectedAccount !== "all") {
+        const accountsList = isVendorReport ? accounts.vendors : accounts.customers;
+        const selectedAccountObj = accountsList.find(
+          acc => (isVendorReport ? acc.vendorCode : acc.customerCode) === selectedAccount
+        );
+        ownerName = selectedAccountObj?.ownerName || "";
+      }
+      
       let params = {
         startDate: dateRange.startDate.toISOString().split("T")[0],
         endDate: dateRange.endDate.toISOString().split("T")[0],
         startHour: dateRange.startHour,
+        startMinute: dateRange.startMinute,
         endHour: dateRange.endHour,
+        endMinute: dateRange.endMinute,
         accountId: selectedAccount,
         vendorReport: isVendorReport,
+        ownerName: ownerName,
       };
 
       console.log("📊 Generating report with params:", params);
@@ -271,9 +317,17 @@ const Reports = () => {
         case 2: // Negative Margin Report
           reportType = "negative-margin-report";
           break;
-        case 3: // Customer Traffic Report
+        case 3: // Customer-to-vendor traffic (original behaviour)
           reportType = "customer-traffic";
-          params.vendorReport = false;
+          // vendorReport flag will still respect the switch for filtering
+          break;
+        case 4: // customer-only traffic
+          reportType = "customer-only-traffic";
+          params.vendorReport = false; // always customer side
+          break;
+        case 5: // vendor-only traffic
+          reportType = "vendor-traffic";
+          params.vendorReport = true; // always vendor side
           break;
       }
 
@@ -281,7 +335,14 @@ const Reports = () => {
       console.log("📈 Report result:", result);
 
       if (result.success || result.data) {
-        const data = result.data || [];
+        let data = result.data || [];
+        // backend now returns costPerMin, but fallback just in case
+        if (reportType === "vendor-traffic") {
+          data = data.map((r) => ({
+            ...r,
+            costPerMin: r.costPerMin ?? 0,
+          }));
+        }
         setReportData(data);
 
         if (result.summary && !Array.isArray(result.summary)) {
@@ -330,7 +391,6 @@ const Reports = () => {
           setReportSummary(summary);
         }
 
-        setIsModalOpen(false);
         setPage(1);
         setSelectedRows([]);
 
@@ -496,7 +556,7 @@ const Reports = () => {
       setSelectedRows([...selectedRows, id]);
     }
   };
-   
+
   const dashboardMetrics = useMemo(() => {
     if (!reportData.length) return null;
 
@@ -669,8 +729,72 @@ const Reports = () => {
           color: "purple.500",
         },
         {
+          label: "Total Cost",
+          value: formatCurrency(reportSummary.totalCost || 0),
+          icon: FiTrendingDown,
+          color: "red.500",
+        },
+        {
           label: "Avg ASR",
           value: `${reportSummary.avgASR?.toFixed(3) || "0.00"}%`,
+          icon: StarIcon,
+          color: "yellow.500",
+        },
+      ],
+      4: [
+        {
+          label: "Total Customers",
+          value: reportSummary.totalCustomers || 0,
+          icon: FiGrid,
+          color: "purple.500",
+        },
+        {
+          label: "Total Attempts",
+          value: reportSummary.totalAttempts?.toLocaleString() || "0",
+          icon: FiBarChart2,
+          color: "blue.500",
+        },
+        {
+          label: "Total Revenue",
+          value: formatCurrency(reportSummary.totalRevenue || 0),
+          icon: FiTrendingUp,
+          color: "green.500",
+        },
+        {
+          label: "Avg ASR",
+          value: `${reportSummary.avgASR?.toFixed(2) || "0.00"}%`,
+          icon: StarIcon,
+          color: "yellow.500",
+        },
+      ],
+      5: [
+        {
+          label: "Total Vendors",
+          value: reportSummary.totalVendors || 0,
+          icon: FiGrid,
+          color: "purple.500",
+        },
+        {
+          label: "Total Attempts",
+          value: reportSummary.totalAttempts?.toLocaleString() || "0",
+          icon: FiBarChart2,
+          color: "blue.500",
+        },
+        {
+          label: "Total Revenue",
+          value: formatCurrency(reportSummary.totalRevenue || 0),
+          icon: FiTrendingUp,
+          color: "green.500",
+        },
+        {
+          label: "Total Cost",
+          value: formatCurrency(reportSummary.totalCost || 0),
+          icon: FiTrendingDown,
+          color: "red.500",
+        },
+        {
+          label: "Avg ASR",
+          value: `${reportSummary.avgASR?.toFixed(2) || "0.00"}%`,
           icon: StarIcon,
           color: "yellow.500",
         },
@@ -718,72 +842,399 @@ const Reports = () => {
     if (!dashboardMetrics) return null;
 
     return (
-      <Box p={4} bg={cardBg} border="1px" borderRadius={"md"} shadow={"lg"} borderColor={borderColor} mb={6}>
-        
-          <Heading mb={2} size="md">Performance Overview
+      <Box
+        p={4}
+        bg={cardBg}
+        border="1px"
+        borderRadius={"md"}
+        shadow={"lg"}
+        borderColor={borderColor}
+        mb={6}
+      >
+        <Heading mb={2} size="md">
+          Performance Overview
         </Heading>
-        
-          <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
-            <Box>
-              <Text fontSize="sm" color={mutedColor}>
-                Profit Margin
-              </Text>
-              <Heading
-                size="lg"
-                color={
-                  dashboardMetrics.totalMargin >= 0 ? "green.500" : "red.500"
-                }
-              >
-                {formatCurrency(dashboardMetrics.totalMargin)}
-              </Heading>
-              <Text fontSize="xs">
-                {dashboardMetrics.totalRevenue > 0
-                  ? (
-                      (dashboardMetrics.totalMargin /
-                        dashboardMetrics.totalRevenue) *
-                      100
-                    ).toFixed(6)
-                  : 0}
-                % margin
-              </Text>
-            </Box>
-            <Box>
-              <Text fontSize="sm" color={mutedColor}>
-                Call Success Rate
-              </Text>
-              <Heading size="lg">
-                {formatPercentage(dashboardMetrics.avgASR)}
-              </Heading>
-              <Progress
-                value={dashboardMetrics.avgASR}
-                colorScheme="green"
-                size="sm"
-                mt={1}
-              />
-            </Box>
-            <Box>
-              <Text fontSize="sm" color={mutedColor}>
-                Avg Call Duration
-              </Text>
-              <Heading size="lg">
-                {formatDuration(dashboardMetrics.avgACD)}
-              </Heading>
-              <Text fontSize="xs">per call</Text>
-            </Box>
-            <Box>
-              <Text fontSize="sm" color={mutedColor}>
-                Total Calls
-              </Text>
-              <Heading size="lg">
-                {formatNumber(dashboardMetrics.totalCalls)}
-              </Heading>
-              <Text fontSize="xs">in selected period</Text>
-            </Box>
-          </SimpleGrid>
-        
+
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
+          <Box>
+            <Text fontSize="sm" color={mutedColor}>
+              Profit Margin
+            </Text>
+            <Heading
+              size="lg"
+              color={
+                dashboardMetrics.totalMargin >= 0 ? "green.500" : "red.500"
+              }
+            >
+              {formatCurrency(dashboardMetrics.totalMargin)}
+            </Heading>
+            <Text fontSize="xs">
+              {dashboardMetrics.totalRevenue > 0
+                ? (
+                    (dashboardMetrics.totalMargin /
+                      dashboardMetrics.totalRevenue) *
+                    100
+                  ).toFixed(6)
+                : 0}
+              % margin
+            </Text>
+          </Box>
+          <Box>
+            <Text fontSize="sm" color={mutedColor}>
+              Call Success Rate
+            </Text>
+            <Heading size="lg">
+              {formatPercentage(dashboardMetrics.avgASR)}
+            </Heading>
+            <Progress
+              value={dashboardMetrics.avgASR}
+              colorScheme="green"
+              size="sm"
+              mt={1}
+            />
+          </Box>
+          <Box>
+            <Text fontSize="sm" color={mutedColor}>
+              Avg Call Duration
+            </Text>
+            <Heading size="lg">
+              {formatDuration(dashboardMetrics.avgACD)}
+            </Heading>
+            <Text fontSize="xs">per call</Text>
+          </Box>
+          <Box>
+            <Text fontSize="sm" color={mutedColor}>
+              Total Calls
+            </Text>
+            <Heading size="lg">
+              {formatNumber(dashboardMetrics.totalCalls)}
+            </Heading>
+            <Text fontSize="xs">in selected period</Text>
+          </Box>
+        </SimpleGrid>
       </Box>
     );
   };
+
+  // controls that were previously rendered above the tabs
+  // now moved inside each TabPanel so that the generate/report
+  // options and performance overview are part of the active tab.
+  const ReportControls = () => (
+    <Box mb={6} p={4} bg={cardBg} shadow={"lg"} borderRadius="md">
+      <VStack spacing={6} align="stretch">
+        {/* date range section */}
+        <VStack align="start" spacing={2}>
+        <HStack spacing={6} alignItems="flex-end">  
+  <Box>
+    <FormLabel fontWeight="bold" display="flex" alignItems="center" gap={2} mb={2}>
+      <FiCalendar />
+      Start Date
+    </FormLabel>
+    <DatePicker
+      selected={dateRange.startDate}
+      onChange={(date) => setDateRange({ ...dateRange, startDate: date })}
+      selectsStart
+      startDate={dateRange.startDate}
+      endDate={dateRange.endDate}
+      maxDate={dateRange.endDate}
+      dateFormat="dd-MM-yyyy"
+      customInput={<Input size="sm" />}
+    />
+  </Box>
+
+  <Box>
+    <FormLabel fontWeight="bold" display="flex" alignItems="center" gap={2} mb={2}>
+      <FiCalendar />
+      End Date
+    </FormLabel>
+    <DatePicker
+      selected={dateRange.endDate}
+      onChange={(date) => setDateRange({ ...dateRange, endDate: date })}
+      selectsEnd
+      startDate={dateRange.startDate}
+      endDate={dateRange.endDate}
+      minDate={dateRange.startDate}
+      dateFormat="dd-MM-yyyy"
+      customInput={<Input size="sm" />} 
+    />
+  </Box>
+
+  {![0].includes(activeTab) && (
+    <Popover placement="bottom">
+      <PopoverTrigger>
+        <Box>
+          <FormLabel fontSize="sm" fontWeight="bold" display="flex" alignItems="center" gap={2} mb={2}>
+            <FiClock />
+            From Time
+          </FormLabel>
+          <Button
+            size="sm"
+            variant="outline"
+            borderColor="gray.300"
+            bg="white"
+            _hover={{ borderColor: "blue.400", bg: "blue.50" }}
+            w="120px"
+            textAlign="center"
+            fontWeight="bold"
+            color="gray.800"
+          >
+            {dateRange.startHour.toString().padStart(2, "0")}:{dateRange.startMinute.toString().padStart(2, "0")}
+          </Button>
+        </Box>
+      </PopoverTrigger>
+      <PopoverContent w="280px">
+        <PopoverArrow />
+        <PopoverCloseButton />
+        <PopoverBody p={4}>
+          <VStack spacing={4}>
+            {/* Hour Selection */}
+            <Box w="full">
+              <Text fontSize="xs" fontWeight="bold" mb={2}>Hour</Text>
+              <Grid templateColumns="repeat(6, 1fr)" gap={2}>
+                {[...Array(24).keys()].map((hour) => (
+                  <GridItem key={hour}>
+                    <Button
+                      size="sm"
+                      variant={dateRange.startHour === hour ? "solid" : "outline"}
+                      colorScheme={dateRange.startHour === hour ? "blue" : "gray"}
+                      w="100%"
+                      onClick={() => setDateRange({ 
+                        ...dateRange, 
+                        startHour: hour,
+                        endHour: Math.max(hour, dateRange.endHour)
+                      })}
+                      fontSize="xs"
+                      fontWeight="bold"
+                    >
+                      {hour.toString().padStart(2, "0")}
+                    </Button>
+                  </GridItem>
+                ))}
+              </Grid>
+            </Box>
+            {/* Minute Selection */}
+            <Box w="full">
+              <Text fontSize="xs" fontWeight="bold" mb={2}>Minute</Text>
+              <Grid templateColumns="repeat(6, 1fr)" gap={2}>
+                {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((minute) => (
+                  <GridItem key={minute}>
+                    <Button
+                      size="sm"
+                      variant={dateRange.startMinute === minute ? "solid" : "outline"}
+                      colorScheme={dateRange.startMinute === minute ? "blue" : "gray"}
+                      w="100%"
+                      onClick={() => setDateRange({ ...dateRange, startMinute: minute })}
+                      fontSize="xs"
+                      fontWeight="bold"
+                    >
+                      {minute.toString().padStart(2, "0")}
+                    </Button>
+                  </GridItem>
+                ))}
+              </Grid>
+            </Box>
+          </VStack>
+        </PopoverBody>
+      </PopoverContent>
+    </Popover>
+  )}
+
+  {![0].includes(activeTab) && (
+    <Popover placement="bottom">
+      <PopoverTrigger>
+        <Box>
+          <FormLabel fontSize="sm" fontWeight="bold" display="flex" alignItems="center" gap={2} mb={2}>
+            <FiClock />
+            To Time
+          </FormLabel>
+          <Button
+            size="sm"
+            variant="outline"
+            borderColor="gray.300"
+            bg="white"
+            _hover={{ borderColor: "blue.400", bg: "blue.50" }}
+            w="120px"
+            textAlign="center"
+            fontWeight="bold"
+            color="gray.800"
+          >
+            {dateRange.endHour.toString().padStart(2, "0")}:{dateRange.endMinute.toString().padStart(2, "0")}
+          </Button>
+        </Box>
+      </PopoverTrigger>
+      <PopoverContent w="280px">
+        <PopoverArrow />
+        <PopoverCloseButton />
+        <PopoverBody p={4}>
+          <VStack spacing={4}>
+            {/* Hour Selection */}
+            <Box w="full">
+              <Text fontSize="xs" fontWeight="bold" mb={2}>Hour</Text>
+              <Grid templateColumns="repeat(6, 1fr)" gap={2}>
+                {[...Array(24).keys()].map((hour) => (
+                  <GridItem key={hour}>
+                    <Button
+                      size="sm"
+                      variant={dateRange.endHour === hour ? "solid" : "outline"}
+                      colorScheme={dateRange.endHour === hour ? "blue" : "gray"}
+                      w="100%"
+                      onClick={() => setDateRange({ 
+                        ...dateRange, 
+                        endHour: hour,
+                        startHour: Math.min(hour, dateRange.startHour)
+                      })}
+                      fontSize="xs"
+                      fontWeight="bold"
+                    >
+                      {hour.toString().padStart(2, "0")}
+                    </Button>
+                  </GridItem>
+                ))}
+              </Grid>
+            </Box>
+            {/* Minute Selection */}
+            <Box w="full">
+              <Text fontSize="xs" fontWeight="bold" mb={2}>Minute</Text>
+              <Grid templateColumns="repeat(6, 1fr)" gap={2}>
+                {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((minute) => (
+                  <GridItem key={minute}>
+                    <Button
+                      size="sm"
+                      variant={dateRange.endMinute === minute ? "solid" : "outline"}
+                      colorScheme={dateRange.endMinute === minute ? "blue" : "gray"}
+                      w="100%"
+                      onClick={() => setDateRange({ ...dateRange, endMinute: minute })}
+                      fontSize="xs"
+                      fontWeight="bold"
+                    >
+                      {minute.toString().padStart(2, "0")}
+                    </Button>
+                  </GridItem>
+                ))}
+              </Grid>
+            </Box>
+          </VStack>
+        </PopoverBody>
+      </PopoverContent>
+    </Popover>
+  )}
+</HStack>
+       <Text fontSize="xs" color="gray.500" mt="1">
+          {Math.ceil(
+            (dateRange.endDate - dateRange.startDate) /
+              (1000 * 60 * 60 * 24),
+          )}{" "}
+          days selected
+          {![0].includes(activeTab) && ` • ${dateRange.startHour.toString().padStart(2, "0")}:${dateRange.startMinute.toString().padStart(2, "0")} - ${dateRange.endHour.toString().padStart(2, "0")}:${dateRange.endMinute.toString().padStart(2, "0")}`}
+        </Text>
+        </VStack>  
+
+               <HStack spacing={6} alignItems={"center"} >   
+                 {[0, 1, 3].includes(activeTab) && (
+            <FormControl>
+              <FormLabel
+                display={"flex"}
+                alignItems={"center"}
+                gap={2}
+                fontWeight={"bold"}
+              >
+                <FiFileText />
+                Report Side
+              </FormLabel>
+              <RadioGroup
+                value={isVendorReport ? "vendor" : "customer"}
+                onChange={(value) => {
+                  setIsVendorReport(value === "vendor");
+                  setSelectedAccount("all");
+                }}
+              >
+                <HStack spacing={6}>
+                  <Radio value="customer">Customer</Radio>
+                  <Radio value="vendor">Vendor</Radio>
+                </HStack>
+              </RadioGroup>
+            </FormControl>
+          )}     
+          <FormControl>
+            <FormLabel
+              display={"flex"}
+              alignItems={"center"}
+              gap={2}
+              fontWeight="bold"
+            >
+              <FiUser />
+              {isVendorReport ? "Vendor Account" : "Customer Account"}
+            </FormLabel>
+            <Select
+              value={selectedAccount}
+              onChange={(e) => setSelectedAccount(e.target.value)}
+              placeholder={
+                accountsLoading ? "Loading accounts..." : "Select an account"
+              }
+              isDisabled={accountsLoading}
+            >
+              <option value="all">All Accounts</option>
+              {(isVendorReport ? accounts.vendors : accounts.customers).map(
+                (account) => (
+                  <option
+                    key={account.id || account._id}
+                    value={
+                      isVendorReport
+                        ? account.vendorCode
+                        : account.customerCode
+                    }
+                  >
+                    {account.customerCode} ({account.accountName})
+                  </option>
+                ),
+              )}
+            </Select>
+          </FormControl>
+          {[2].includes(activeTab) && (
+            <FormControl>
+              <FormLabel
+                fontWeight={"bold"}
+                alignItems={"center"}
+                display={"flex"}
+                gap={2}
+              >
+                <FiTrendingDown />
+                Negative Margin Threshold
+              </FormLabel>
+              <HStack spacing={4}>
+                <NumberInput
+                  value={marginThreshold}
+                  onChange={(value) => setMarginThreshold(value)}
+                  precision={2}
+                  step={0.1}
+                  min={-100}
+                  max={0}
+                  width="150px"
+                >
+                  <NumberInputField />
+                  <NumberInputStepper>
+                    <NumberIncrementStepper />
+                    <NumberDecrementStepper />
+                  </NumberInputStepper>
+                </NumberInput>
+              </HStack>
+            </FormControl>
+          )}
+      
+          <Button
+          w={"10%"}
+          minW={"150px"}
+          size="sm"
+          leftIcon={<CalendarIcon />}
+          colorScheme="green"
+          onClick={handleGenerateReport}
+        >
+          Generate Report
+        </Button>  </HStack>
+
+     </VStack>
+    </Box>
+  );
 
   const EnhancedTableView = () => {
     const getSortIcon = (key) => {
@@ -831,7 +1282,7 @@ const Reports = () => {
           height="auto"
         >
           <HStack spacing={4} align={"center"}>
-            <AlertIcon boxSize="40px" mr={0} />
+            <AlertIcon boxSize="30px" mr={0} />
             <AlertTitle mb={1} fontSize="lg">
               No Report Data
             </AlertTitle>
@@ -850,17 +1301,38 @@ const Reports = () => {
             <Box
               maxH="580px"
               overflowY="auto"
+              overflowX="hidden"
               border="1px solid"
               borderColor={borderColor}
               borderRadius="md"
             >
-              <Table variant="simple" size="sm">
-                <Thead h={"30px"} position="sticky" top={0} zIndex={10} bg="gray.200">
+              <Table variant="simple" size="sm" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                <Thead
+                  h={"30px"}
+                  position="sticky"
+                  top={0}
+                  zIndex={10}
+                  bg="gray.200"
+                >
                   <Tr>
-                    <Th cursor="pointer" color="gray.800" onClick={() => handleSort("hour")}>
+                    <Th
+                      cursor="pointer"
+                      color="gray.800"
+                      onClick={() => handleSort("hour")}
+                    >
                       <HStack>
                         <Text>Time Range</Text>
                         {getSortIcon("hour")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color="gray.800"
+                      cursor="pointer"
+                      onClick={() => handleSort("accountOwner")}
+                    >
+                      <HStack>
+                        <Text>Account Owner</Text>
+                        {getSortIcon("accountOwner")}
                       </HStack>
                     </Th>
                     <Th
@@ -957,6 +1429,7 @@ const Reports = () => {
                   {paginatedData.map((row, index) => (
                     <Tr key={index}>
                       <Td>{row.hour}</Td>
+                      <Td>{row.accountOwner || "-"}</Td>
                       <Td isNumeric>{formatNumber(row.attempts)}</Td>
                       <Td isNumeric>{formatNumber(row.completed)}</Td>
                       <Td isNumeric>
@@ -996,22 +1469,13 @@ const Reports = () => {
             <Box
               maxH="500px"
               overflowY="auto"
+              overflowX="hidden"
               border="1px solid"
               borderColor="gray.200"
             >
-              <Table variant="simple" size="sm">
+              <Table variant="simple" size="sm" sx={{ tableLayout: 'fixed', width: '100%' }}>
                 <Thead position="sticky" top={0} zIndex={1} bg="gray.200">
                   <Tr>
-                    <Th 
-                      color="gray.800"
-                      cursor="pointer"
-                      onClick={() => handleSort("accountCode")}
-                    >
-                      <HStack>
-                        <Text>Account ID</Text>
-                        {getSortIcon("accountCode")}
-                      </HStack>
-                    </Th>
                     <Th
                       color="gray.800"
                       cursor="pointer"
@@ -1020,6 +1484,16 @@ const Reports = () => {
                       <HStack>
                         <Text>Customer</Text>
                         {getSortIcon("accountName")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color="gray.800"
+                      cursor="pointer"
+                      onClick={() => handleSort("accountOwner")}
+                    >
+                      <HStack>
+                        <Text>Account Owner</Text>
+                        {getSortIcon("accountOwner")}
                       </HStack>
                     </Th>
                     <Th
@@ -1103,8 +1577,9 @@ const Reports = () => {
                 <Tbody>
                   {paginatedData.map((row, index) => (
                     <Tr key={index}>
-                      <Td>{row.accountCode}</Td>
                       <Td>{row.accountName}</Td>
+
+                      <Td>{row.accountOwner || "-"}</Td>
                       <Td>
                         <HStack>
                           <Text>{row.destination}</Text>
@@ -1141,10 +1616,11 @@ const Reports = () => {
             <Box
               maxH="500px"
               overflowY="auto"
+              overflowX="hidden"
               border="1px solid"
               borderColor="red.200"
             >
-              <Table variant="simple" size="sm">
+              <Table variant="simple" size="sm" sx={{ tableLayout: 'fixed', width: '100%' }}>
                 <Thead position="sticky" top={0} zIndex={1} bg="red.50">
                   <Tr>
                     <Th
@@ -1165,6 +1641,16 @@ const Reports = () => {
                       <HStack>
                         <Text>Customer</Text>
                         {getSortIcon("accountName")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color="gray.800"
+                      cursor="pointer"
+                      onClick={() => handleSort("accountOwner")}
+                    >
+                      <HStack>
+                        <Text>Account Owner</Text>
+                        {getSortIcon("accountOwner")}
                       </HStack>
                     </Th>
                     <Th
@@ -1239,6 +1725,7 @@ const Reports = () => {
                     <Tr key={index} bg="red.50">
                       <Td>{row.accountCode}</Td>
                       <Td>{row.accountName}</Td>
+                      <Td>{row.accountOwner || "-"}</Td>
                       <Td>{row.destination}</Td>
                       <Td isNumeric>{formatNumber(row.attempts)}</Td>
                       <Td isNumeric>{formatCurrency(row.revenue)}</Td>
@@ -1257,17 +1744,46 @@ const Reports = () => {
           );
 
         case 3:
+          // customer-to-vendor traffic (original behaviour)
           return (
             <Box
               maxH="500px"
               overflowY="auto"
+              overflowX="hidden"
               border="1px solid"
               borderColor="gray.200"
               borderRadius="md"
             >
-              <Table variant="simple" size="sm">
-                <Thead h={"30px"} position="sticky" top={0} zIndex={1} bg="gray.200">
+              <Table variant="simple" size="sm" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                <Thead
+                  h={"30px"}
+                  position="sticky"
+                  top={0}
+                  zIndex={1}
+                  bg="gray.200"
+                >
                   <Tr>
+                    <Th
+                      color={"gray.700"}
+                      cursor="pointer"
+                      onClick={() => handleSort("custAccountCode")}
+                      fontSize={"12px"}
+                    >
+                      <HStack>
+                        <Text>Account</Text>
+                        {getSortIcon("custAccountCode")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      cursor="pointer"
+                      onClick={() => handleSort("accountOwner")}
+                    >
+                      <HStack>
+                        <Text>Account Owner</Text>
+                        {getSortIcon("accountOwner")}
+                      </HStack>
+                    </Th>
                     <Th
                       color={"gray.700"}
                       cursor="pointer"
@@ -1281,7 +1797,6 @@ const Reports = () => {
                     </Th>
                     <Th
                       color={"gray.700"}
-                      
                       cursor="pointer"
                       onClick={() => handleSort("custDestination")}
                     >
@@ -1290,10 +1805,11 @@ const Reports = () => {
                         {getSortIcon("custDestination")}
                       </HStack>
                     </Th>
-                    <Th 
+                    <Th
                       color={"gray.700"}
-
-                     cursor="pointer" onClick={() => handleSort("vendor")}>
+                      cursor="pointer"
+                      onClick={() => handleSort("vendor")}
+                    >
                       <HStack>
                         <Text>Vendor</Text>
                         {getSortIcon("vendor")}
@@ -1301,7 +1817,6 @@ const Reports = () => {
                     </Th>
                     <Th
                       color={"gray.700"}
-
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("attempts")}
@@ -1313,7 +1828,6 @@ const Reports = () => {
                     </Th>
                     <Th
                       color={"gray.700"}
-
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("completed")}
@@ -1325,7 +1839,6 @@ const Reports = () => {
                     </Th>
                     <Th
                       color={"gray.700"}
-
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("asr")}
@@ -1337,7 +1850,6 @@ const Reports = () => {
                     </Th>
                     <Th
                       color={"gray.700"}
-
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("acd")}
@@ -1349,7 +1861,6 @@ const Reports = () => {
                     </Th>
                     <Th
                       color={"gray.700"}
-
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("revenue")}
@@ -1361,7 +1872,43 @@ const Reports = () => {
                     </Th>
                     <Th
                       color={"gray.700"}
-
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("revenuePerMin")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Rev/min</Text>
+                        {getSortIcon("revenuePerMin")}
+                      </HStack>
+                    </Th>
+                    {isVendorReport && (
+                      <>
+                        <Th
+                          color={"gray.700"}
+                          isNumeric
+                          cursor="pointer"
+                          onClick={() => handleSort("cost")}
+                        >
+                          <HStack justify="flex-end">
+                            <Text>Cost</Text>
+                            {getSortIcon("cost")}
+                          </HStack>
+                        </Th>
+                        <Th
+                          color={"gray.700"}
+                          isNumeric
+                          cursor="pointer"
+                          onClick={() => handleSort("costPerMin")}
+                        >
+                          <HStack justify="flex-end">
+                            <Text>Cost/min</Text>
+                            {getSortIcon("costPerMin")}
+                          </HStack>
+                        </Th>
+                      </>
+                    )}
+                    <Th
+                      color={"gray.700"}
                       isNumeric
                       cursor="pointer"
                       onClick={() => handleSort("margin")}
@@ -1371,11 +1918,28 @@ const Reports = () => {
                         {getSortIcon("margin")}
                       </HStack>
                     </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("marginPercent")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Margin %</Text>
+                        {getSortIcon("marginPercent")}
+                      </HStack>
+                    </Th>
                   </Tr>
                 </Thead>
                 <Tbody>
                   {paginatedData.map((row, index) => (
                     <Tr key={index}>
+                      <Td fontSize="xs">
+                        {isVendorReport
+                          ? row.vendAccountCode || row.vendor
+                          : row.custAccountCode || row.customer}
+                      </Td>
+                      <Td fontSize="xs">{row.accountOwner || "-"}</Td>
                       <Td fontSize="xs">{row.customer}</Td>
                       <Td>{row.custDestination}</Td>
                       <Td fontSize="xs">{row.vendor}</Td>
@@ -1390,12 +1954,375 @@ const Reports = () => {
                       </Td>
                       <Td isNumeric>{row.acd}</Td>
                       <Td isNumeric>{formatCurrency(row.revenue)}</Td>
+                      <Td isNumeric>{formatCurrency(row.revenuePerMin)}</Td>
+                      {isVendorReport && (
+                        <>
+                          <Td isNumeric>{formatCurrency(row.cost)}</Td>
+                          <Td isNumeric>{formatCurrency(row.costPerMin)}</Td>
+                        </>
+                      )}
                       <Td
                         isNumeric
                         color={row.margin >= 0 ? "green.600" : "red.500"}
                       >
                         {formatCurrency(row.margin)}
                       </Td>
+                      <Td isNumeric>{row.marginPercent}%</Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </Box>
+          );
+
+        case 4:
+          // customer-only traffic
+          return (
+            <Box
+              maxH="500px"
+              overflowY="auto"
+              overflowX="hidden"
+              border="1px solid"
+              borderColor="gray.200"
+              borderRadius="md"
+            >
+              <Table variant="simple" size="sm" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                <Thead
+                  h={"30px"}
+                  position="sticky"
+                  top={0}
+                  zIndex={1}
+                  bg="gray.200"
+                >
+                  <Tr>
+                    <Th
+                      color={"gray.700"}
+                      cursor="pointer"
+                      onClick={() => handleSort("customer")}
+                    >
+                      <HStack>
+                        <Text>Customer</Text>
+                        {getSortIcon("customer")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      cursor="pointer"
+                      onClick={() => handleSort("accountOwner")}
+                    >
+                      <HStack>
+                        <Text>Account Owner</Text>
+                        {getSortIcon("accountOwner")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      cursor="pointer"
+                      onClick={() => handleSort("custDestination")}
+                    >
+                      <HStack>
+                        <Text>Source Country</Text>
+                        {getSortIcon("custDestination")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("attempts")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Attempts</Text>
+                        {getSortIcon("attempts")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("completed")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Comp</Text>
+                        {getSortIcon("completed")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("asr")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>ASR%</Text>
+                        {getSortIcon("asr")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("acd")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>ACD</Text>
+                        {getSortIcon("acd")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("revenue")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Revenue</Text>
+                        {getSortIcon("revenue")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("revenuePerMin")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Rev/min</Text>
+                        {getSortIcon("revenuePerMin")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("margin")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Margin</Text>
+                        {getSortIcon("margin")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("marginPercent")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Margin %</Text>
+                        {getSortIcon("marginPercent")}
+                      </HStack>
+                    </Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {paginatedData.map((row, index) => (
+                    <Tr key={index}>
+                      <Td fontSize="xs">{row.customer}</Td>
+                      <Td fontSize="xs">{row.accountOwner || "-"}</Td>
+                      <Td>{row.custDestination}</Td>
+                      <Td isNumeric>{formatNumber(row.attempts)}</Td>
+                      <Td color={"green"} isNumeric>
+                        {formatNumber(row.completed)}
+                      </Td>
+                      <Td isNumeric>
+                        <Badge colorScheme={row.asr > 40 ? "green" : "orange"}>
+                          {row.asr}%
+                        </Badge>
+                      </Td>
+                      <Td isNumeric>{row.acd}</Td>
+                      <Td isNumeric>{formatCurrency(row.revenue)}</Td>
+                      <Td isNumeric>{formatCurrency(row.revenuePerMin)}</Td>
+                      <Td
+                        isNumeric
+                        color={row.margin >= 0 ? "green.600" : "red.500"}
+                      >
+                        {formatCurrency(row.margin)}
+                      </Td>
+                      <Td isNumeric>{row.marginPercent}%</Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </Box>
+          );
+
+        case 5:
+          // vendor-only traffic
+          return (
+            <Box
+              maxH="500px"
+              overflowY="auto"
+              overflowX="hidden"
+              border="1px solid"
+              borderColor="gray.200"
+              borderRadius="md"
+            >
+              <Table variant="simple" size="sm" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                <Thead
+                  h={"30px"}
+                  position="sticky"
+                  top={0}
+                  zIndex={1}
+                  bg="gray.200"
+                >
+                  <Tr>
+                    <Th
+                      color={"gray.700"}
+                      cursor="pointer"
+                      onClick={() => handleSort("vendAccountCode")}
+                    >
+                      <HStack>
+                        <Text>Account</Text>
+                        {getSortIcon("vendAccountCode")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      cursor="pointer"
+                      onClick={() => handleSort("accountOwner")}
+                    >
+                      <HStack>
+                        <Text>Account Owner</Text>
+                        {getSortIcon("accountOwner")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      cursor="pointer"
+                      onClick={() => handleSort("vendor")}
+                    >
+                      <HStack>
+                        <Text>Vendor</Text>
+                        {getSortIcon("vendor")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      cursor="pointer"
+                      onClick={() => handleSort("vendDestination")}
+                    >
+                      <HStack>
+                        <Text>Destination Country</Text>
+                        {getSortIcon("vendDestination")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("attempts")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Attempts</Text>
+                        {getSortIcon("attempts")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("completed")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Comp</Text>
+                        {getSortIcon("completed")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("asr")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>ASR%</Text>
+                        {getSortIcon("asr")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("acd")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>ACD(Sec)</Text>
+                        {getSortIcon("acd")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("cost")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Cost</Text>
+                        {getSortIcon("cost")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("costPerMin")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Cost/min</Text>
+                        {getSortIcon("costPerMin")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("margin")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Margin</Text>
+                        {getSortIcon("margin")}
+                      </HStack>
+                    </Th>
+                    <Th
+                      color={"gray.700"}
+                      isNumeric
+                      cursor="pointer"
+                      onClick={() => handleSort("marginPercent")}
+                    >
+                      <HStack justify="flex-end">
+                        <Text>Margin %</Text>
+                        {getSortIcon("marginPercent")}
+                      </HStack>
+                    </Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {paginatedData.map((row, index) => (
+                    <Tr key={index}>
+                      <Td fontSize="xs">{row.vendAccountCode || row.vendor}</Td>
+                      <Td fontSize="xs">{row.accountOwner || "-"}</Td>
+                      <Td fontSize="xs">{row.vendor}</Td>
+                      <Td>{row.vendDestination}</Td>
+                      <Td isNumeric>{formatNumber(row.attempts)}</Td>
+                      <Td color={"green"} isNumeric>
+                        {formatNumber(row.completed)}
+                      </Td>
+                      <Td isNumeric>
+                        <Badge colorScheme={row.asr > 40 ? "green" : "orange"}>
+                          {row.asr}%
+                        </Badge>
+                      </Td>
+                      <Td isNumeric>{row.acd}</Td>
+                      <Td isNumeric>{formatCurrency(row.cost)}</Td>
+                      <Td isNumeric>{formatCurrency(row.costPerMin)}</Td>
+                      <Td
+                        isNumeric
+                        color={row.margin >= 0 ? "green.600" : "red.500"}
+                      >
+                        {formatCurrency(row.margin)}
+                      </Td>
+                      <Td isNumeric>{row.marginPercent}%</Td>
                     </Tr>
                   ))}
                 </Tbody>
@@ -1417,7 +2344,8 @@ const Reports = () => {
             <Menu>
               <MenuButton as={Button} size="sm" variant="outline">
                 <HStack spacing={2}>
-                  <FiEye /><Text>{rowsPerPage}</Text> 
+                  <FiEye />
+                  <Text>{rowsPerPage}</Text>
                   <ChevronDownIcon ml={1} />
                 </HStack>
               </MenuButton>
@@ -1692,115 +2620,121 @@ const Reports = () => {
 
   return (
     <Box>
-              <Flex justify="space-between" align="center" bgGradient="linear(to-r,blue.100,blue.200,blue.300)" px={4} py={2} mb={6} borderRadius={"12px"}>
-      
-        <Box>
-          <Heading size="lg" color={"gray.600"}>
-            CDR Analytics Reports
-          </Heading>
-          <Text color={mutedColor}>
-            Generate detailed reports and insights from CDR data
-          </Text>
-        </Box>
-
-        <HStack spacing={3}>
-          <Button
-            size="sm"
-            leftIcon={<FiRefreshCw />}
-            variant="ghost"
-            onClick={() => loadAccounts()}
-            isLoading={accountsLoading}
-          >
-            Refresh
-          </Button>
-
-          <Button
-            size="sm"
-            leftIcon={<CalendarIcon />}
-            colorScheme="green"
-            onClick={() => setIsModalOpen(true)}
-          >
-            Generate Report
-          </Button>
-
-          <Menu>
-            <MenuButton
+      <PageNavBar
+        title="CDR Analytics Reports"
+        description="Generate detailed reports and insights from CDR data"
+        rightContent={
+          <>
+            <Button
               size="sm"
-              as={Button}
-              rightIcon={<ChevronDownIcon />}
-              colorScheme="green"
-              isLoading={exporting}
-              isDisabled={!reportData || reportData.length === 0}
+              leftIcon={<FiRefreshCw />}
+              variant="ghost"
+              onClick={() => loadAccounts()}
+              isLoading={accountsLoading}
             >
-              <DownloadIcon mr={2} />
-              Export
-            </MenuButton>
-            <MenuList>
-              <MenuItem
-                icon={<DownloadIcon />}
-                onClick={() => handleExport("csv")}
-              >
-                Export as CSV
-              </MenuItem>
-              <MenuItem
-                icon={<DownloadIcon />}
-                onClick={() => handleExport("excel")}
-              >
-                Export as Excel
-              </MenuItem>
-              <Divider />
-              <MenuItem icon={<SettingsIcon />} onClick={() => window.print()}>
-                Print Report
-              </MenuItem>
-            </MenuList>
-          </Menu>
-        </HStack>
-      </Flex>
+              Refresh
+            </Button>
 
-      {dashboardMetrics && <DashboardMetrics />}
+            <Menu>
+              <MenuButton
+                size="sm"
+                as={Button}
+                rightIcon={<ChevronDownIcon />}
+                colorScheme="green"
+                isLoading={exporting}
+                isDisabled={!reportData || reportData.length === 0}
+              >
+                <DownloadIcon mr={2} />
+                Export
+              </MenuButton>
+              <MenuList>
+                <MenuItem
+                  icon={<DownloadIcon />}
+                  onClick={() => handleExport("csv")}
+                >
+                  Export as CSV
+                </MenuItem>
+                <MenuItem
+                  icon={<DownloadIcon />}
+                  onClick={() => handleExport("excel")}
+                >
+                  Export as Excel
+                </MenuItem>
+                <Divider />
+                <MenuItem icon={<SettingsIcon />} onClick={() => window.print()}>
+                  Print Report
+                </MenuItem>
+              </MenuList>
+            </Menu>
+          </>
+        }
+      />
+
+      {/* metrics will show inside tab panels */}
+
+{/* controls and performance overview moved into tabs */}
 
       <Tabs
         variant={{ base: "line", md: "line" }}
         colorScheme="blue"
         mb={8}
+        mt={4}
         index={activeTab}
-        onChange={(index) => {
-          setActiveTab(index);
-          setReportData([]);
-          setReportSummary({});
-          setPage(1);
-        }}
+        // 1. Reset isVendorReport when switching tabs
+onChange={(index) => {
+  setActiveTab(index);
+  setReportData([]);
+  setReportSummary({});
+  setPage(1);
+  // Reset vendor/customer based on tab
+  if (index === 4) setIsVendorReport(false);  // Customer Traffic → always customer
+  if (index === 5) setIsVendorReport(true);   // Vendor Traffic → always vendor
+  if (index !== 4 && index !== 5) setIsVendorReport(false); // reset others to default
+}}
       >
-        <TabList gap={8}>
+        <TabList gap={3}>
           <Tab>
             <HStack spacing={2}>
               <TimeIcon />
-              <Text>Hourly Reports</Text>
-            </HStack>
+              <Text fontWeight={"bold"}>Hourly Reports</Text>   </HStack>
           </Tab>
           <Tab>
             <HStack spacing={2}>
               <FiBarChart2 />
-              <Text>Margin Reports</Text>
+              <Text fontWeight={"bold"}>Margin Reports</Text>
             </HStack>
           </Tab>
           <Tab>
             <HStack spacing={2}>
               <FiTrendingDown />
-              <Text>Negative Margin</Text>
+              <Text fontWeight={"bold"}>Negative Margin</Text>
             </HStack>
           </Tab>
           <Tab>
             <HStack spacing={2}>
               <FiList />
-              <Text>Customer Traffic</Text>
+              <Text fontWeight={"bold"}>Customer to Vendor Traffic</Text>
+            </HStack>
+          </Tab>
+          <Tab>
+            <HStack spacing={2}>
+              <FiList />
+              <Text fontWeight={"bold"}>Customer Traffic</Text>
+            </HStack>
+          </Tab>
+          <Tab>
+            <HStack spacing={2}>
+              <FiList />
+              <Text fontWeight={"bold"}>Vendor Traffic</Text>
             </HStack>
           </Tab>
         </TabList>
 
         <TabPanels>
-          {[0, 1, 2, 3].map((tabIndex) => (
+          {[0, 1, 2, 3, 4, 5].map((tabIndex) => (
             <TabPanel key={tabIndex} px={0}>
+              <ReportControls />
+              {dashboardMetrics && <DashboardMetrics />}
               <ReportSummary />
 
               <Box mb={4}>
@@ -1837,10 +2771,9 @@ const Reports = () => {
                       </Text>
                     </VStack>
 
-                      <Badge colorScheme="yellow" fontSize="sm" px={3} py={1}>
-                        {filteredData.length} records
-                      </Badge>
-                    
+                    <Badge colorScheme="yellow" fontSize="xs" px={3} py={1}>
+                      {filteredData.length} records
+                    </Badge>
                   </Flex>
                 </CardHeader>
                 <CardBody overflowX="auto">
@@ -1853,325 +2786,6 @@ const Reports = () => {
           ))}
         </TabPanels>
       </Tabs>
-
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        size="xl"
-        isCentered
-        scrollBehavior="inside"
-      >
-        <ModalOverlay backdropFilter="blur(4px)" />
-        <ModalContent>
-          <ModalHeader bg="blue.500" color="white" borderTopRadius="md">
-            <HStack>
-              <FiFilter />
-              <Text>
-                Generate{" "}
-                {
-                  ["Hourly", "Margin", "Negative Margin", "Customer Traffic"][
-                    activeTab
-                  ]
-                }{" "}
-                Report
-              </Text>
-            </HStack>
-          </ModalHeader>
-          <ModalCloseButton color="white" />
-          <ModalBody py={6}>
-            <VStack spacing={6} align="stretch">
-              <Box>
-                <FormLabel fontWeight="bold">Date Range</FormLabel>
-                <HStack mb={3}>
-                  {[
-                    { label: "Today", days: 0 },
-                    { label: "Yesterday", days: 1 },
-                    { label: "Last 7 Days", days: 7 },
-                    { label: "Last 30 Days", days: 30 },
-                    { label: "Last 90 Days", days: 90 },
-                  ].map((option) => (
-                    <Button
-                      key={option.label}
-                      size="xs"
-                      variant="outline"
-                      onClick={() => {
-                        const end = new Date();
-                        const start = new Date();
-                        start.setDate(start.getDate() - option.days);
-                        setDateRange({
-                          startDate: start,
-                          endDate: end,
-                          startHour: 0,
-                          endHour: 23,
-                        });
-                      }}
-                    >
-                      {option.label}
-                    </Button>
-                  ))}
-                </HStack>
-                <HStack>
-                  <Box flex={1}>
-                    <FormLabel fontSize="sm">Start Date</FormLabel>
-                    <DatePicker
-                      selected={dateRange.startDate}
-                      onChange={(date) =>
-                        setDateRange({ ...dateRange, startDate: date })
-                      }
-                      selectsStart
-                      startDate={dateRange.startDate}
-                      endDate={dateRange.endDate}
-                      dateFormat="yyyy-MM-dd"
-                      customInput={<Input />}
-                      isClearable
-                    />
-                  </Box>
-                  <Box flex={1}>
-                    <FormLabel fontSize="sm">End Date</FormLabel>
-                    <DatePicker
-                      selected={dateRange.endDate}
-                      onChange={(date) =>
-                        setDateRange({ ...dateRange, endDate: date })
-                      }
-                      selectsEnd
-                      startDate={dateRange.startDate}
-                      endDate={dateRange.endDate}
-                      minDate={dateRange.startDate}
-                      dateFormat="yyyy-MM-dd"
-                      customInput={<Input />}
-                      isClearable
-                    />
-                  </Box>
-                </HStack>
-                <HStack mt={4} spacing={4}>
-                  <Box flex={1}>
-                    <FormLabel fontSize="sm">From Hour</FormLabel>
-                    <Menu>
-                      <MenuButton as={Button} size="sm" variant="outline">
-                        {dateRange.startHour.toString().padStart(2, "0")}:00
-                      </MenuButton>
-                      <MenuList maxH="200px" overflowY="auto">
-                        {[...Array(24).keys()].map((hour) => (
-                          <MenuItem
-                            key={hour}
-                            onClick={() =>
-                              setDateRange({ ...dateRange, startHour: hour })
-                            }
-                          >
-                            {hour.toString().padStart(2, "0")}:00
-                          </MenuItem>
-                        ))}
-                      </MenuList>
-                    </Menu>
-                  </Box>
-                  <Box flex={1}>
-                    <FormLabel fontSize="sm">To Hour</FormLabel>
-                    <Menu>
-                      <MenuButton as={Button} size="sm" variant="outline">
-                        {dateRange.endHour.toString().padStart(2, "0")}:59
-                      </MenuButton>
-                      <MenuList maxH="200px" overflowY="auto">
-                        {[...Array(24).keys()].map((hour) => (
-                          <MenuItem
-                            key={hour}
-                            onClick={() =>
-                              setDateRange({ ...dateRange, endHour: hour })
-                            }
-                          >
-                            {hour.toString().padStart(2, "0")}:59
-                          </MenuItem>
-                        ))}
-                      </MenuList>
-                    </Menu>
-                  </Box>
-                </HStack>
-                <Text fontSize="xs" color="gray.500" mt={2}>
-                  {Math.ceil(
-                    (dateRange.endDate - dateRange.startDate) /
-                      (1000 * 60 * 60 * 24),
-                  )}{" "}
-                  days selected
-                </Text>
-              </Box>
-
-              <FormControl>
-                <FormLabel fontWeight="bold">
-                  {isVendorReport ? "Vendor Account" : "Customer Account"}
-                </FormLabel>
-                <Select
-                  value={selectedAccount}
-                  onChange={(e) => setSelectedAccount(e.target.value)}
-                  placeholder={
-                    accountsLoading
-                      ? "Loading accounts..."
-                      : "Select an account"
-                  }
-                  isDisabled={accountsLoading}
-                >
-                  <option value="all">All Accounts</option>
-                  <option value="top10">Top 10 Accounts by Revenue</option>
-                  <option value="active">Active Accounts Only</option>
-                  {(isVendorReport ? accounts.vendors : accounts.customers).map(
-                    (account) => (
-                      <option
-                        key={account.id || account._id}
-                        value={
-                          isVendorReport
-                            ? account.vendorCode
-                            : account.customerCode
-                        }
-                      >
-                        {account.customerCode} ({account.accountName})
-                      </option>
-                    ),
-                  )}
-                </Select>
-              </FormControl>
-
-              <Accordion allowToggle>
-                <AccordionItem border="none">
-                  <AccordionButton px={0} py={2}>
-                    <Box flex="1" textAlign="left" fontWeight="medium">
-                      Advanced Options
-                    </Box>
-                    <AccordionIcon />
-                  </AccordionButton>
-                  <AccordionPanel px={0} pb={0}>
-                    <VStack spacing={4} align="stretch">
-                      {[0, 1].includes(activeTab) && (
-                        <FormControl display="flex" alignItems="center">
-                          <Switch
-                            id="vendor-report"
-                            isChecked={isVendorReport}
-                            onChange={(e) => {
-                              setIsVendorReport(e.target.checked);
-                              setSelectedAccount("all");
-                            }}
-                            colorScheme="blue"
-                            size="lg"
-                          />
-                          <FormLabel htmlFor="vendor-report" mb={0} ml={3}>
-                            Generate Vendor Report
-                          </FormLabel>
-                        </FormControl>
-                      )}
-
-                      {activeTab === 3 && (
-                        <FormControl display="flex" alignItems="center">
-                          <Switch
-                            id="vendor-traffic"
-                            isChecked={isVendorReport}
-                            onChange={(e) => {
-                              setIsVendorReport(e.target.checked);
-                              setSelectedAccount("all");
-                            }}
-                            colorScheme="blue"
-                            size="lg"
-                          />
-                          <FormLabel htmlFor="vendor-traffic" mb={0} ml={3}>
-                            Show Vendor Traffic instead
-                          </FormLabel>
-                        </FormControl>
-                      )}
-
-                      {activeTab === 2 && (
-                        <FormControl>
-                          <FormLabel>Negative Margin Threshold</FormLabel>
-                          <HStack spacing={4}>
-                            <NumberInput
-                              value={marginThreshold}
-                              onChange={(value) => setMarginThreshold(value)}
-                              precision={2}
-                              step={0.1}
-                              min={-100}
-                              max={0}
-                              width="150px"
-                            >
-                              <NumberInputField />
-                              <NumberInputStepper>
-                                <NumberIncrementStepper />
-                                <NumberDecrementStepper />
-                              </NumberInputStepper>
-                            </NumberInput>
-                            <Slider
-                              value={marginThreshold}
-                              onChange={(value) => setMarginThreshold(value)}
-                              min={-100}
-                              max={0}
-                              step={1}
-                              width="200px"
-                            >
-                              <SliderTrack>
-                                <SliderFilledTrack bg="red.500" />
-                              </SliderTrack>
-                              <SliderThumb />
-                            </Slider>
-                          </HStack>
-                          <Text fontSize="sm" color="gray.500" mt={1}>
-                            Show calls with margin below: {marginThreshold}%
-                          </Text>
-                        </FormControl>
-                      )}
-
-                      <FormControl>
-                        <FormLabel>Time Granularity</FormLabel>
-                        <Select
-                          value={timeGranularity}
-                          onChange={(e) => setTimeGranularity(e.target.value)}
-                        >
-                          <option value="hour">Hourly</option>
-                          <option value="day">Daily</option>
-                          <option value="week">Weekly</option>
-                          <option value="month">Monthly</option>
-                        </Select>
-                      </FormControl>
-
-                      <FormControl>
-                        <FormLabel>Result Limit</FormLabel>
-                        <Select
-                          value={rowsPerPage}
-                          onChange={(e) =>
-                            setRowsPerPage(parseInt(e.target.value))
-                          }
-                        >
-                          <option value={50}>50 rows</option>
-                          <option value={100}>100 rows</option>
-                          <option value={250}>250 rows</option>
-                          <option value={500}>500 rows</option>
-                          <option value={1000}>1000 rows</option>
-                        </Select>
-                      </FormControl>
-                    </VStack>
-                  </AccordionPanel>
-                </AccordionItem>
-              </Accordion>
-            </VStack>
-          </ModalBody>
-
-          <ModalFooter>
-            <HStack spacing={6} width="100%">
-              <Button
-                size={"md"}
-                variant="outline"
-                onClick={() => setIsModalOpen(false)}
-                flex={1}
-              >
-                Cancel
-              </Button>
-              <Button
-                colorScheme="blue"
-                onClick={handleGenerateReport}
-                isLoading={loading}
-                leftIcon={<FiFilter />}
-                flex={2}
-                size="md"
-              >
-                Generate Report
-              </Button>
-            </HStack>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
     </Box>
   );
 };

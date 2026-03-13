@@ -237,6 +237,61 @@ export const exportReport = async (data, format, fileName) => {
   }
 };
 
+export const exportSOA = async (params) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/reports/export-soa`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(params)
+    });
+    
+    if (response.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('user');
+      window.location.href = '/';
+      return;
+    }
+
+    if (!response.ok) throw new Error('Export failed');
+    
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `SOA_${params.account?.accountName || 'Report'}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+    return { success: true };
+  } catch (error) {
+    console.error('Error exporting SOA:', error);
+    throw error;
+  }
+};
+
+export const sendSOAEmail = async (params) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/reports/send-soa-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(params),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error sending SOA email:', error);
+    throw error;
+  }
+};
+
 // Billing APIs
 export const fetchInvoices = async (params = {}) => {
   try {
@@ -450,6 +505,23 @@ export const deleteDispute = async (id) => {
   }
 };
 
+export const updateDisputeStatus = async (id, statusData) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/disputes/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(statusData),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error updating dispute ${id}:`, error);
+    throw error;
+  }
+};
+
 export const fetchPayments = async (params = {}) => {
   try {
     const query = new URLSearchParams(params).toString();
@@ -647,6 +719,19 @@ export const topupAccount = async (topupData) => {
     return await handleResponse(response);
   } catch (error) {
     console.error('Error processing topup:', error);
+    throw error;
+  }
+};
+
+export const deletevendorinvoice = async (id) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/vendor-invoices/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error deleting vendor invoice ${id}:`, error);
     throw error;
   }
 };

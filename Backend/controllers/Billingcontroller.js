@@ -416,10 +416,17 @@ exports.generateInvoice = async (req, res) => {
 
     // Update account balance/credit limit
     if (account.billingType === 'postpaid') {
-      // For postpaid, credit limit decreases as usage (invoice) increases
+      // For postpaid, credit limit decreases as usage (invoice) increases.
+      // refuse to generate if the remaining limit isn't sufficient.
+      if (Number(account.creditLimit) < totalAmount) {
+        throw new Error('Credit limit exceeded – cannot generate invoice');
+      }
       await account.decrement('creditLimit', { by: totalAmount, transaction });
     } else {
       // For prepaid, balance decreases as usage (invoice) increases
+      if (Number(account.balance) < totalAmount) {
+        throw new Error('Insufficient prepaid balance – cannot generate invoice');
+      }
       await account.decrement('balance', { by: totalAmount, transaction });
     }
 
@@ -1056,6 +1063,23 @@ exports.updateInvoice = async (req, res) => {
       });
     }
 
+    // keep track of original status/paid amount for side-effects later
+    const prevStatus = invoice.status;
+    const prevPaid = Number(invoice.paidAmount || 0);
+
+    // when marking an invoice paid manually, make sure amounts reflect that
+    if (updateData.status === 'paid') {
+      // if no paid amount supplied, assume full
+      if (updateData.paidAmount == null) {
+        updateData.paidAmount = invoice.totalAmount;
+      }
+      updateData.balanceAmount = Number(invoice.totalAmount) - Number(updateData.paidAmount);
+      // set a paymentDate if none given
+      if (!updateData.paymentDate) {
+        updateData.paymentDate = formatTime(new Date());
+      }
+    }
+
     // Convert dates to timestamps if present
     if (updateData.invoiceDate) updateData.invoiceDate = formatTime(updateData.invoiceDate);
     if (updateData.dueDate) updateData.dueDate = formatTime(updateData.dueDate);
@@ -1065,19 +1089,37 @@ exports.updateInvoice = async (req, res) => {
 
     await invoice.update(updateData);
 
-    const updatedInvoice = await Invoice.findByPk(id, {
-      include: [{
-        model: InvoiceItem,
-        as: 'items'
-      }]
-    });
+    // if the status was just flipped to paid (manual update) and the
+    // account is postpaid, return credit corresponding to the unpaid amount.
+    if (prevStatus !== 'paid' && updateData.status === 'paid') {
+      // determine amount to restore
+      const restoreAmount = Number(invoice.totalAmount || 0) - prevPaid;
+      if (restoreAmount > 0) {
+        // lookup customer to adjust credit
+        const customer = await Account.findOne({
+          where: {
+            [Op.or]: [
+              { gatewayId: invoice.customerGatewayId },
+              { customerCode: invoice.customerCode },
+              { accountName: invoice.customerName }
+            ]
+          }
+        });
+
+        if (customer && customer.billingType === 'postpaid') {
+            const orig = parseFloat(customer.originalCreditLimit) || 0;
+            let newLimit = parseFloat(customer.creditLimit) + restoreAmount;
+            if (orig && newLimit > orig) newLimit = orig;
+            await customer.update({ creditLimit: newLimit });
+        }
+      }
+    }
 
     res.json({
       success: true,
       message: 'Invoice updated successfully',
-      invoice: updatedInvoice
+      data: invoice
     });
-
   } catch (error) {
     console.error('Update Invoice Error:', error);
     res.status(500).json({
@@ -1176,14 +1218,19 @@ exports.recordPayment = async (req, res) => {
     }
 
     // Get customer by customerCode or other IDs
+    const isNumeric = /^\d+$/.test(customerId);
+    const customerWhere = {
+      [Op.or]: [
+        { customerCode: customerId },
+        { gatewayId: customerId }
+      ]
+    };
+    if (isNumeric) {
+      customerWhere[Op.or].push({ accountId: parseInt(customerId) });
+    }
+    
     const customer = await Account.findOne({
-      where: {
-        [Op.or]: [
-          { customerCode: customerId },
-          { gatewayId: customerId },
-          { accountId: customerId }
-        ]
-      }
+      where: customerWhere
     });
 
     if (!customer) {
@@ -1270,13 +1317,21 @@ exports.recordPayment = async (req, res) => {
         paymentDate: newStatus === 'paid' ? formatTime(paymentDate) : invoice.paymentDate
       }, { transaction });
 
-      // Reset credit limit for postpaid accounts when invoice is fully paid
-      if (newStatus === 'paid' && customer.billingType === 'postpaid') {
-        const originalCreditLimit = customer.originalCreditLimit || customer.creditLimit;
-        await customer.update({
-          creditLimit: originalCreditLimit
-        }, { transaction });
+      // Adjust credit limit for postpaid accounts when an invoice payment occurs
+      // instead of blindly resetting to a stored "originalCreditLimit" (which may
+      // be null/undefined for older records), simply restore the amount that was
+      // just paid.  This behaves correctly when multiple invoices are open and
+      // also handles legacy accounts where originalCreditLimit wasn’t populated.
+      if (customer.billingType === 'postpaid') {
+        // add back the allocated amount and clamp to originalCreditLimit
+        const orig = parseFloat(customer.originalCreditLimit) || 0;
+        let newLimit = parseFloat(customer.creditLimit) + parseFloat(allocation.amount);
+        if (orig && newLimit > orig) newLimit = orig;
+        await customer.update({ creditLimit: newLimit }, { transaction });
       }
+      // *Note: if the invoice is being partially paid over multiple allocations,
+      // the limit will be incremented incrementally with each allocation, but
+      // will never rise above the original limit saved on the account.
     }
 
     await transaction.commit();
@@ -1749,12 +1804,13 @@ exports.raiseDispute = async (req, res) => {
       });
     }
 
+    const isNumeric = /^\d+$/.test(customerId);
     const customer = await Account.findOne({
       where: {
         [Op.or]: [
           { customerCode: customerId },
           { gatewayId: customerId },
-          { accountId: customerId }
+          ...(isNumeric ? [{ accountId: parseInt(customerId) }] : [])
         ]
       }
     });
@@ -1828,6 +1884,100 @@ exports.getAllDisputes = async (req, res) => {
 
 
 /* ===================== DELETE DISPUTE ===================== */
+exports.updateDispute = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, comment } = req.body;
+
+    const valid = ['open', 'in_review', 'resolved', 'closed'];
+    
+    // Check if there's at least a status change or a comment
+    if (!status && !comment) {
+      return res.status(400).json({
+        success: false,
+        error: 'Provide either a status change or a comment'
+      });
+    }
+    
+    // If status is provided, validate it
+    if (status && !valid.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid status value'
+      });
+    }
+
+    const dispute = await Dispute.findByPk(id);
+    if (!dispute) {
+      return res.status(404).json({
+        success: false,
+        error: 'Dispute not found'
+      });
+    }
+
+    // if transitioning to a final state, record resolution info
+    if (status && ['resolved', 'closed'].includes(status) && dispute.status !== status) {
+      dispute.resolvedAt = Date.now();
+      if (req.user && req.user.id) {
+        dispute.resolvedBy = req.user.id;
+      }
+    }
+
+    // Handle comments
+    if (comment && comment.trim()) {
+      const existingComments = dispute.comments || [];
+      // Ensure we have an array (in case it's stored as JSON string)
+      const comments = Array.isArray(existingComments) ? existingComments : [];
+      const firstName = req.user?.firstName || '';
+      const lastName = req.user?.lastName || '';
+      const userName = `${firstName} ${lastName}`.trim() || req.user?.email || 'Unknown User';
+      const newComment = {
+        text: comment.trim(),
+        timestamp: Date.now(),
+        userId: req.user?.id || null,
+        userName: userName
+      };
+      // Create a new array to ensure Sequelize detects the change
+      const updatedComments = [...comments, newComment];
+      dispute.comments = updatedComments;
+      // Explicitly mark the field as changed for Sequelize
+      dispute.changed('comments', true);
+    }
+
+    // Update status only if provided
+    if (status) {
+      dispute.status = status;
+    }
+    
+    await dispute.save();
+
+    // optional: notify customer/admin of status change
+    if (status && ['resolved', 'closed', 'in_review'].includes(status)) {
+      try {
+        await EmailService.sendEmail(
+          process.env.EMAIL_FROM,
+          `Dispute ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+          'dispute-status-update',
+          { dispute, status }
+        );
+      } catch (e) {
+        console.error('Failed to send status update email', e);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: dispute
+    });
+  } catch (error) {
+    console.error('Update Dispute Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 exports.deleteDispute = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1889,14 +2039,19 @@ exports.topupAccount = async (req, res) => {
     }
 
     // Get customer
+    const isNumeric = /^\d+$/.test(customerId);
+    const customerWhere = {
+      [Op.or]: [
+        { customerCode: customerId },
+        { gatewayId: customerId }
+      ]
+    };
+    if (isNumeric) {
+      customerWhere[Op.or].push({ accountId: parseInt(customerId) });
+    }
+
     const customer = await Account.findOne({
-      where: {
-        [Op.or]: [
-          { customerCode: customerId },
-          { gatewayId: customerId },
-          { accountId: customerId }
-        ]
-      },
+      where: customerWhere,
       transaction
     });
 

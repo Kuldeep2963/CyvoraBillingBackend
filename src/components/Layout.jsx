@@ -55,35 +55,115 @@ const SidebarContent = ({ onClose, ...rest }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { isOpen: isLogoutOpen, onOpen: onLogoutOpen, onClose: onLogoutClose } = useDisclosure();
-  const { isOpen: isChangePasswordOpen, onOpen: onChangePasswordOpen, onClose: onChangePasswordClose } = useDisclosure();
+  const {
+    isOpen: isLogoutOpen,
+    onOpen: onLogoutOpen,
+    onClose: onLogoutClose,
+  } = useDisclosure();
+  const {
+    isOpen: isChangePasswordOpen,
+    onOpen: onChangePasswordOpen,
+    onClose: onChangePasswordClose,
+  } = useDisclosure();
   const [openDropdown, setOpenDropdown] = useState(null);
 
+  const userRole = user?.role?.trim().toLowerCase();
+  // alert(userRole);
+
   const navItems = [
-    { path: "/dashboard", label: "Dashboard", icon: FiHome },
-    { path: "/accounts", label: "Accounts", icon: FiUsers },
+    {
+      path: "/dashboard",
+      label: "Dashboard",
+      icon: FiHome,
+      roles: ["admin", "sales-manager", "rates-dept", "noc-dept", "view only"],
+    },
+    {
+      path: "/accounts",
+      label: "Accounts",
+      icon: FiUsers,
+      roles: ["admin", "sales-manager", "rates-dept", "view only"],
+    },
     {
       label: "Billing",
       icon: FiDollarSign,
       isDropdown: true,
+      roles: ["admin", "sales-manager", "rates-dept", "view only"],
       subItems: [
-        { path: "/invoices", label: "Invoices", icon: FiFileText },
-        { path: "/soa", label: "Account Statement", icon: FiDollarSign },
-        { path: "/vendorinvoice", label: "Vendor Invoices", icon: FiFile },
+        {
+          path: "/invoices",
+          label: "Invoices",
+          icon: FiFileText,
+          roles: ["admin", "sales-manager", "rates-dept", "view only"],
+        },
+        {
+          path: "/soa",
+          label: "Account Statement",
+          icon: FiDollarSign,
+          roles: ["admin", "sales-manager", "view only"],
+        },
+        {
+          path: "/vendorinvoice",
+          label: "Vendor Invoices",
+          icon: FiFile,
+          roles: ["admin", "rates-dept", "view only"],
+        },
       ],
     },
-    { path: "/payments", label: "Payments", icon: FiCreditCard },
-    { path: "/disputes", label: "Disputes", icon: FiAlertTriangle },
-    { path: "/reports", label: "Reports", icon: FiFileText },
-    { path: "/settings", label: "Settings", icon: FiSettings },
-    { path: "/adduser", label: "Add User", icon: FiUser },
+    {
+      path: "/payments",
+      label: "Payments",
+      icon: FiCreditCard,
+      roles: ["admin", "sales-manager", "rates-dept"],
+    },
+    {
+      path: "/disputes",
+      label: "Disputes",
+      icon: FiAlertTriangle,
+      roles: ["admin", "sales-manager", "noc-dept", "view only"],
+    },
+    {
+      path: "/reports",
+      label: "Reports",
+      icon: FiFileText,
+      roles: ["admin", "sales-manager", "rates-dept", "noc-dept", "view only"],
+    },
+    {
+      path: "/settings",
+      label: "Settings",
+      icon: FiSettings,
+      roles: ["admin"],
+    },
+    {
+      path: "/adduser",
+      label: "Add User",
+      icon: FiUser,
+      roles: ["admin"],
+    },
   ];
+
+  // Filter nav items based on user role
+  const filteredNavItems = navItems
+    .filter((item) => item.roles.includes(userRole))
+    .map((item) => {
+      if (item.isDropdown && item.subItems) {
+        return {
+          ...item,
+          subItems: item.subItems.filter((sub) =>
+            sub.roles.includes(userRole)
+          ),
+        };
+      }
+      return item;
+    })
+    .filter((item) => !item.isDropdown || item.subItems?.length > 0);
 
   // Auto-expand dropdown if a subitem is active on mount / route change
   React.useEffect(() => {
-    navItems.forEach((item) => {
+    filteredNavItems.forEach((item) => {
       if (item.isDropdown) {
-        const isActive = item.subItems.some((sub) => sub.path === location.pathname);
+        const isActive = item.subItems.some(
+          (sub) => sub.path === location.pathname
+        );
         if (isActive) {
           setOpenDropdown(item.label);
         }
@@ -103,7 +183,9 @@ const SidebarContent = ({ onClose, ...rest }) => {
 
   const renderNavItem = (item) => {
     if (item.isDropdown) {
-      const isActive = item.subItems.some((sub) => sub.path === location.pathname);
+      const isActive = item.subItems.some(
+        (sub) => sub.path === location.pathname
+      );
       const isOpen = openDropdown === item.label;
 
       return (
@@ -142,9 +224,17 @@ const SidebarContent = ({ onClose, ...rest }) => {
                   p={2}
                   pl={6}
                   borderRadius="md"
-                  bg={location.pathname === subItem.path ? "gray.800" : "transparent"}
-                  color={location.pathname === subItem.path ? "white" : "gray.400"}
-                  fontWeight={location.pathname === subItem.path ? "600" : "500"}
+                  bg={
+                    location.pathname === subItem.path
+                      ? "gray.800"
+                      : "transparent"
+                  }
+                  color={
+                    location.pathname === subItem.path ? "white" : "gray.400"
+                  }
+                  fontWeight={
+                    location.pathname === subItem.path ? "600" : "500"
+                  }
                   _hover={{
                     bg: "gray.800",
                     textDecoration: "none",
@@ -218,7 +308,7 @@ const SidebarContent = ({ onClose, ...rest }) => {
         type="danger"
       />
 
-      <ChangePasswordModal 
+      <ChangePasswordModal
         isOpen={isChangePasswordOpen}
         onClose={onChangePasswordClose}
       />
@@ -237,93 +327,144 @@ const SidebarContent = ({ onClose, ...rest }) => {
       </Flex>
 
       {/* Navigation Section */}
-      <VStack spacing={1} align="stretch" flex={1} h={"70vh"} overflowY="auto">
-        {navItems.map((item) => renderNavItem(item))}
+      <VStack
+        spacing={1}
+        align="stretch"
+        flex={1}
+        h={"70vh"}
+        overflowY="auto"
+        sx={{
+          "&::-webkit-scrollbar": {
+            display: "none",
+          },
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+        }}
+      >
+        {filteredNavItems.map((item) => renderNavItem(item))}
       </VStack>
 
       {/* Footer Section - pinned to bottom */}
-<Box
-  pt={3}
-  mt={4}
-  borderTop="1px solid"
-  borderColor="gray.800"
-  flexShrink={0}
->
-  <HStack
-    spacing={3}
-    p={2}
-    borderRadius="md"
-    cursor="pointer"
-    _hover={{ bg: "gray.900" }}
-    transition="all 0.2s"
-  >
-    <Menu placement="top-start">
-      <MenuButton as={Box} display="flex" alignItems="center" gap={3} flex={1} minW={0}>
-        <HStack spacing={3}>
-          <Avatar
-            size="sm"
-            name={user?.email || "Admin User"}
-            color="white"
-            bg="green.700"
-          />
-          <Box flex={2} minW={0}>
-            <Text fontWeight="medium" color="white" fontSize="sm" noOfLines={1}>
-              {user?.email || "Admin User"}
-            </Text>
-            <Text fontSize="xs" color="gray.400" textTransform="capitalize">
-              {user?.role || "Administrator"}
-            </Text>
-          </Box>
-        </HStack>
-      </MenuButton>
-
-      <MenuList bg="gray.800" borderColor="gray.700" shadow="md" minW="150px">
-        <MenuItem
-          icon={<Icon as={FiLock} />}
-          bg="gray.800"
-          color="white"
-          _hover={{ bg: "gray.700" }}
-          onClick={onChangePasswordOpen}
-        >
-          Change Password
-        </MenuItem>
-      </MenuList>
-    </Menu>
-
-    <HStack spacing={3} alignItems="center">
-      <Box position="relative">
-        <Icon
-          boxSize={5}
-          as={FiBell}
-          color="blue.400"
+      <Box
+        pt={3}
+        mt={4}
+        borderTop="1px solid"
+        borderColor="gray.800"
+        flexShrink={0}
+      >
+        <HStack
+          spacing={3}
+          p={2}
+          borderRadius="md"
           cursor="pointer"
-          _hover={{ color: "blue.300" }}
-        />
-        <Badge
-          position="absolute"
-          top="-6px"
-          right="-6px"
-          fontSize="2xs"
-          colorScheme="red"
-          borderRadius="full"
-          boxSize="16px"
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
+          _hover={{ bg: "gray.900" }}
+          transition="all 0.2s"
         >
-          3
-        </Badge>
+          <Menu placement="top-start">
+            <MenuButton
+              as={Box}
+              display="flex"
+              alignItems="center"
+              gap={3}
+              flex={1}
+              minW={0}
+            >
+              <HStack spacing={3}>
+                <Avatar
+                  size="sm"
+                  name={user?.email || "Admin User"}
+                  color="white"
+                  bg="green.700"
+                />
+                <Box flex={2} minW={0}>
+                  <Text
+                    fontWeight="medium"
+                    color="white"
+                    fontSize="sm"
+                    noOfLines={1}
+                  >
+                    {user?.email || "Admin User"}
+                  </Text>
+                  <Text
+                    fontSize="xs"
+                    color="gray.400"
+                    textTransform="capitalize"
+                  >
+                    {user?.role || "Administrator"}
+                  </Text>
+                </Box>
+              </HStack>
+            </MenuButton>
+
+            <MenuList
+              bg="gray.800"
+              borderColor="gray.700"
+              shadow="md"
+              minW="150px"
+            >
+              <MenuItem
+                icon={<Icon as={FiLock} />}
+                bg="gray.800"
+                color="white"
+                _hover={{ bg: "gray.700" }}
+                onClick={onChangePasswordOpen}
+              >
+                Change Password
+              </MenuItem>
+            </MenuList>
+          </Menu>
+
+          <HStack spacing={3} alignItems="center">
+            <Box position="relative" display="inline-flex">
+              <Tooltip
+                bg="white"
+                fontStyle="italic"
+                fontWeight="bold"
+                p={2}
+                borderRadius="lg"
+                shadow="xl"
+                transition="0.4s ease-in-out"
+                color="black"
+                label="coming soon"
+                placement="right"
+                fontSize="sm"
+              >
+                <Box position="relative">
+                  <Icon
+                    boxSize={5}
+                    as={FiBell}
+                    color="blue.400"
+                    cursor="pointer"
+                    _hover={{ color: "blue.300" }}
+                  />
+                  <Badge
+                    position="absolute"
+                    top="-6px"
+                    right="-6px"
+                    fontSize="2xs"
+                    colorScheme="red"
+                    borderRadius="full"
+                    boxSize="16px"
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="center"
+                  >
+                    1
+                  </Badge>
+                </Box>
+              </Tooltip>
+            </Box>
+
+            <Icon
+              as={FiLogOut}
+              color="gray.400"
+              cursor="pointer"
+              _hover={{ color: "red.400" }}
+              onClick={handleLogout}
+            />
+          </HStack>
+        </HStack>
       </Box>
-      <Icon
-        as={FiLogOut}
-        color="gray.400"
-        cursor="pointer"
-        _hover={{ color: "red.400" }}
-        onClick={handleLogout}
-      />
-    </HStack>
-  </HStack>
-</Box>
     </Box>
   );
 };
@@ -334,7 +475,10 @@ const Layout = ({ children }) => {
   return (
     <Box minH="100vh" bg={useColorModeValue("gray.50", "gray.900")}>
       {/* Desktop Sidebar */}
-      <SidebarContent onClose={onClose} display={{ base: "none", md: "block" }} />
+      <SidebarContent
+        onClose={onClose}
+        display={{ base: "none", md: "block" }}
+      />
 
       {/* Mobile Drawer */}
       <Drawer
@@ -344,7 +488,7 @@ const Layout = ({ children }) => {
         onClose={onClose}
         returnFocusOnClose={false}
         onOverlayClick={onClose}
-        size="full"
+        size="xs"
       >
         <DrawerOverlay />
         <DrawerContent bg="black">
@@ -376,11 +520,11 @@ const Layout = ({ children }) => {
           icon={<FiMenu />}
         />
         <Image
-         src="./pai-telecom-logo.png"
-         alt="PAI Telecom logo"
-         boxSize="60px"
-         objectFit="contain"
-         />
+          src="./pai-telecom-logo.png"
+          alt="PAI Telecom logo"
+          boxSize="60px"
+          objectFit="contain"
+        />
       </Flex>
 
       {/* Main Content */}

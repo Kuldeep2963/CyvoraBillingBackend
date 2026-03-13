@@ -40,9 +40,10 @@ import {
 import {
   createCustomer,
   updateCustomer,
+  
 } from "../../utils/api";
 
-const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuccess }) => {
+const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuccess, users = [] }) => {
   const [loading, setLoading] = useState(false);
   const toast = useToast();
 
@@ -87,6 +88,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
     currency: "USD",
     nominalCode: "",
     creditLimit: 1000.0,
+    originalCreditLimit: 1000.0,
     balance: 0.0,
     outstandingAmount: 0.0,
 
@@ -122,7 +124,13 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
 
   useEffect(() => {
     if (selectedCustomer) {
-      setFormData(selectedCustomer);
+      setFormData({
+        ...selectedCustomer,
+        accountOwner:
+          selectedCustomer.accountOwner ||
+          (selectedCustomer.owner && selectedCustomer.owner.id) ||
+          "",
+      });
     } else {
       setFormData({
         ...initialFormData,
@@ -131,6 +139,37 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
       });
     }
   }, [selectedCustomer, isOpen]);
+
+  // whenever last billing or cycle changes, recompute next billing date
+  useEffect(() => {
+    const { lastbillingdate, billingCycle } = formData;
+    if (lastbillingdate && billingCycle) {
+      let dt = new Date(lastbillingdate);
+      switch (billingCycle) {
+        case 'daily':
+          dt.setDate(dt.getDate() + 1);
+          break;
+        case 'weekly':
+          dt.setDate(dt.getDate() + 7);
+          break;
+        case 'monthly':
+          dt.setMonth(dt.getMonth() + 1);
+          break;
+        case 'quarterly':
+          dt.setMonth(dt.getMonth() + 3);
+          break;
+        case 'annually':
+          dt.setFullYear(dt.getFullYear() + 1);
+          break;
+        default:
+          break;
+      }
+      const iso = dt.toISOString().split('T')[0];
+      if (iso !== formData.nextbillingdate) {
+        setFormData((fd) => ({ ...fd, nextbillingdate: iso }));
+      }
+    }
+  }, [formData.lastbillingdate, formData.billingCycle]);
 
   const accountRoleOptions = [
     { value: "customer", label: "Customer", color: "blue" },
@@ -171,11 +210,17 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
       errors.push("Invalid email format");
     }
 
+    if (users.length > 0 && !formData.accountOwner) {
+      errors.push("Account owner is required");
+    }
+
     if (!formData.phone?.trim()) errors.push("Phone is required");
     if (!formData.addressLine1?.trim())
       errors.push("Address Line 1 is required");
     if (!formData.city?.trim()) errors.push("City is required");
     if (!formData.postalCode?.trim()) errors.push("Postal Code is required");
+    if (!formData.lastbillingdate)
+      errors.push("Last billing date is required");
     if (!formData.billingStartDate) errors.push("Billing Start Date is required");
 
     // Validate customer/vendor codes based on role
@@ -212,13 +257,38 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
 
     setLoading(true);
     try {
-      // Sanitize date fields
+      // Sanitize date fields and ensure nextbillingdate matches cycle
       const sanitizedData = {
         ...formData,
         lastbillingdate: formData.lastbillingdate || null,
         nextbillingdate: formData.nextbillingdate || null,
         billingClass: formData.billingClass || "paiusa"
       };
+
+      // compute nextbillingdate server‑side copy if missing
+      if (sanitizedData.lastbillingdate && sanitizedData.billingCycle) {
+        let dt = new Date(sanitizedData.lastbillingdate);
+        switch (sanitizedData.billingCycle) {
+          case 'daily':
+            dt.setDate(dt.getDate() + 1);
+            break;
+          case 'weekly':
+            dt.setDate(dt.getDate() + 7);
+            break;
+          case 'monthly':
+            dt.setMonth(dt.getMonth() + 1);
+            break;
+          case 'quarterly':
+            dt.setMonth(dt.getMonth() + 3);
+            break;
+          case 'annually':
+            dt.setFullYear(dt.getFullYear() + 1);
+            break;
+          default:
+            break;
+        }
+        sanitizedData.nextbillingdate = dt.toISOString().split('T')[0];
+      }
 
       if (selectedCustomer) {
         await updateCustomer(selectedCustomer.id, sanitizedData);
@@ -321,8 +391,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                 borderBottom="1px"
                 borderColor="gray.200"
               >
-                <Tab>Account Type</Tab>
-                <Tab>Basic Info</Tab>
+                <Tab>Account Info</Tab>
                 <Tab>Contact & Address</Tab>
                 <Tab>Billing & Payment</Tab>
                 {/* <Tab>Telecom Settings</Tab> */}
@@ -330,10 +399,195 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
               </TabList>
 
               <TabPanels>
-                {/* Tab 1: Account Type */}
+
+                {/* Tab 1: Basic Information */}
                 <TabPanel>
-                  <VStack spacing={6} align="stretch">
+                  <VStack spacing={4} align="stretch">
                     <Box>
+                    <Heading size="sm" mb={2}>
+                      Account Information
+                    </Heading>
+                    <SimpleGrid columns={2} spacing={4}>
+                      <FormControl isRequired>
+                        <FormLabel>Account Name</FormLabel>
+                        <Input
+                          value={formData.accountName}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              accountName: e.target.value,
+                            })
+                          }
+                          placeholder="Company Name"
+                        />
+                      </FormControl>
+                      <FormControl isRequired>
+                        <FormLabel>Contact Person</FormLabel>
+                        <Input
+                          value={formData.contactPerson}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              contactPerson: e.target.value,
+                            })
+                          }
+                          placeholder="Contact Person"
+                        />
+                      </FormControl>
+                      <FormControl isRequired>
+                        <FormLabel>Contact person Email</FormLabel>
+                        <Input
+                          value={formData.contactPersonEmail}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              contactPersonEmail: e.target.value,
+                            })
+                          }
+                          placeholder="Contact Person Email"
+                        />
+                      </FormControl>
+                      <FormControl>
+                        <FormLabel>Account Owner</FormLabel>
+                        {users.length > 0 ? (
+                          <Select
+                            placeholder="Select owner"
+                            value={formData.accountOwner || ""}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                accountOwner: e.target.value,
+                              })
+                            }
+                          >
+                            {users.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.first_name} {u.last_name} ({u.email})
+                              </option>
+                            ))}
+                          </Select>
+                        ) : (
+                          <Input
+                            value={formData.accountOwner}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                accountOwner: e.target.value,
+                              })
+                            }
+                            placeholder="Sales Rep Name"
+                          />
+                        )}
+                      </FormControl>
+                    </SimpleGrid>
+                    </Box>
+                    <Divider />
+                     <Box>
+                      <Heading size="sm" mb={2}>
+                      Contact Information
+                    </Heading>
+                    <SimpleGrid columns={2} spacing={4}>
+                      <FormControl isRequired>
+                        <FormLabel>Email</FormLabel>
+                        <Input
+                          type="email"
+                          value={formData.email}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              email: e.target.value,
+                            })
+                          }
+                          placeholder="account@example.com"
+                        />
+                      </FormControl>
+                      <FormControl>
+                        <FormLabel>Billing Email</FormLabel>
+                        <Input
+                          type="email"
+                          value={formData.billingEmail}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              billingEmail: e.target.value,
+                            })
+                          }
+                          placeholder="billing@example.com"
+                        />
+                      </FormControl>
+                      <FormControl>
+                        <FormLabel>SOA Email</FormLabel>
+                        <Input
+                          type="email"
+                          value={formData.soaEmail}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              soaEmail: e.target.value,
+                            })
+                          }
+                          placeholder="soa@example.com"
+                        />
+                      </FormControl>
+                      <FormControl>
+                        <FormLabel>Dispute Email</FormLabel>
+                        <Input
+                          type="email"
+                          value={formData.disputeEmail}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              disputeEmail: e.target.value,
+                            })
+                          }
+                          placeholder="dispute@example.com"
+                        />
+                      </FormControl>
+                      <FormControl>
+                        <FormLabel>NOC Email</FormLabel>
+                        <Input
+                          type="email"
+                          value={formData.nocEmail}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              nocEmail: e.target.value,
+                            })
+                          }
+                          placeholder="noc@example.com"
+                        />
+                      </FormControl>
+                      <FormControl isRequired>
+                        <FormLabel>Phone</FormLabel>
+                        <Input
+                          value={formData.phone}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              phone: e.target.value,
+                            })
+                          }
+                          placeholder="+1234567890"
+                        />
+                      </FormControl>
+                      <FormControl>
+                        <FormLabel>Vendor Fax</FormLabel>
+                        <Input
+                          value={formData.vendorFax}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              vendorFax: e.target.value,
+                            })
+                          }
+                          placeholder="+1234567891"
+                        />
+                      </FormControl>
+                      
+                        </SimpleGrid>
+                      </Box>
+                      <Divider />
+                        <Box>
                       <Heading size="sm" mb={4}>
                         Account Role & Type
                       </Heading>
@@ -383,6 +637,25 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             ))}
                           </Select>
                         </FormControl>
+                        <FormControl>
+                        <FormLabel>Billing Type</FormLabel>
+                        <Select
+                          value={formData.billingType}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              billingType: e.target.value,
+                              // clear unused values when type changes
+                              ...(e.target.value === 'prepaid'
+                                ? { creditLimit: 0, originalCreditLimit: 0 }
+                                : {}),
+                            })
+                          }
+                        >
+                          <option value="prepaid">Prepaid</option>
+                          <option value="postpaid">Postpaid</option>
+                        </Select>
+                      </FormControl>
 
                         <FormControl>
                           <FormLabel>Carrier Type</FormLabel>
@@ -407,190 +680,58 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                         </FormControl>
                       </SimpleGrid>
                     </Box>
-
                     <Divider />
 
-                    <Box>
-                      <Heading size="sm" mb={4}>
-                        CDR Mapping Configuration
-                      </Heading>
-                      <SimpleGrid columns={2} spacing={4}>
-                        {(formData.accountRole === "customer" ||
-                          formData.accountRole === "both") && (
-                            <FormControl isRequired>
-                              <FormLabel>Customer Code</FormLabel>
-                              <Input
-                                value={formData.customerCode}
-                                onChange={(e) =>
-                                  setFormData({
-                                    ...formData,
-                                    customerCode: e.target.value,
-                                  })
-                                }
-                                placeholder="C_XXXXX"
-                              />
-                              <FormHelperText>
-                                Maps to customeraccount in CDRs
-                              </FormHelperText>
-                            </FormControl>
-                          )}
-
-                        {(formData.accountRole === "vendor" ||
-                          formData.accountRole === "both") && (
-                            <FormControl isRequired>
-                              <FormLabel>Vendor Code</FormLabel>
-                              <Input
-                                value={formData.vendorCode}
-                                onChange={(e) =>
-                                  setFormData({
-                                    ...formData,
-                                    vendorCode: e.target.value,
-                                  })
-                                }
-                                placeholder="P_XXXXX"
-                              />
-                              <FormHelperText>
-                                Maps to agentaccount in CDRs
-                              </FormHelperText>
-                            </FormControl>
-                          )}
-                        
-                        {(formData.accountRole === "customer" ||
-                          formData.accountRole === "both") && (
-                            <Flex gap={4} flexDirection={"column"}>
-                        <FormControl>
-                          <FormLabel> Customer Authentication Type</FormLabel>
-                          <Select
-                            value={formData.customerauthenticationType}
-                            onChange={(e) => setFormData({ ...formData, customerauthenticationType: e.target.value })}
-                          >
-                            {authTypeOptions.map(opt => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </Select>
-                          <FormHelperText>{authTypeOptions.find(o => o.value === formData.customerauthenticationType)?.description}</FormHelperText>
-                        </FormControl>
-
-                        <FormControl>
-                          <FormLabel> customer Authentication Value</FormLabel>
-                          <Input
-                            value={formData.customerauthenticationValue}
-                            onChange={(e) => setFormData({ ...formData, customerauthenticationValue: e.target.value })}
-                            placeholder={
-                              formData.customerauthenticationType === 'ip' ? '192.168.1.100' :
-                                formData.customerauthenticationType === 'gateway' ? 'GW-12345' :
-                                  formData.customerauthenticationType === 'prefix' ? '91' :
-                                    'Enter value'
-                            }
-                          />
-                        </FormControl>
-                       </Flex>)}
-
-
-                       {(formData.accountRole === "vendor" ||
-                          formData.accountRole === "both") && (
-                            <Flex gap={4} flexDirection={"column"}>
-                         <FormControl>
-                          <FormLabel> Vendor Authentication Type</FormLabel>
-                          <Select
-                            value={formData.vendorauthenticationType}
-                            onChange={(e) => setFormData({ ...formData, vendorauthenticationType: e.target.value })}
-                          >
-                            {authTypeOptions.map(opt => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </Select>
-                          <FormHelperText>{authTypeOptions.find(o => o.value === formData.vendorauthenticationType)?.description}</FormHelperText>
-                        </FormControl>
-
-                        <FormControl>
-                          <FormLabel>Vendor Authentication Value</FormLabel>
-                          <Input
-                            value={formData.vendorauthenticationValue}
-                            onChange={(e) => setFormData({ ...formData, vendorauthenticationValue: e.target.value })}
-                            placeholder={
-                              formData.vendorauthenticationType === 'ip' ? '192.168.1.100' :
-                                formData.vendorauthenticationType === 'gateway' ? 'GW-12345' :
-                                  formData.vendorauthenticationType === 'prefix' ? '91' :
-                                    'Enter value'
-                            }
-                          />
-                        </FormControl>
-                        </Flex>)}
-
-
-                        {/* <FormControl>
-                          <FormLabel>Product ID</FormLabel>
-                          <Input
-                            value={formData.productId}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                productId: e.target.value,
-                              })
-                            }
-                            placeholder="Product identifier"
-                          />
-                        </FormControl> */}
-                      </SimpleGrid>
-                    </Box>
-
-                    <Divider />
-                  </VStack>
-                </TabPanel>
-
-                {/* Tab 2: Basic Information */}
-                <TabPanel>
-                  <VStack spacing={4} align="stretch">
-                    <Heading size="sm" mb={2}>
-                      Account Information
+                    <Heading size="sm" mb={2} mt={4}>
+                      Localization
                     </Heading>
                     <SimpleGrid columns={2} spacing={4}>
-                      <FormControl isRequired>
-                        <FormLabel>Account Name</FormLabel>
-                        <Input
-                          value={formData.accountName}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              accountName: e.target.value,
-                            })
-                          }
-                          placeholder="Company Name"
-                        />
-                      </FormControl>
                       <FormControl>
-                        <FormLabel>Account Owner</FormLabel>
-                        <Input
-                          value={formData.accountOwner}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              accountOwner: e.target.value,
-                            })
-                          }
-                          placeholder="Sales Rep Name"
-                        />
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel>Ownership</FormLabel>
+                        <FormLabel>Timezone</FormLabel>
                         <Select
-                          value={formData.ownership}
+                          value={formData.timezone}
                           onChange={(e) =>
                             setFormData({
                               ...formData,
-                              ownership: e.target.value,
+                              timezone: e.target.value,
                             })
                           }
                         >
-                          <option value="None">None</option>
-                          <option value="private">Private</option>
-                          <option value="public">Public</option>
-                          <option value="subsidiary">Subsidiary</option>
-                          <option value="others">Others</option>
+                          <option value="UTC">UTC</option>
+                          <option value="EST">EST (Eastern)</option>
+                          <option value="CST">CST (Central)</option>
+                          <option value="PST">PST (Pacific)</option>
+                          <option value="GMT">GMT</option>
+                          <option value="IST">IST (India)</option>
+                          <option value="HST">HST (Hawaii)</option>
+                          <option value="AEST">AEST (Australia)</option>
+                        </Select>
+                      </FormControl>
+                      <FormControl>
+                        <FormLabel>Preferred Language</FormLabel>
+                        <Select
+                          value={formData.languages}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              languages: e.target.value,
+                            })
+                          }
+                        >
+                          <option value="en">English</option>
+                          <option value="es">Spanish</option>
+                          <option value="fr">French</option>
+                          <option value="de">German</option>
+                          <option value="it">Italian</option>
+                          <option value="pt">Portuguese</option>
+                          <option value="zh">Chinese</option>
+                          <option value="ja">Japanese</option>
+                          <option value="hi">Hindi</option>
                         </Select>
                       </FormControl>
                     </SimpleGrid>
+
+                    <Divider />
 
                     <Heading size="sm" mb={2} mt={4}>
                       Financial Information
@@ -660,71 +801,14 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                     </SimpleGrid>
                   </VStack>
                 </TabPanel>
+                
+                
 
-                {/* Tab 3: Contact & Address */}
+                {/* Tab 2: Contact & Address */}
                 <TabPanel>
                   <VStack spacing={4} align="stretch">
-                    <Heading size="sm" mb={2}>
-                      Contact Information
-                    </Heading>
-                    <SimpleGrid columns={2} spacing={4}>
-                      <FormControl isRequired>
-                        <FormLabel>Email</FormLabel>
-                        <Input
-                          type="email"
-                          value={formData.email}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              email: e.target.value,
-                            })
-                          }
-                          placeholder="account@example.com"
-                        />
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel>Billing Email</FormLabel>
-                        <Input
-                          type="email"
-                          value={formData.billingEmail}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              billingEmail: e.target.value,
-                            })
-                          }
-                          placeholder="billing@example.com"
-                        />
-                      </FormControl>
-                      <FormControl isRequired>
-                        <FormLabel>Phone</FormLabel>
-                        <Input
-                          value={formData.phone}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              phone: e.target.value,
-                            })
-                          }
-                          placeholder="+1234567890"
-                        />
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel>Vendor Fax</FormLabel>
-                        <Input
-                          value={formData.vendorFax}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              vendorFax: e.target.value,
-                            })
-                          }
-                          placeholder="+1234567891"
-                        />
-                      </FormControl>
-                    </SimpleGrid>
-
-                    <Heading size="sm" mb={2} mt={4}>
+                    <Box>
+                    <Heading size="sm" mb={2} mt={2}>
                       Reseller Information
                     </Heading>
                     <SimpleGrid columns={2} spacing={4}>
@@ -759,8 +843,9 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                         </FormControl>
                       )}
                     </SimpleGrid>
-
-                    <Heading size="sm" mb={2} mt={4}>
+                        </Box>
+                    <Divider />
+                    <Heading size="sm" mb={2} mt={2}>
                       Address Information
                     </Heading>
                     <SimpleGrid columns={1} spacing={3}>
@@ -895,21 +980,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                           <option value="paiusa">pai USA</option>
                         </Select>
                       </FormControl>
-                      <FormControl>
-                        <FormLabel>Billing Type</FormLabel>
-                        <Select
-                          value={formData.billingType}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              billingType: e.target.value,
-                            })
-                          }
-                        >
-                          <option value="prepaid">Prepaid</option>
-                          <option value="postpaid">Postpaid</option>
-                        </Select>
-                      </FormControl>
+                      
                       <FormControl>
                         <FormLabel>Billing Timezone</FormLabel>
                         <Select
@@ -959,7 +1030,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                           <option value="annually">Annually</option>
                         </Select>
                       </FormControl>
-                      <FormControl>
+                      <FormControl isRequired>
                         <FormLabel>Last Billing Date</FormLabel>
                         <Input
                           type="date"
@@ -977,15 +1048,10 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                         <Input
                           type="date"
                           value={formData.nextbillingdate || ""}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              nextbillingdate: e.target.value,
-                            })
-                          }
+                          readOnly
                         />
                       </FormControl>
-                      <FormControl>
+                      <FormControl isDisabled={formData.billingType === 'prepaid'}>
                         <FormLabel>Credit Limit ($)</FormLabel>
                         <NumberInput
                           value={formData.creditLimit}
@@ -1003,6 +1069,32 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             <NumberDecrementStepper />
                           </NumberInputStepper>
                         </NumberInput>
+                        <FormHelperText>
+                          Maximum credit/prepaid balance allowed
+                        </FormHelperText>
+                      </FormControl>
+
+                      <FormControl isDisabled={formData.billingType === 'prepaid'}>
+                        <FormLabel>Original Credit Limit ($)</FormLabel>
+                        <NumberInput
+                          value={formData.originalCreditLimit}
+                          onChange={(value) =>
+                            setFormData({
+                              ...formData,
+                              originalCreditLimit: parseFloat(value),
+                            })
+                          }
+                          min={0}
+                        >
+                          <NumberInputField />
+                          <NumberInputStepper>
+                            <NumberIncrementStepper />
+                            <NumberDecrementStepper />
+                          </NumberInputStepper>
+                        </NumberInput>
+                        <FormHelperText>
+                          Reset to this limit after payment (for postpaid)
+                        </FormHelperText>
                       </FormControl>
                     </SimpleGrid>
 
@@ -1026,6 +1118,134 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                         </Select>
                       </FormControl>
                     </SimpleGrid>
+
+                    <Box>
+                      <Heading size="sm" mb={4}>
+                        CDR Mapping Configuration
+                      </Heading>
+                      <SimpleGrid columns={2} spacing={4}>
+                        <FormControl>
+                          <FormLabel>Gateway ID</FormLabel>
+                          <Input
+                            value={formData.gatewayId}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                gatewayId: e.target.value,
+                              })
+                            }
+                            placeholder="Gateway identifier"
+                          />
+                          <FormHelperText>
+                            Gateway identifier for CDR routing
+                          </FormHelperText>
+                        </FormControl>
+
+                        {(formData.accountRole === "customer" ||
+                          formData.accountRole === "both") && (
+                            <FormControl isRequired>
+                              <FormLabel>Customer Code</FormLabel>
+                              <Input
+                                value={formData.customerCode}
+                                onChange={(e) =>
+                                  setFormData({
+                                    ...formData,
+                                    customerCode: e.target.value,
+                                  })
+                                }
+                                placeholder="C_XXXXX"
+                              />
+                              <FormHelperText>
+                                Maps to customeraccount in CDRs
+                              </FormHelperText>
+                            </FormControl>
+                          )}
+
+                        {(formData.accountRole === "vendor" ||
+                          formData.accountRole === "both") && (
+                            <FormControl isRequired>
+                              <FormLabel>Vendor Code</FormLabel>
+                              <Input
+                                value={formData.vendorCode}
+                                onChange={(e) =>
+                                  setFormData({
+                                    ...formData,
+                                    vendorCode: e.target.value,
+                                  })
+                                }
+                                placeholder="P_XXXXX"
+                              />
+                              <FormHelperText>
+                                Maps to agentaccount in CDRs
+                              </FormHelperText>
+                            </FormControl>
+                          )}
+                        
+                        {(formData.accountRole === "customer" ||
+                          formData.accountRole === "both") && (
+                            <Flex gap={4} flexDirection={"column"}>
+                        <FormControl>
+                          <FormLabel> Customer Authentication Type</FormLabel>
+                          <Select
+                            value={formData.customerauthenticationType}
+                            onChange={(e) => setFormData({ ...formData, customerauthenticationType: e.target.value })}
+                          >
+                            {authTypeOptions.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </Select>
+                          <FormHelperText>{authTypeOptions.find(o => o.value === formData.customerauthenticationType)?.description}</FormHelperText>
+                        </FormControl>
+
+                        <FormControl>
+                          <FormLabel> customer Authentication Value</FormLabel>
+                          <Input
+                            value={formData.customerauthenticationValue}
+                            onChange={(e) => setFormData({ ...formData, customerauthenticationValue: e.target.value })}
+                            placeholder={
+                              formData.customerauthenticationType === 'ip' ? '192.168.1.100' :
+                                formData.customerauthenticationType === 'gateway' ? 'GW-12345' :
+                                  formData.customerauthenticationType === 'prefix' ? '91' :
+                                    'Enter value'
+                            }
+                          />
+                        </FormControl>
+                       </Flex>)}
+
+
+                       {(formData.accountRole === "vendor" ||
+                          formData.accountRole === "both") && (
+                            <Flex gap={4} flexDirection={"column"}>
+                         <FormControl>
+                          <FormLabel> Vendor Authentication Type</FormLabel>
+                          <Select
+                            value={formData.vendorauthenticationType}
+                            onChange={(e) => setFormData({ ...formData, vendorauthenticationType: e.target.value })}
+                          >
+                            {authTypeOptions.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </Select>
+                          <FormHelperText>{authTypeOptions.find(o => o.value === formData.vendorauthenticationType)?.description}</FormHelperText>
+                        </FormControl>
+
+                        <FormControl>
+                          <FormLabel>Vendor Authentication Value</FormLabel>
+                          <Input
+                            value={formData.vendorauthenticationValue}
+                            onChange={(e) => setFormData({ ...formData, vendorauthenticationValue: e.target.value })}
+                            placeholder={
+                              formData.vendorauthenticationType === 'ip' ? '192.168.1.100' :
+                                formData.vendorauthenticationType === 'gateway' ? 'GW-12345' :
+                                  formData.vendorauthenticationType === 'prefix' ? '91' :
+                                    'Enter value'
+                            }
+                          />
+                        </FormControl>
+                        </Flex>)}
+
+                      </SimpleGrid>
+                    </Box>
                   </VStack>
                 </TabPanel>
 

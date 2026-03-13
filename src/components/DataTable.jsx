@@ -157,7 +157,8 @@ const DataTable = ({
       overflow="hidden"
     >
       <Box 
-        overflow="auto"
+        overflowY="auto"
+        overflowX="hidden"
         height={height}
         position="relative"
       >
@@ -165,9 +166,11 @@ const DataTable = ({
           variant="simple" 
           size={compact ? "xs" : "sm"}
           sx={{
+            // tableLayout: 'fixed',
+            // width: '100%',
             'th': {
               py: 2,
-              px: 4,
+              px: 3,
               fontWeight: '600',
               fontSize: 'xs',
               textTransform: 'uppercase',
@@ -179,12 +182,16 @@ const DataTable = ({
               position: 'sticky',
               top: 0,
               zIndex: 2,
+              // overflowWrap: 'break-word',
+              // wordBreak: 'break-word',
             },
             'td': {
               py: 3,
-              px: 4,
+              px: 3,
               fontSize: 'sm',
               borderColor: useColorModeValue('gray.100', 'gray.700'),
+              // overflowWrap: 'break-word',
+              // wordBreak: 'break-word',
             },
           }}
         >

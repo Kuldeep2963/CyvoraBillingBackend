@@ -48,6 +48,7 @@ import {
   InputGroup as ChakraInputGroup,
   InputLeftElement as ChakraInputLeftElement,
 } from "@chakra-ui/react";
+import PageNavBar from "../components/PageNavBar";
 import { useNavigate } from "react-router-dom";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { fetchVendors, uploadVendorInvoice, fetchVendorInvoices, markInvoiceAsPaid } from "../utils/api";
@@ -74,6 +75,7 @@ import {
   FiChevronRight,
   FiList,
   FiRefreshCw,
+  FiTrash2,
 } from "react-icons/fi";
 
 const CURRENCY = ["USD", "EUR", "GBP", "INR", "AED", "SGD"];
@@ -162,6 +164,27 @@ const InvoicesTab = ({ onAddNew }) => {
     } catch (err) {
       toast({
         title: "Failed to mark invoice as paid",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    }
+  };
+
+  const handleDeleteInvoice = async (id) => {
+    try {
+      const response = await deletevendorinvoice(invoicetodelete(id));
+      toast({
+        title: "Invoice deleted",
+        status: "success",
+        duration: 4000,
+        isClosable: true,
+      });
+      loadInvoices(); // Reload invoices to reflect the updated status
+    } catch (err) {
+      toast({
+        title: "Failed to delete invoice",
         description: err.message,
         status: "error",
         duration: 4000,
@@ -311,7 +334,7 @@ const InvoicesTab = ({ onAddNew }) => {
                           <MenuButton as={IconButton} icon={<FiMoreVertical />} variant="ghost" size="xs" color="gray.600"
                             _hover={{ color: "gray.700", bg: "gray.100" }} borderRadius="6px" />
                           <MenuList fontSize="sm" minW="140px" shadow="lg" borderColor={border}>
-                            {/* <MenuItem icon={<FiEye />} fontSize="13px">View Details</MenuItem> */}
+                            <MenuItem icon={<FiTrash2 />} onClick={() => handleDeleteInvoice(inv.id)} fontSize="13px">Delete</MenuItem>
                             <MenuItem icon={<FiCheck />} onClick={() => handleMarkAsPaid(inv.id)} fontSize="13px">Mark as paid</MenuItem>
                           </MenuList>
                         </Menu>
@@ -325,6 +348,9 @@ const InvoicesTab = ({ onAddNew }) => {
         </CardBody>
       </Card>
     </VStack>
+   
+
+
   );
 };
 
@@ -791,18 +817,10 @@ export default function VendorInvoicePage() {
   return (
     <Box>
       {/* Page header */}
-      <Flex mb={4}
-        bgGradient="linear(to-r, blue.100, blue.200, blue.300)"
-        px={5}
-        py={2}
-        borderRadius="10px"
-        align="center"
-        justify="space-between">
-        <Box>
-          <Heading size="lg" color="gray.700">Vendor Invoices</Heading>
-          <Text fontSize="sm" color="gray.400">Manage and upload vendor usage invoices</Text>
-        </Box>
-      </Flex>
+      <PageNavBar
+        title="Vendor Invoices"
+        description="Manage and upload vendor usage invoices"
+      />
 
       {/* Custom Tab Bar */}
       <Box
@@ -812,7 +830,8 @@ export default function VendorInvoicePage() {
         borderRadius="12px"
         p={1}
         display="inline-flex"
-        mb={6}
+        mb={4}
+        mt={4}
         boxShadow="0 1px 4px rgba(0,0,0,0.05)"
       >
         {tabs.map((tab) => {

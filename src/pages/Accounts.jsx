@@ -23,6 +23,7 @@ import {
   Tooltip,
   Flex,
 } from "@chakra-ui/react";
+import PageNavBar from "../components/PageNavBar";
 import {
   FiPlus,
   FiEdit2,
@@ -45,11 +46,15 @@ import {
   updateCustomer,
   deleteCustomer,
   fetchCDRs,
+  fetchUsers,
 } from "../utils/api";
+import { useAuth } from "../context/AuthContext";
 
 const Accounts = () => {
+  const { user } = useAuth();
   const [customers, setCustomers] = useState([]);
   const [filteredCustomers, setFilteredCustomers] = useState([]);
+  const [users, setUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -146,7 +151,7 @@ const Accounts = () => {
   const accountRoleOptions = [
     { value: "customer", label: "Customer", color: "blue" },
     { value: "vendor", label: "Vendor", color: "purple" },
-    { value: "both", label: "Customer & Vendor", color: "green" },
+    { value: "both", label: "Cust & Ven", color: "green" },
   ];
 
   const accountTypeOptions = [
@@ -199,6 +204,22 @@ const Accounts = () => {
       calculateCustomerStats(selectedCustomer.id);
     }
   }, [selectedCustomer]);
+
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const response = await fetchUsers();
+        if (response && response.length > 0) {
+          setUsers(response);
+        } else if (response && response.data) {
+          setUsers(response.data);
+        }
+      } catch (error) {
+        console.error('Error fetching users:', error);
+      }
+    };
+    loadUsers();
+  }, []);
 
   const loadCustomers = async () => {
     setLoading(true);
@@ -554,18 +575,25 @@ const Accounts = () => {
   ];
 
   const columns = [
+    
     {
-      key: "accountId",
-      header: "Account ID",
-      render: (value) => (
-        <Badge colorScheme="blue" variant="subtle" fontSize="xs">
-          {value}
-        </Badge>
-      ),
+      key: "accountOwner",
+      header: "Owner",
+      minWidth: "130px",
+      render: (value, row) => {
+        if (row.owner) {
+          return `${row.owner.first_name} ${row.owner.last_name}`;
+        }
+        if (!value) return "-";
+        const u = userMap[value];
+        if (u) return `${u.first_name} ${u.last_name}`;
+        return value; // fall back to whatever was stored
+      },
     },
     {
       key: "accountRole",
       header: "Role",
+      // minWidth: "90px",
       render: (value) => {
         const role = accountRoleOptions.find((r) => r.value === value);
         return (
@@ -578,9 +606,10 @@ const Accounts = () => {
     {
       key: "accountName",
       header: "Account Name",
+      // minWidth: "200px",
       render: (value, row) => (
         <Box>
-          <Text fontWeight="medium">{value}</Text>
+          <Text fontWeight="medium" fontSize="sm" noOfLines={1}>{value}</Text>
           <HStack spacing={1} mt={1}>
             {row.customerCode && (
               <Badge fontSize="xs" colorScheme="blue" variant="outline">
@@ -596,15 +625,12 @@ const Accounts = () => {
         </Box>
       ),
     },
-    // {
-    //   key: "phone",
-    //   header: "Phone",
-    // },
     {
       key: "email",
       header: "Email",
+      // minWidth: "150px",
       render: (value) => (
-        <Text fontSize="sm" isTruncated fontWeight={"medium"} maxW="200px">
+        <Text fontSize="sm" isTruncated fontWeight={"medium"}>
           {value}
         </Text>
       ),
@@ -612,6 +638,7 @@ const Accounts = () => {
     {
       key: "active",
       header: "Status",
+      // minWidth: "90px",
       render: (value, row) => {
         const status = statusOptions.find((s) => s.value === row.accountStatus);
         return (
@@ -627,6 +654,7 @@ const Accounts = () => {
     {
       key: "balance",
       header: "Balance",
+      // minWidth: "110px",
       isNumeric: true,
       render: (value) => (
         <Text
@@ -641,6 +669,7 @@ const Accounts = () => {
     {
       key: "creditLimit",
       header: "Credit Limit",
+      // minWidth: "120px",
       isNumeric: true,
       render: (value) => (
         <Text
@@ -655,145 +684,134 @@ const Accounts = () => {
     {
       key: "lastbillingdate",
       header: "Last Billing",
+      // minWidth: "110px",
       render: (value) => value || "N/A",
     },
     {
       key: "nextbillingdate",
       header: "Next Billing",
+      // minWidth: "110px",
       render: (value) => value || "N/A",
     },
-    // remove the billingType column since actions will be handled by the shared
-    // actions column via the `rowActions` prop on DataTable
   ];
 
   return (
     <Box>
       <VStack spacing={6} align="stretch">
         {/* Header */}
-        <Flex
-          justify="space-between"
-          align="center"
-          bgGradient="linear(to-r,blue.100,blue.200,blue.300)"
-          px={4}
-          py={2}
-          borderRadius={"12px"}
-        >
-          <Box>
-            <Heading size="xl" color={"gray.600"}>
-              Accounts Management
-            </Heading>
-            <Text fontSize={"sm"} color="gray.600">
-              Manage customers, vendors, resellers and agents
-            </Text>
-          </Box>
-          <Spacer />
-          {/* Search and Filters */}
-          <HStack spacing={4} flexWrap="wrap">
-            {/* Role Filter */}
-            <Select
-              borderRadius={"md"}
-              bg={"white"}
-              size="sm"
-              width="150px"
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-            >
-              <option value="all">All Roles</option>
-              {accountRoleOptions.map((role) => (
-                <option key={role.value} value={role.value}>
-                  {role.label}
-                </option>
-              ))}
-            </Select>
+        <PageNavBar
+          title="Accounts Management"
+          description="Manage customers, vendors, resellers and agents"
+          rightContent={
+            <>
+              {/* Role Filter */}
+              <Select
+                borderRadius={"md"}
+                bg={"white"}
+                size="sm"
+                width="150px"
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+              >
+                <option value="all">All Roles</option>
+                {accountRoleOptions.map((role) => (
+                  <option key={role.value} value={role.value}>
+                    {role.label}
+                  </option>
+                ))}
+              </Select>
 
-            {/* Status Filter */}
-            <Select
-              bg={"white"}
-              borderRadius={"md"}
-              size="sm"
-              width="150px"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="all">All Status</option>
-              {statusOptions.map((status) => (
-                <option key={status.value} value={status.value}>
-                  {status.label}
-                </option>
-              ))}
-            </Select>
+              {/* Status Filter */}
+              <Select
+                bg={"white"}
+                borderRadius={"md"}
+                size="sm"
+                width="150px"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All Status</option>
+                {statusOptions.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))}
+              </Select>
 
-            {/* Search Bar */}
-            <InputGroup
-              size="sm"
-              bg="white"
-              w={{ base: "100%", md: "300px" }}
-              position="relative"
-              border="2px solid"
-              borderColor="gray.200"
-              borderRadius="md"
-              _hover={{
-                borderColor: "blue.300",
-                boxShadow: "0 0 0 3px rgba(66, 153, 225, 0.1)",
-              }}
-              _focusWithin={{
-                borderColor: "blue.500",
-                boxShadow: "0 0 0 3px rgba(66, 153, 225, 0.2)",
-                transform: "translateY(-1px)",
-              }}
-              transition="all 0.2s ease"
-              overflow="hidden"
-            >
-              <InputLeftElement pointerEvents="none">
-                <Icon as={FiSearch} color="blue.500" />
-              </InputLeftElement>
-
-              <Input
-                w="100%"
-                placeholder="Search accounts..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+              {/* Search Bar */}
+              <InputGroup
+                size="sm"
                 bg="white"
-                border="none"
-                pl={10}
-                pr={searchTerm ? 10 : 4}
-                fontSize="sm"
-                _placeholder={{
-                  color: "gray.500",
-                  fontSize: "sm",
+                w={{ base: "100%", md: "300px" }}
+                position="relative"
+                border="2px solid"
+                borderColor="gray.200"
+                borderRadius="md"
+                _hover={{
+                  borderColor: "blue.300",
+                  boxShadow: "0 0 0 3px rgba(66, 153, 225, 0.1)",
                 }}
-                _focus={{
-                  outline: "none",
-                  boxShadow: "none",
+                _focusWithin={{
+                  borderColor: "blue.500",
+                  boxShadow: "0 0 0 3px rgba(66, 153, 225, 0.2)",
+                  transform: "translateY(-1px)",
                 }}
-              />
+                transition="all 0.2s ease"
+                overflow="hidden"
+              >
+                <InputLeftElement pointerEvents="none">
+                  <Icon as={FiSearch} color="blue.500" />
+                </InputLeftElement>
 
-              {searchTerm && (
-                <InputRightElement>
-                  <IconButton
-                    aria-label="Clear search"
-                    icon={<FiX />}
-                    size="xs"
-                    variant="ghost"
-                    color="gray.500"
-                    _hover={{ color: "red.500", bg: "red.50" }}
-                    onClick={() => setSearchTerm("")}
-                  />
-                </InputRightElement>
+                <Input
+                  w="100%"
+                  placeholder="Search accounts..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  bg="white"
+                  border="none"
+                  pl={10}
+                  pr={searchTerm ? 10 : 4}
+                  fontSize="sm"
+                  _placeholder={{
+                    color: "gray.500",
+                    fontSize: "sm",
+                  }}
+                  _focus={{
+                    outline: "none",
+                    boxShadow: "none",
+                  }}
+                />
+
+                {searchTerm && (
+                  <InputRightElement>
+                    <IconButton
+                      aria-label="Clear search"
+                      icon={<FiX />}
+                      size="xs"
+                      variant="ghost"
+                      color="gray.500"
+                      _hover={{ color: "red.500", bg: "red.50" }}
+                      onClick={() => setSearchTerm("")}
+                    />
+                  </InputRightElement>
+                )}
+              </InputGroup>
+
+              {user.role === "admin" && (
+                <Button
+                  borderRadius="4px"
+                  leftIcon={<FiPlus />}
+                  colorScheme="green"
+                  onClick={handleAddNew}
+                  size="sm"
+                >
+                  Add Account
+                </Button>
               )}
-            </InputGroup>
-
-            <Button
-              borderRadius="4px"
-              leftIcon={<FiPlus />}
-              colorScheme="green"
-              onClick={handleAddNew}
-              size="sm"
-            >
-              Add Account
-            </Button>
-          </HStack>
-        </Flex>
+            </>
+          }
+        />
 
         {/* Account Stats Summary */}
         <Grid
@@ -926,6 +944,7 @@ const Accounts = () => {
           onSuccess={loadCustomers}
           selectedCustomer={selectedCustomer}
           cdrStats={cdrStats}
+          users={users}
         />
         {/* Topup Modal */}
         <TopupModal

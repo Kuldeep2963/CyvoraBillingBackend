@@ -90,7 +90,7 @@ const ChangePasswordModal = ({ isOpen, onClose }) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token") || sessionStorage.getItem("token")}`,
+          Authorization: `Bearer ${ sessionStorage.getItem("token") ||localStorage.getItem("token")}`,
         },
         body: JSON.stringify({
           currentPassword: formData.currentPassword,

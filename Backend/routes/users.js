@@ -18,7 +18,7 @@ router.get('/', async (req, res) => {
 // Delete user
 router.delete('/:id', async (req, res) => {
   try {
-    const user = await User.findByPk(req.params.id);
+    const user = await User.findByPk(parseInt(req.params.id));
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
