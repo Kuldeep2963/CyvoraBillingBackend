@@ -197,7 +197,7 @@ const TopupModal = ({
               />
             </FormControl>
 
-            <FormControl>
+            {/* <FormControl>
               <FormLabel fontWeight="600" fontSize="sm">
                 Payment Proof (Document Reference)
               </FormLabel>
@@ -208,7 +208,7 @@ const TopupModal = ({
                 value={topupForm.paymentProof}
                 onChange={handleInputChange}
               />
-            </FormControl>
+            </FormControl> */}
 
             <FormControl isRequired>
               <FormLabel fontWeight="600" fontSize="sm">

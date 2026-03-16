@@ -1,9 +1,32 @@
 const { Op } = require('sequelize');
 const VendorInvoice = require('../models/Vendorinvoice');
 const Account = require('../models/Account');
+const Payment = require('../models/Payment');
 const sequelize = require('../config/database');
 const path = require('path');
 const fs = require('fs');
+
+const generatePaymentNumber = async () => {
+  const year = new Date().getFullYear();
+  const month = String(new Date().getMonth() + 1).padStart(2, '0');
+
+  const lastPayment = await Payment.findOne({
+    where: {
+      paymentNumber: {
+        [Op.like]: `PAY-${year}-${month}-%`
+      }
+    },
+    order: [['createdAt', 'DESC']]
+  });
+
+  let sequence = 1;
+  if (lastPayment) {
+    const lastNumber = lastPayment.paymentNumber.split('-').pop();
+    sequence = parseInt(lastNumber, 10) + 1;
+  }
+
+  return `PAY-${year}-${month}-${String(sequence).padStart(4, '0')}`;
+};
 
 exports.createVendorInvoice = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -148,6 +171,41 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
         if (orig && newLimit > orig) newLimit = orig;
         await account.update({ creditLimit: newLimit });
       }
+
+      const existingPayment = await Payment.findOne({
+        where: {
+          vendorInvoiceId: invoice.id,
+          partyType: 'vendor',
+          paymentDirection: 'outbound',
+          status: 'completed'
+        }
+      });
+
+      if (!existingPayment) {
+        const paymentNumber = await generatePaymentNumber();
+
+        await Payment.create({
+          paymentNumber,
+          receiptNumber: `VND-${paymentNumber.split('-').slice(1).join('-')}`,
+          customerGatewayId: account?.gatewayId || invoice.vendorCode || String(invoice.vendorId || invoice.id),
+          customerCode: invoice.vendorCode,
+          customerName: account?.accountName || invoice.vendorCode,
+          partyType: 'vendor',
+          paymentDirection: 'outbound',
+          amount: parseFloat(invoice.grandTotal),
+          currency: invoice.currency || account?.currency || 'USD',
+          paymentDate: Date.now(),
+          paymentMethod: 'bank_transfer',
+          transactionId: `VENDOR-PAY-${invoice.invoiceNumber}`,
+          referenceNumber: invoice.invoiceNumber,
+          status: 'completed',
+          allocatedAmount: parseFloat(invoice.grandTotal),
+          unappliedAmount: 0,
+          notes: `Auto-recorded vendor payment for invoice ${invoice.invoiceNumber}`,
+          vendorInvoiceId: invoice.id,
+          recordedDate: Date.now()
+        });
+      }
     }
 
     res.status(200).json({
@@ -190,6 +248,15 @@ exports.deleteVendorInvoice = async (req, res) => {
         }
       }
     }
+
+    await Payment.destroy({
+      where: {
+        vendorInvoiceId: invoice.id,
+        partyType: 'vendor',
+        paymentDirection: 'outbound'
+      },
+      transaction
+    });
 
     // delete any uploaded files associated with this invoice
     if (invoice.filePaths) {

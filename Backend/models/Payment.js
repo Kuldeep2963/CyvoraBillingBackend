@@ -28,6 +28,16 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.STRING(100),
     allowNull: true
   },
+  partyType: {
+    type: DataTypes.ENUM('customer', 'vendor', 'internal'),
+    allowNull: false,
+    defaultValue: 'customer'
+  },
+  paymentDirection: {
+    type: DataTypes.ENUM('inbound', 'outbound'),
+    allowNull: false,
+    defaultValue: 'inbound'
+  },
   
   // Payment Details
   amount: {
@@ -115,6 +125,11 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.DECIMAL(15, 4),
     defaultValue: 0
   },
+  vendorInvoiceId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    comment: 'Reference to vendor_invoices.id for outbound vendor payments'
+  },
   refundDate: {
     type: DataTypes.BIGINT
   },
@@ -127,8 +142,10 @@ const Payment = sequelize.define('Payment', {
   indexes: [
     { fields: ['customerGatewayId'] },
     { fields: ['paymentNumber'], unique: true },
+    { fields: ['partyType', 'paymentDirection'] },
     { fields: ['status'] },
     { fields: ['paymentDate'] },
+    { fields: ['vendorInvoiceId'] },
     { fields: ['transactionId'] }
   ]
 });

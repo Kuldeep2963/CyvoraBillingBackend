@@ -54,7 +54,7 @@ const CDRUpload = () => {
   const [cdrSummary, setCdrSummary] = useState(null);
   const [sampleData, setSampleData] = useState([]);
   const toast = useToast();
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  const API_URL = import.meta.env.VITE_API_URL || '/api';
 
   const onDrop = useCallback((acceptedFiles) => {
     const csvFile = acceptedFiles[0];

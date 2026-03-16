@@ -1264,6 +1264,8 @@ exports.recordPayment = async (req, res) => {
       customerGatewayId: customer.gatewayId,
       customerCode: customer.customerCode,
       customerName: customer.accountName,
+      partyType: 'customer',
+      paymentDirection: 'inbound',
       amount: parseFloat(amount),
       paymentDate: formatTime(paymentDate),
       paymentMethod,
@@ -1412,6 +1414,9 @@ exports.getAllPayments = async (req, res) => {
     if (status) {
       where.status = status;
     }
+
+    where.partyType = 'customer';
+    where.paymentDirection = 'inbound';
 
     if (startDate && endDate) {
       where.paymentDate = {
@@ -2088,6 +2093,8 @@ exports.topupAccount = async (req, res) => {
       customerGatewayId: customer.gatewayId,
       customerCode: customer.customerCode,
       customerName: customer.accountName,
+      partyType: 'customer',
+      paymentDirection: 'inbound',
       amount: parseFloat(amount),
       paymentDate: formatTime(topupDate || Date.now()),
       paymentMethod,

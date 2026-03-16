@@ -1114,6 +1114,8 @@ exports.exportSOA = async (req, res) => {
     const customerPayments = await Payment.findAll({
       where: {
         customerCode: customerCode,
+        partyType: 'customer',
+        paymentDirection: 'inbound',
         status: 'completed',
         paymentDate: { [Op.between]: [start, end] }
       },
@@ -1136,6 +1138,8 @@ exports.exportSOA = async (req, res) => {
     const vendorPayments = await Payment.findAll({
       where: {
         customerCode: vendorCode,
+        partyType: 'vendor',
+        paymentDirection: 'outbound',
         status: 'completed',
         paymentDate: { [Op.between]: [start, end] }
       },
@@ -1372,6 +1376,8 @@ exports.sendSOAEmail = async (req, res) => {
     const customerPayments = await Payment.findAll({
       where: {
         customerCode: customerCode,
+        partyType: 'customer',
+        paymentDirection: 'inbound',
         status: 'completed',
         paymentDate: { [Op.between]: [start, end] }
       },
@@ -1394,6 +1400,8 @@ exports.sendSOAEmail = async (req, res) => {
     const vendorPayments = await Payment.findAll({
       where: {
         customerCode: vendorCode,
+        partyType: 'vendor',
+        paymentDirection: 'outbound',
         status: 'completed',
         paymentDate: { [Op.between]: [start, end] }
       },
