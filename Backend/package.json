@@ -1,6 +1,7 @@
 {
   "name": "cdrbilling-backend",
   "version": "1.0.0",
+  "packageManager": "pnpm@10.6.2",
   "description": "CDR Billing Backend API",
   "main": "index.js",
   "scripts": {

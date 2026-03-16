@@ -1,16 +1,66 @@
-# React + Vite
+# CDRBilling
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Monorepo with:
+- `frontend` (React + Vite)
+- `Backend` (Node.js + Express + Sequelize)
 
-Currently, two official plugins are available:
+This project is configured to use `pnpm` workspaces.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Prerequisites
 
-## React Compiler
+- Node.js 18+
+- Corepack enabled
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Setup
 
-## Expanding the ESLint configuration
+```bash
+corepack enable
+corepack prepare pnpm@10.6.2 --activate
+pnpm install
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Run
+
+Run frontend dev server:
+
+```bash
+pnpm dev:frontend
+```
+
+Run backend dev server:
+
+```bash
+pnpm dev:backend
+```
+
+Build frontend:
+
+```bash
+pnpm build:frontend
+```
+
+Start backend in production mode:
+
+```bash
+pnpm start:backend
+```
+
+## Workspace commands
+
+Install all dependencies:
+
+```bash
+pnpm install
+```
+
+Run a command in frontend only:
+
+```bash
+pnpm --filter cdrbilling-frontend <command>
+```
+
+Run a command in backend only:
+
+```bash
+pnpm --filter cdrbilling-backend <command>
+```

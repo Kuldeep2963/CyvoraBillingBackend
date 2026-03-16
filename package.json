@@ -1,0 +1,20 @@
+{
+  "name": "cdrbilling-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "packageManager": "pnpm@10.6.2",
+  "scripts": {
+    "dev:frontend": "pnpm --filter cdrbilling-frontend dev",
+    "dev:backend": "pnpm --filter cdrbilling-backend dev",
+    "build:frontend": "pnpm --filter cdrbilling-frontend build",
+    "start:backend": "pnpm --filter cdrbilling-backend start",
+    "lint:frontend": "pnpm --filter cdrbilling-frontend lint"
+  },
+  "pnpm": {
+    "dangerouslyAllowAllBuilds": true,
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "puppeteer"
+    ]
+  }
+}

@@ -17,6 +17,8 @@ require('./models/Dispute');
 require('./models/CountryCode');
 require('./models/ProcessedFile');
 require('./models/Vendorinvoice');
+require('./models/SystemSetting');
+require('./models/Notification');
 
 const accountRoutes = require('./routes/accounts');
 const cdrRoutes = require('./routes/cdr');
@@ -26,10 +28,14 @@ const dashboardRoutes = require('./routes/dashboard');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const vendorInvoiceRoutes = require('./routes/vendorInvoices');
+const settingsRoutes = require('./routes/settings');
+const notificationRoutes = require('./routes/notifications');
 const authMiddleware = require('./middleware/auth');
 const uploadCdr = require('./api/upload-cdr');
 const CDRAutoFetcher = require('./services/cdr-auto-fetch');
 const BillingScheduler = require('./schedulers/BillingScheduler');
+const CDRRetentionService = require('./services/cdr-retention-service');
+const NotificationRetentionService = require('./services/notification-retention-service');
 const runMigrations = require('./utils/runMigrations');
 
 const app = express();
@@ -65,6 +71,8 @@ app.use('/api/reports', authMiddleware, reportRoutes);
 app.use('/api/billing', authMiddleware, billingRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 app.use('/api/vendor-invoices', authMiddleware, vendorInvoiceRoutes);
+app.use('/api/settings', authMiddleware, settingsRoutes);
+app.use('/api/notifications', authMiddleware, notificationRoutes);
 app.post('/api/upload-cdr', authMiddleware, uploadCdr);
 
 // 404 Handler
@@ -81,6 +89,8 @@ runMigrations().then(() => {
 
   new CDRAutoFetcher();
   new BillingScheduler();
+  new CDRRetentionService().start();
+  new NotificationRetentionService().start();
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

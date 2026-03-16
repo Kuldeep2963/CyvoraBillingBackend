@@ -43,9 +43,18 @@ import {
   
 } from "../../utils/api";
 
-const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuccess, users = [] }) => {
+const CreateAccountModal = ({
+  isOpen,
+  onClose,
+  selectedCustomer,
+  cdrStats,
+  onSuccess,
+  users = [],
+  mode = "create",
+}) => {
   const [loading, setLoading] = useState(false);
   const toast = useToast();
+  const isViewMode = mode === "view";
 
   const initialFormData = {
     // Account Role & Type
@@ -243,6 +252,8 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
   };
 
   const handleSave = async () => {
+    if (isViewMode) return;
+
     const validationErrors = validateForm();
     if (validationErrors.length > 0) {
       toast({
@@ -364,7 +375,11 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
         >
           <VStack align="start" spacing={1}>
             <Heading size="md" fontWeight={"semibold"} color={"white"}>
-              {selectedCustomer ? "Edit Account" : "Add New Account"}
+              {isViewMode
+                ? "View Account Details"
+                : selectedCustomer
+                  ? "Edit Account"
+                  : "Add New Account"}
             </Heading>
             {selectedCustomer && (
               <Text fontSize="sm" color="white">
@@ -398,6 +413,14 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                 {selectedCustomer && <Tab>Usage Statistics</Tab>}
               </TabList>
 
+              <Box
+                as="fieldset"
+                disabled={isViewMode}
+                border="0"
+                p={0}
+                m={0}
+                minW="100%"
+              >
               <TabPanels>
 
                 {/* Tab 1: Basic Information */}
@@ -419,6 +442,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="Company Name"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl isRequired>
@@ -432,6 +456,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="Contact Person"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl isRequired>
@@ -445,6 +470,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="Contact Person Email"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -459,6 +485,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                                 accountOwner: e.target.value,
                               })
                             }
+                            isDisabled={isViewMode}
                           >
                             {users.map((u) => (
                               <option key={u.id} value={u.id}>
@@ -476,6 +503,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               })
                             }
                             placeholder="Sales Rep Name"
+                            isDisabled={isViewMode}
                           />
                         )}
                       </FormControl>
@@ -499,6 +527,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="account@example.com"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -513,6 +542,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="billing@example.com"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -527,6 +557,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="soa@example.com"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -541,6 +572,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="dispute@example.com"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -555,6 +587,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="noc@example.com"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl isRequired>
@@ -568,6 +601,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="+1234567890"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -581,6 +615,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="+1234567891"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       
@@ -599,7 +634,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             onChange={(e) =>
                               handleAccountRoleChange(e.target.value)
                             }
-                            isDisabled={!!selectedCustomer}
+                            isDisabled={!!selectedCustomer || isViewMode}
                           >
                             {accountRoleOptions.map((option) => (
                               <option
@@ -626,6 +661,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                                 active: e.target.value === "active",
                               })
                             }
+                            isDisabled={isViewMode}
                           >
                             {statusOptions.map((option) => (
                               <option
@@ -651,6 +687,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                                 : {}),
                             })
                           }
+                          isDisabled={isViewMode}
                         >
                           <option value="prepaid">Prepaid</option>
                           <option value="postpaid">Postpaid</option>
@@ -667,6 +704,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                                 carrierType: e.target.value,
                               })
                             }
+                            isDisabled={isViewMode}
                           >
                             {carrierTypeOptions.map((option) => (
                               <option
@@ -696,6 +734,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               timezone: e.target.value,
                             })
                           }
+                          isDisabled={isViewMode}
                         >
                           <option value="UTC">UTC</option>
                           <option value="EST">EST (Eastern)</option>
@@ -717,6 +756,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               languages: e.target.value,
                             })
                           }
+                          isDisabled={isViewMode}
                         >
                           <option value="en">English</option>
                           <option value="es">Spanish</option>
@@ -747,6 +787,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               currency: e.target.value,
                             })
                           }
+                          isDisabled={isViewMode}
                         >
                           <option value="USD">USD</option>
                           <option value="EUR">EUR</option>
@@ -767,6 +808,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="VAT/Tax ID"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -780,6 +822,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="Accounting code"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -792,6 +835,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               verificationStatus: e.target.value,
                             })
                           }
+                          isDisabled={isViewMode}
                         >
                           <option value="pending">Pending</option>
                           <option value="verified">Verified</option>
@@ -822,6 +866,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               resellerAccount: e.target.value === "true",
                             })
                           }
+                          isDisabled={isViewMode}
                         >
                           <option value="false">No</option>
                           <option value="true">Yes</option>
@@ -839,6 +884,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               })
                             }
                             placeholder="Reseller company name"
+                            isDisabled={isViewMode}
                           />
                         </FormControl>
                       )}
@@ -860,6 +906,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="Street address"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -873,6 +920,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="Apartment, suite, etc."
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -886,6 +934,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                             })
                           }
                           placeholder="Additional address"
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <SimpleGrid columns={2} spacing={4}>
@@ -900,6 +949,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               })
                             }
                             placeholder="City"
+                            isDisabled={isViewMode}
                           />
                         </FormControl>
                         <FormControl>
@@ -913,6 +963,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               })
                             }
                             placeholder="State"
+                            isDisabled={isViewMode}
                           />
                         </FormControl>
                         <FormControl isRequired>
@@ -926,6 +977,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               })
                             }
                             placeholder="ZIP/Postal code"
+                            isDisabled={isViewMode}
                           />
                         </FormControl>
                         <FormControl isRequired>
@@ -939,6 +991,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                                 countryCode: e.target.value,
                               })
                             }
+                            isDisabled={isViewMode}
                           >
                             <option value="US">United States</option>
                             <option value="IN">India</option>
@@ -975,6 +1028,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               billingClass: e.target.value,
                             })
                           }
+                          isDisabled={isViewMode}
                         >
                           <option value="paihk">pai HK</option>
                           <option value="paiusa">pai USA</option>
@@ -991,6 +1045,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               billingTimezone: e.target.value,
                             })
                           }
+                          isDisabled={isViewMode}
                         >
                           <option value="UTC">UTC</option>
                           <option value="EST">EST</option>
@@ -1010,6 +1065,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               billingStartDate: e.target.value,
                             })
                           }
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl isRequired>
@@ -1022,6 +1078,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               billingCycle: e.target.value,
                             })
                           }
+                          isDisabled={isViewMode}
                         >
                           <option value="daily">Daily</option>
                           <option value="weekly">Weekly</option>
@@ -1041,6 +1098,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               lastbillingdate: e.target.value,
                             })
                           }
+                          isDisabled={isViewMode}
                         />
                       </FormControl>
                       <FormControl>
@@ -1051,7 +1109,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                           readOnly
                         />
                       </FormControl>
-                      <FormControl isDisabled={formData.billingType === 'prepaid'}>
+                        <FormControl isDisabled={formData.billingType === 'prepaid' || isViewMode}>
                         <FormLabel>Credit Limit ($)</FormLabel>
                         <NumberInput
                           value={formData.creditLimit}
@@ -1074,7 +1132,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                         </FormHelperText>
                       </FormControl>
 
-                      <FormControl isDisabled={formData.billingType === 'prepaid'}>
+                        <FormControl isDisabled={formData.billingType === 'prepaid' || isViewMode}>
                         <FormLabel>Original Credit Limit ($)</FormLabel>
                         <NumberInput
                           value={formData.originalCreditLimit}
@@ -1112,6 +1170,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               sendInvoiceEmail: e.target.value === "true",
                             })
                           }
+                          isDisabled={isViewMode}
                         >
                           <option value="true">Yes</option>
                           <option value="false">No</option>
@@ -1135,6 +1194,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                               })
                             }
                             placeholder="Gateway identifier"
+                            isDisabled={isViewMode}
                           />
                           <FormHelperText>
                             Gateway identifier for CDR routing
@@ -1154,6 +1214,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                                   })
                                 }
                                 placeholder="C_XXXXX"
+                                isDisabled={isViewMode}
                               />
                               <FormHelperText>
                                 Maps to customeraccount in CDRs
@@ -1174,6 +1235,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                                   })
                                 }
                                 placeholder="P_XXXXX"
+                                isDisabled={isViewMode}
                               />
                               <FormHelperText>
                                 Maps to agentaccount in CDRs
@@ -1189,6 +1251,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                           <Select
                             value={formData.customerauthenticationType}
                             onChange={(e) => setFormData({ ...formData, customerauthenticationType: e.target.value })}
+                            isDisabled={isViewMode}
                           >
                             {authTypeOptions.map(opt => (
                               <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1208,6 +1271,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                                   formData.customerauthenticationType === 'prefix' ? '91' :
                                     'Enter value'
                             }
+                            isDisabled={isViewMode}
                           />
                         </FormControl>
                        </Flex>)}
@@ -1221,6 +1285,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                           <Select
                             value={formData.vendorauthenticationType}
                             onChange={(e) => setFormData({ ...formData, vendorauthenticationType: e.target.value })}
+                            isDisabled={isViewMode}
                           >
                             {authTypeOptions.map(opt => (
                               <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1240,6 +1305,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                                   formData.vendorauthenticationType === 'prefix' ? '91' :
                                     'Enter value'
                             }
+                            isDisabled={isViewMode}
                           />
                         </FormControl>
                         </Flex>)}
@@ -1402,6 +1468,7 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                   </TabPanel>
                 )}
               </TabPanels>
+              </Box>
             </Tabs>
           </VStack>
         </ModalBody>
@@ -1433,16 +1500,18 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                 onClick={onClose}
                 isDisabled={loading}
               >
-                Cancel
+                {isViewMode ? "Close" : "Cancel"}
               </Button>
-              <Button
-                colorScheme="blue"
-                onClick={handleSave}
-                isLoading={loading}
-                leftIcon={<FiUser />}
-              >
-                {selectedCustomer ? "Update Account" : "Create Account"}
-              </Button>
+              {!isViewMode && (
+                <Button
+                  colorScheme="blue"
+                  onClick={handleSave}
+                  isLoading={loading}
+                  leftIcon={<FiUser />}
+                >
+                  {selectedCustomer ? "Update Account" : "Create Account"}
+                </Button>
+              )}
             </HStack>
           </HStack>
         </ModalFooter>

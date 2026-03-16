@@ -2,6 +2,7 @@
   "name": "cdrbilling-frontend",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@10.6.2",
   "type": "module",
   "scripts": {
     "dev": "vite",

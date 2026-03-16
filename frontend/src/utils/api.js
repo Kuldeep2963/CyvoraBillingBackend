@@ -32,6 +32,35 @@ export const fetchCDRs = async () => {
   }
 };
 
+export const fetchCDRCount = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/cdr/count`, {
+      headers: getAuthHeaders()
+    });
+    const data = await handleResponse(response);
+    return Number(data?.count || 0);
+  } catch (error) {
+    console.error('Error fetching CDR count:', error);
+    throw error;
+  }
+};
+
+export const fetchCDRStats = async ({ customerCode, vendorCode } = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (customerCode) params.set('customerCode', customerCode);
+    if (vendorCode) params.set('vendorCode', vendorCode);
+
+    const response = await fetch(`${API_BASE_URL}/cdr/stats?${params.toString()}`, {
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching CDR stats:', error);
+    throw error;
+  }
+};
+
 export const createCDR = async (cdrData) => {
   try {
     const response = await fetch(`${API_BASE_URL}/cdr`, {
@@ -732,6 +761,109 @@ export const deletevendorinvoice = async (id) => {
     return await handleResponse(response);
   } catch (error) {
     console.error(`Error deleting vendor invoice ${id}:`, error);
+    throw error;
+  }
+};
+
+// Settings and Notifications APIs
+export const getGlobalSettings = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings`, {
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching global settings:', error);
+    throw error;
+  }
+};
+
+export const updateGlobalSettings = async (settings) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(settings),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error updating global settings:', error);
+    throw error;
+  }
+};
+
+export const runRetentionCleanup = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings/retention/run`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error running retention cleanup:', error);
+    throw error;
+  }
+};
+
+export const fetchNotifications = async (params = {}) => {
+  try {
+    const query = new URLSearchParams(params).toString();
+    const url = query
+      ? `${API_BASE_URL}/notifications?${query}`
+      : `${API_BASE_URL}/notifications`;
+
+    const response = await fetch(url, {
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+    throw error;
+  }
+};
+
+export const markNotificationRead = async (id) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/notifications/${id}/read`, {
+      method: 'PATCH',
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error marking notification read:', error);
+    throw error;
+  }
+};
+
+export const markAllNotificationsRead = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/notifications/read-all`, {
+      method: 'PATCH',
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error marking all notifications read:', error);
+    throw error;
+  }
+};
+
+export const createTestNotification = async (payload = {}) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/notifications/test`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(payload),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error creating test notification:', error);
     throw error;
   }
 };

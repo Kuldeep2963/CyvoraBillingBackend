@@ -45,12 +45,20 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
-  fetchCDRs,
+  fetchCDRStats,
   fetchUsers,
 } from "../utils/api";
 import { useAuth } from "../context/AuthContext";
 
 const Accounts = () => {
+  const DEFAULT_CDR_STATS = {
+    totalCalls: 0,
+    totalDuration: 0,
+    totalRevenue: 0,
+    totalTax: 0,
+    answeredCalls: 0,
+  };
+
   const { user } = useAuth();
   const [customers, setCustomers] = useState([]);
   const [filteredCustomers, setFilteredCustomers] = useState([]);
@@ -59,6 +67,7 @@ const Accounts = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [accountModalMode, setAccountModalMode] = useState("create");
   const [formData, setFormData] = useState({
     // Account Role & Type
     accountRole: "customer",
@@ -130,13 +139,7 @@ const Accounts = () => {
     sendInvoiceEmail: true,
     lateFeeEnabled: true,
   });
-  const [cdrStats, setCdrStats] = useState({
-    totalCalls: 0,
-    totalDuration: 0,
-    totalRevenue: 0,
-    totalTax: 0,
-    answeredCalls: 0,
-  });
+  const [cdrStats, setCdrStats] = useState(DEFAULT_CDR_STATS);
   const [loading, setLoading] = useState(false);
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -201,7 +204,7 @@ const Accounts = () => {
 
   useEffect(() => {
     if (selectedCustomer) {
-      calculateCustomerStats(selectedCustomer.id);
+      calculateCustomerStats();
     }
   }, [selectedCustomer]);
 
@@ -283,41 +286,38 @@ const Accounts = () => {
     setFilteredCustomers(filtered);
   };
 
-  const calculateCustomerStats = async (customerId) => {
+  const calculateCustomerStats = async () => {
     try {
-      const cdrs = await fetchCDRs();
-      // Map by customerCode or vendorCode
-      const customerCdrs = cdrs.filter(
-        (cdr) =>
-          cdr.customeraccount === selectedCustomer?.customerCode ||
-          cdr.agentaccount === selectedCustomer?.vendorCode,
-      );
+      const customerCode = selectedCustomer?.customerCode;
+      const vendorCode = selectedCustomer?.vendorCode;
 
-      const stats = customerCdrs.reduce(
-        (acc, cdr) => ({
-          totalCalls: acc.totalCalls + 1,
-          totalDuration: acc.totalDuration + (parseInt(cdr.feetime) || 0),
-          totalRevenue: acc.totalRevenue + (parseFloat(cdr.fee) || 0),
-          totalTax: acc.totalTax + (parseFloat(cdr.tax) || 0),
-          answeredCalls:
-            acc.answeredCalls + (parseInt(cdr.endreason) === 0 ? 1 : 0),
-        }),
-        {
-          totalCalls: 0,
-          totalDuration: 0,
-          totalRevenue: 0,
-          totalTax: 0,
-          answeredCalls: 0,
-        },
-      );
+      // Reset first to avoid showing stale numbers while loading a different account.
+      setCdrStats(DEFAULT_CDR_STATS);
 
-      setCdrStats(stats);
+      if (!customerCode && !vendorCode) {
+        return;
+      }
+
+      const stats = await fetchCDRStats({
+        customerCode,
+        vendorCode,
+      });
+
+      setCdrStats({
+        totalCalls: Number(stats?.totalCalls || 0),
+        totalDuration: Number(stats?.totalDuration || 0),
+        totalRevenue: Number(stats?.totalRevenue || 0),
+        totalTax: Number(stats?.totalTax || 0),
+        answeredCalls: Number(stats?.answeredCalls || 0),
+      });
     } catch (error) {
       console.error("Error calculating customer stats:", error);
+      setCdrStats(DEFAULT_CDR_STATS);
     }
   };
 
   const handleAddNew = () => {
+    setAccountModalMode("create");
     setFormData({
       // Account Role & Type
       accountRole: "customer",
@@ -393,6 +393,7 @@ const Accounts = () => {
   };
 
   const handleEdit = (customer) => {
+    setAccountModalMode("edit");
     setSelectedCustomer(customer);
     setFormData(customer);
     setIsModalOpen(true);
@@ -404,6 +405,7 @@ const Accounts = () => {
   };
 
   const handleView = (customer) => {
+    setAccountModalMode("view");
     setSelectedCustomer(customer);
     setFormData(customer);
     setIsModalOpen(true);
@@ -940,9 +942,15 @@ const Accounts = () => {
         {/* Account Modal */}
         <CreateAccountModal
           isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
+          onClose={() => {
+            setIsModalOpen(false);
+            setSelectedCustomer(null);
+            setAccountModalMode("create");
+            setCdrStats(DEFAULT_CDR_STATS);
+          }}
           onSuccess={loadCustomers}
           selectedCustomer={selectedCustomer}
+          mode={accountModalMode}
           cdrStats={cdrStats}
           users={users}
         />

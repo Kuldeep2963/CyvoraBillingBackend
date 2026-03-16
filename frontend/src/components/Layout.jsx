@@ -1,8 +1,7 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Flex,
-  Heading,
   Link as ChakraLink,
   VStack,
   Icon,
@@ -26,6 +25,7 @@ import {
   MenuList,
   MenuItem,
   MenuDivider,
+  Spinner,
 } from "@chakra-ui/react";
 import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -50,6 +50,12 @@ import {
   FiFile,
   FiAlertTriangle,
 } from "react-icons/fi";
+import {
+  fetchNotifications,
+  getGlobalSettings,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from "../utils/api";
 
 const SidebarContent = ({ onClose, ...rest }) => {
   const location = useLocation();
@@ -66,8 +72,60 @@ const SidebarContent = ({ onClose, ...rest }) => {
     onClose: onChangePasswordClose,
   } = useDisclosure();
   const [openDropdown, setOpenDropdown] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const [notificationPollingSeconds, setNotificationPollingSeconds] = useState(10);
 
   const userRole = user?.role?.trim().toLowerCase();
+  const pollingMs = useMemo(() => {
+    const seconds = Number(notificationPollingSeconds) || 10;
+    return Math.max(5, Math.min(60, seconds)) * 1000;
+  }, [notificationPollingSeconds]);
+
+  const loadNotifications = useCallback(async () => {
+    setLoadingNotifications(true);
+    try {
+      const data = await fetchNotifications({ limit: 10 });
+      setNotifications(data.notifications || []);
+      setUnreadCount(Number(data.unreadCount || 0));
+    } catch (error) {
+      console.error("Failed to load notifications", error);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    getGlobalSettings()
+      .then((settings) => {
+        setNotificationPollingSeconds(Number(settings.notificationPollingSeconds) || 10);
+      })
+      .catch(() => {
+        setNotificationPollingSeconds(10);
+      });
+
+    loadNotifications();
+  }, [loadNotifications]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadNotifications();
+    }, pollingMs);
+
+    return () => clearInterval(timer);
+  }, [pollingMs, loadNotifications]);
+
+  useEffect(() => {
+    const onSettingsUpdated = (event) => {
+      const nextPoll = Number(event?.detail?.notificationPollingSeconds) || 10;
+      setNotificationPollingSeconds(nextPoll);
+    };
+
+    window.addEventListener("settings-updated", onSettingsUpdated);
+    return () => window.removeEventListener("settings-updated", onSettingsUpdated);
+  }, []);
+
   // alert(userRole);
 
   const navItems = [
@@ -209,7 +267,9 @@ const SidebarContent = ({ onClose, ...rest }) => {
           >
             <Flex alignItems="center">
               <Icon as={item.icon} mr={3} />
-              {item.label}
+              <Text whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">
+                {item.label}
+              </Text>
             </Flex>
             <Icon as={isOpen ? FiChevronDown : FiChevronRight} boxSize={4} />
           </Flex>
@@ -247,7 +307,9 @@ const SidebarContent = ({ onClose, ...rest }) => {
                   onClick={onClose}
                 >
                   <Icon as={subItem.icon} mr={2} boxSize={3.5} />
-                  {subItem.label}
+                  <Text whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">
+                    {subItem.label}
+                  </Text>
                 </ChakraLink>
               ))}
             </VStack>
@@ -280,7 +342,9 @@ const SidebarContent = ({ onClose, ...rest }) => {
         }}
       >
         <Icon as={item.icon} mr={3} />
-        {item.label}
+        <Text whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">
+          {item.label}
+        </Text>
       </ChakraLink>
     );
   };
@@ -293,6 +357,7 @@ const SidebarContent = ({ onClose, ...rest }) => {
       borderColor={useColorModeValue("gray.200", "gray.700")}
       w={{ base: "full", md: "250px" }}
       pos="fixed"
+      zIndex={20}
       h="full"
       display="flex"
       flexDirection="column"
@@ -401,6 +466,7 @@ const SidebarContent = ({ onClose, ...rest }) => {
               borderColor="gray.700"
               shadow="md"
               minW="150px"
+              zIndex="popover"
             >
               <MenuItem
                 icon={<Icon as={FiLock} />}
@@ -415,45 +481,99 @@ const SidebarContent = ({ onClose, ...rest }) => {
           </Menu>
 
           <HStack spacing={3} alignItems="center">
-            <Box position="relative" display="inline-flex">
-              <Tooltip
-                bg="white"
-                fontStyle="italic"
-                fontWeight="bold"
-                p={2}
-                borderRadius="lg"
-                shadow="xl"
-                transition="0.4s ease-in-out"
-                color="black"
-                label="coming soon"
-                placement="right"
-                fontSize="sm"
+            <Menu placement="right-end" closeOnSelect={false}>
+              <MenuButton as={Box} cursor="pointer" position="relative">
+                <Tooltip
+                  bg="white"
+                  p={2}
+                  borderRadius="lg"
+                  shadow="xl"
+                  color="black"
+                  label="Notifications"
+                  placement="right"
+                  fontSize="sm"
+                >
+                  <Box position="relative">
+                    <Icon
+                      boxSize={5}
+                      as={FiBell}
+                      color="blue.400"
+                      _hover={{ color: "blue.300" }}
+                    />
+                    {unreadCount > 0 && (
+                      <Badge
+                        position="absolute"
+                        top="-6px"
+                        right="-6px"
+                        fontSize="2xs"
+                        colorScheme="red"
+                        borderRadius="full"
+                        minW="16px"
+                        px={1}
+                        display="flex"
+                        alignItems="center"
+                        justifyContent="center"
+                      >
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </Badge>
+                    )}
+                  </Box>
+                </Tooltip>
+              </MenuButton>
+
+              <MenuList
+                bg="gray.800"
+                borderColor="gray.700"
+                color="white"
+                minW="320px"
+                maxW="360px"
+                zIndex="popover"
               >
-                <Box position="relative">
-                  <Icon
-                    boxSize={5}
-                    as={FiBell}
-                    color="blue.400"
-                    cursor="pointer"
-                    _hover={{ color: "blue.300" }}
-                  />
-                  <Badge
-                    position="absolute"
-                    top="-6px"
-                    right="-6px"
-                    fontSize="2xs"
-                    colorScheme="red"
-                    borderRadius="full"
-                    boxSize="16px"
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="center"
-                  >
-                    1
-                  </Badge>
-                </Box>
-              </Tooltip>
-            </Box>
+                <MenuItem
+                  bg="gray.800"
+                  color="blue.200"
+                  _hover={{ bg: "gray.700" }}
+                  onClick={async () => {
+                    await markAllNotificationsRead();
+                    await loadNotifications();
+                  }}
+                >
+                  Mark all as read
+                </MenuItem>
+                <MenuDivider borderColor="gray.700" />
+                {loadingNotifications && (
+                  <Box px={3} py={2}>
+                    <Spinner size="sm" />
+                  </Box>
+                )}
+                {!loadingNotifications && notifications.length === 0 && (
+                  <Box px={3} py={2}>
+                    <Text fontSize="sm" color="gray.300">No notifications</Text>
+                  </Box>
+                )}
+                {!loadingNotifications &&
+                  notifications.map((item) => (
+                    <MenuItem
+                      key={item.id}
+                      bg="gray.800"
+                      whiteSpace="normal"
+                      alignItems="flex-start"
+                      _hover={{ bg: "gray.700" }}
+                      onClick={async () => {
+                        if (!item.isRead) {
+                          await markNotificationRead(item.id);
+                          await loadNotifications();
+                        }
+                      }}
+                    >
+                      <Box>
+                        <Text fontSize="sm" fontWeight={item.isRead ? "500" : "700"}>{item.title}</Text>
+                        <Text fontSize="xs" color="gray.300">{item.message}</Text>
+                      </Box>
+                    </MenuItem>
+                  ))}
+              </MenuList>
+            </Menu>
 
             <Icon
               as={FiLogOut}

@@ -423,10 +423,7 @@ exports.generateInvoice = async (req, res) => {
       }
       await account.decrement('creditLimit', { by: totalAmount, transaction });
     } else {
-      // For prepaid, balance decreases as usage (invoice) increases
-      if (Number(account.balance) < totalAmount) {
-        throw new Error('Insufficient prepaid balance – cannot generate invoice');
-      }
+      // For prepaid, allow balance to move negative and keep invoice generation enabled.
       await account.decrement('balance', { by: totalAmount, transaction });
     }
 

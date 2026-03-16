@@ -366,9 +366,8 @@ class InvoiceService {
         }
         await account.decrement('creditLimit', { by: totalAmount, transaction });
       } else {
-        if (Number(account.balance) < totalAmount) {
-          throw new Error('Insufficient prepaid balance – cannot generate invoice');
-        }
+        // Prepaid invoices must still be generated even when balance is insufficient.
+        // This allows balance to move into negative values (debt state).
         await account.decrement('balance', { by: totalAmount, transaction });
       }
 

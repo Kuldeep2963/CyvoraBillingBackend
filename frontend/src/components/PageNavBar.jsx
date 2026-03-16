@@ -38,6 +38,9 @@ const PageNavBar = ({
           size={{ base: "md", md: "lg" }} 
           color="gray.600"
           fontWeight="700"
+          whiteSpace="nowrap"
+          overflow="hidden"
+          textOverflow="ellipsis"
         >
           {title}
         </Heading>

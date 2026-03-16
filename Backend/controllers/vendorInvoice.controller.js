@@ -85,9 +85,7 @@ exports.createVendorInvoice = async (req, res) => {
       }
       await account.decrement('creditLimit', { by: grandTotal, transaction });
     } else {
-      if (Number(account.balance) < grandTotal) {
-        throw new Error('Insufficient prepaid balance – cannot generate vendor invoice');
-      }
+      // Prepaid vendor accounts are allowed to go negative after invoice generation.
       await account.decrement('balance', { by: grandTotal, transaction });
     }
 
