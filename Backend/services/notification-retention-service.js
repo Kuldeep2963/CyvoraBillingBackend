@@ -24,7 +24,6 @@ class NotificationRetentionService {
       });
     }, 20000);
 
-    console.log('Notification Retention Scheduler initialized: Daily at 01:20 (7 day retention)');
   }
 
   async runCleanup() {

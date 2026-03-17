@@ -9,7 +9,6 @@ const Papa = require('papaparse');
 const CDR = require('../models/CDR');
 const ProcessedFile = require('../models/ProcessedFile');
 const sequelize = require('../models/db');
-const { Op } = require('sequelize');
 
 const CDR_COLUMNS = [
   'callere164', 'calleraccesse164', 'calleee164', 'calleeaccesse164',
@@ -32,14 +31,13 @@ const execPromise = util.promisify(exec);
 class CDRAutoFetcher {
   constructor(config) {
     this.config = {
-      serverIP: process.env.SERVER_IP || '159.69.73.61',
-      serverPath: process.env.SERVER_PATH || '/var/www/tmp/vos_files/6/',
-      username: process.env.SSH_USERNAME || 'root',
-      sshPort: parseInt(process.env.SSH_PORT) || 22,
-      sshKeyPath: process.env.SSH_KEY_PATH || '',
-      filePattern: process.env.FILE_PATTERN || 'cdr_*.csv',
-      fetchInterval: process.env.FETCH_INTERVAL || '*/15 * * * *',
-      localPath: process.env.LOCAL_PATH || './CDRs',
+      serverIP: process.env.SERVER_IP,
+      serverPath: process.env.SERVER_PATH,
+      username: process.env.SSH_USERNAME,
+      sshPort: parseInt(process.env.SSH_PORT),
+      sshKeyPath: process.env.SSH_KEY_PATH,
+      filePattern:  'cdr_*.csv',
+      fetchInterval: '*/15 * * * *',
       maxRetries: 3,
       ...config
     };
@@ -55,18 +53,9 @@ class CDRAutoFetcher {
 
   async init() {
     try {
-      console.log(' ========================Initializing CDR Auto-Fetcher...');
       
       // Test database connection
       await sequelize.authenticate();
-      console.log('====== Database connection established ======');
-
-      // Create local directory for downloaded files
-      const absoluteLocalPath = path.resolve(this.config.localPath);
-      if (!fs.existsSync(absoluteLocalPath)) {
-        fs.mkdirSync(absoluteLocalPath, { recursive: true });
-        console.log(`Created local directory: ${absoluteLocalPath}`);
-      }
 
       // Load processed files from database
       await this.loadProcessedFiles();
@@ -74,9 +63,8 @@ class CDRAutoFetcher {
       // Start the scheduler
       this.startScheduler();
       
-      console.log('====== CDR Auto-Fetcher initialized successfully ======');
     } catch (error) {
-      console.error('======= Failed to initialize CDR Auto-Fetcher:', error.message);
+      console.error('!!!! Failed to initialize CDR Auto-Fetcher:', error.message);
       throw error;
     }
   }
@@ -92,26 +80,21 @@ class CDRAutoFetcher {
         this.processedFiles.add(f.filename);
       });
       
-      console.log(` ==== Loaded ${this.processedFiles.size} processed files from database`);
     } catch (error) {
-      console.error(' ===== Error loading processed files:', error.message);
+      console.error('!!!! Error loading processed files:', error.message);
     }
   }
 
   startScheduler() {
-    console.log(` =========== Starting CDR auto-fetch scheduler (interval: ${this.config.fetchInterval})`);
     
     try {
       cron.schedule(this.config.fetchInterval, async () => {
-        console.log(' Scheduled job triggered');
         await this.fetchAndProcessCDRs();
       });
 
-      console.log(' Scheduler started successfully');
       
       // Also run immediately on startup
       setTimeout(() => {
-        console.log(' Running initial fetch...');
         this.fetchAndProcessCDRs();
       }, 5000);
     } catch (error) {
@@ -131,20 +114,8 @@ class CDRAutoFetcher {
     return `${sshBase} ${this.config.username}@${this.config.serverIP} "${remoteCommand}"`;
   }
 
-  buildSCPCommand(remoteFile, localFile) {
-    let scpBase;
-    if (this.config.sshKeyPath && fs.existsSync(this.config.sshKeyPath)) {
-      scpBase = `scp -i "${this.config.sshKeyPath}" -P ${this.config.sshPort} -o BatchMode=yes -o StrictHostKeyChecking=no`;
-    } else {
-      scpBase = `scp -P ${this.config.sshPort} -o BatchMode=yes -o StrictHostKeyChecking=no`;
-    }
-    
-    return `${scpBase} ${this.config.username}@${this.config.serverIP}:"${remoteFile}" "${localFile}"`;
-  }
-
   async fetchAndProcessCDRs() {
     if (this.isRunning) {
-      console.log(' ### Previous fetch still running. Skipping.');
       return;
     }
 
@@ -153,46 +124,32 @@ class CDRAutoFetcher {
     let processedCount = 0;
 
     try {
-      console.log('#### Starting CDR auto-fetch process...');
 
       // 1. List files created in last 15 minutes
       const files = await this.listRecentFiles();
       
       if (files.length === 0) {
-        console.log(' **** No new files found.');
         return;
       }
 
-      console.log(` $$$$$$ Found ${files.length} new file(s)`);
 
       // 2. Process each file
       for (const remoteFile of files) {
         try {
           const filename = path.basename(remoteFile);
-          const localFile = path.resolve(this.config.localPath, filename);
           
           // Skip already processed files
           if (this.processedFiles.has(filename)) {
-            console.log(` !!!!!! Skipping already processed file: ${filename}`);
             continue;
           }
 
           // Record processing start
           await this.recordFileProcessingStart(filename);
 
-          // Download file using SCP
-          const downloaded = await this.downloadFile(remoteFile, localFile);
-          
-          if (!downloaded) {
-            await this.recordFileProcessingComplete(filename, 'FAILED', 0, 'Failed to download file');
-            console.log(` !!!!! Failed to download ${filename}`);
-            continue;
-          }
-
-          fetchedCount++;
-
           // Parse and process CDRs
-          const processed = await this.processFile(filename, localFile);
+          const csvContent = await this.fetchRemoteFileContent(remoteFile);
+          fetchedCount++;
+          const processed = await this.processFile(filename, csvContent);
           
           if (processed.success) {
             // Save to database
@@ -203,12 +160,8 @@ class CDRAutoFetcher {
             this.processedFiles.add(filename);
             await this.recordFileProcessingComplete(filename, 'PROCESSED', processed.cdrs.length);
             
-            console.log(` %%%%%%% Processed ${filename}: ${processed.cdrs.length} CDRs`);
-            
-            // Files are now kept in the local directory for verification as requested
           } else {
             await this.recordFileProcessingComplete(filename, 'FAILED', 0, processed.error);
-            console.log(`Failed to process ${filename}: ${processed.error}`);
           }
 
         } catch (fileError) {
@@ -220,7 +173,6 @@ class CDRAutoFetcher {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      console.log(` ****** Auto-fetch completed: ${fetchedCount} files fetched, ${processedCount} CDRs processed`);
 
     } catch (error) {
       console.error(' Fatal error in auto-fetch process:', error.message);
@@ -236,7 +188,6 @@ class CDRAutoFetcher {
         `find ${this.config.serverPath} -name '${this.config.filePattern}' -type f -mmin -16 2>/dev/null`
       );
 
-      console.log(' Listing files on remote server...');
       const { stdout } = await execPromise(listCommand, { timeout: 30000 });
       
       const files = stdout
@@ -251,22 +202,20 @@ class CDRAutoFetcher {
     }
   }
 
-  async downloadFile(remoteFile, localFile) {
+  async fetchRemoteFileContent(remoteFile) {
     try {
-      const scpCommand = this.buildSCPCommand(remoteFile, localFile);
-      console.log(` Downloading: ${path.basename(remoteFile)}`);
-      await execPromise(scpCommand, { timeout: 60000 });
-      return fs.existsSync(localFile);
+      const safeRemoteFile = remoteFile.replace(/'/g, `'\\''`);
+      const readCommand = this.buildSSHCommand(`cat '${safeRemoteFile}'`);
+      const { stdout } = await execPromise(readCommand, { timeout: 60000, maxBuffer: 25 * 1024 * 1024 });
+      return stdout;
     } catch (error) {
-      console.error(` Error downloading file ${remoteFile}:`, error.message);
-      return false;
+      throw new Error(`Failed to read remote file ${remoteFile}: ${error.message}`);
     }
   }
 
-  async processFile(filename, localFilePath) {
+  async processFile(filename, csvContent) {
     try {
-      const content = fs.readFileSync(localFilePath, 'utf8');
-      const parsed = Papa.parse(content, {
+      const parsed = Papa.parse(csvContent, {
         header: false,
         skipEmptyLines: true,
         transform: (value) => value.trim()
@@ -304,7 +253,6 @@ class CDRAutoFetcher {
       await CDR.bulkCreate(chunk, { ignoreDuplicates: true });
     }
     
-    console.log(` Saved ${cdrs.length} CDRs to database`);
   }
 
   async recordFileProcessingStart(filename) {
