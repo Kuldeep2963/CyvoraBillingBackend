@@ -82,7 +82,7 @@ function App() {
 
             {/* admin, rates-dept, view only */}
             <Route path="/vendorinvoice" element={
-              <ProtectedRoute allowedRoles={["admin", "rates-dept", "view only"]}>
+              <ProtectedRoute allowedRoles={["admin","sales-manager", "rates-dept", "view only"]}>
                 <Vendorinvoice />
               </ProtectedRoute>
             } />

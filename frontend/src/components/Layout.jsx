@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Flex,
+  Heading,
   Link as ChakraLink,
   VStack,
   Icon,
@@ -77,13 +78,7 @@ const SidebarContent = ({ onClose, ...rest }) => {
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [notificationPollingSeconds, setNotificationPollingSeconds] = useState(10);
 
-  const normalizeRole = (role) =>
-    String(role || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[\s_]+/g, "-");
-
-  const userRole = normalizeRole(user?.role);
+  const userRole = user?.role?.trim().toLowerCase();
   const pollingMs = useMemo(() => {
     const seconds = Number(notificationPollingSeconds) || 10;
     return Math.max(5, Math.min(60, seconds)) * 1000;
@@ -207,13 +202,13 @@ const SidebarContent = ({ onClose, ...rest }) => {
 
   // Filter nav items based on user role
   const filteredNavItems = navItems
-    .filter((item) => item.roles.some((role) => normalizeRole(role) === userRole))
+    .filter((item) => item.roles.includes(userRole))
     .map((item) => {
       if (item.isDropdown && item.subItems) {
         return {
           ...item,
           subItems: item.subItems.filter((sub) =>
-            sub.roles.some((role) => normalizeRole(role) === userRole)
+            sub.roles.includes(userRole)
           ),
         };
       }
@@ -273,9 +268,7 @@ const SidebarContent = ({ onClose, ...rest }) => {
           >
             <Flex alignItems="center">
               <Icon as={item.icon} mr={3} />
-              <Text whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">
-                {item.label}
-              </Text>
+              {item.label}
             </Flex>
             <Icon as={isOpen ? FiChevronDown : FiChevronRight} boxSize={4} />
           </Flex>
@@ -313,9 +306,7 @@ const SidebarContent = ({ onClose, ...rest }) => {
                   onClick={onClose}
                 >
                   <Icon as={subItem.icon} mr={2} boxSize={3.5} />
-                  <Text whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">
-                    {subItem.label}
-                  </Text>
+                  {subItem.label}
                 </ChakraLink>
               ))}
             </VStack>
@@ -348,9 +339,7 @@ const SidebarContent = ({ onClose, ...rest }) => {
         }}
       >
         <Icon as={item.icon} mr={3} />
-        <Text whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">
-          {item.label}
-        </Text>
+        {item.label}
       </ChakraLink>
     );
   };
