@@ -8,8 +8,8 @@ const seedUser = async () => {
     // Drop and sync the table
     await sequelize.sync({ force: true });
     
-    const email = 'admin@gmail.com';
-    const password = 'admin@12345';
+    const email = 'anuj@paitelecomm.com';
+    const password = 'pai@8#TEst3489';
     
     // Hash password
     const salt = await bcrypt.genSalt(10);
@@ -20,13 +20,10 @@ const seedUser = async () => {
       email,
       hashedpassword: hashedPassword,
       role: 'admin',
-      first_name: 'Admin',
-      last_name: 'User'
+      first_name: 'Anuj',
+      last_name: 'Sharma'
     });
     
-    console.log('Admin user seeded successfully');
-    console.log('Email: admin@gmail.com');
-    console.log('Password: admin@12345');
     process.exit(0);
   } catch (error) {
     console.error('Error seeding user:', error);
