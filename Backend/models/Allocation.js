@@ -20,7 +20,8 @@ Invoice.hasMany(InvoiceItem, {
 Invoice.belongsTo(Account, {
   foreignKey: 'customerCode',
   targetKey: 'customerCode',
-  as: 'customer'
+  as: 'customer',
+  constraints: false
 });
 
 Invoice.hasMany(PaymentAllocation, {
@@ -38,7 +39,8 @@ InvoiceItem.belongsTo(Invoice, {
 Payment.belongsTo(Account, {
   foreignKey: 'customerCode',
   targetKey: 'customerCode',
-  as: 'customer'
+  as: 'customer',
+  constraints: false
 });
 
 Payment.hasMany(PaymentAllocation, {
