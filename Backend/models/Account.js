@@ -7,7 +7,6 @@ const Account = sequelize.define('Account', {
   accountId: {
     type: DataTypes.STRING,
     allowNull: false,
-    unique: true,
     comment: 'Unique account ID for mapping with CDRs'
   },
   
@@ -100,7 +99,6 @@ const Account = sequelize.define('Account', {
   email: {
     type: DataTypes.STRING,
     allowNull: false,
-    unique: true,
     validate: {
       isEmail: true
     }
@@ -340,7 +338,8 @@ const Account = sequelize.define('Account', {
     { fields: ['active'] },
     { fields: ['country'] },
     { fields: ['billingCycle'] },
-    { fields: ['authenticationType'] }
+    { fields: ['customerauthenticationType'] },
+    { fields: ['vendorauthenticationType'] }
   ]
 });
 
