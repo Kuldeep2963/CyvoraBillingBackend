@@ -29,6 +29,3 @@ dist-ssr
 .env.*
 Backend/.env
 frontend/.env
-!.env.example
-!Backend/.env.example
-!frontend/.env.example
