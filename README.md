@@ -19,6 +19,14 @@ corepack prepare pnpm@10.6.2 --activate
 pnpm install
 ```
 
+Configure backend environment variables before running the server:
+
+```bash
+cp Backend/.env.example Backend/.env
+```
+
+For production, keep `ALLOW_PUBLIC_SIGNUP=false` unless you explicitly need temporary public bootstrap access.
+
 ## Run
 
 Run frontend dev server:

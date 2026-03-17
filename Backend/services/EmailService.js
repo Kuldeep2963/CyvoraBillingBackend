@@ -19,8 +19,23 @@ class EmailService {
     });
   }
 
+  isSafeSingleRecipient(email) {
+    if (typeof email !== 'string') return false;
+    const trimmed = email.trim();
+
+    // Disallow recipient lists/groups and header-injection characters.
+    if (!trimmed || /[,;:\r\n]/.test(trimmed)) return false;
+
+    // Keep recipient format strict because this app sends one recipient per email.
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  }
+
   async sendEmail(to, subject, templateName, data, attachments = []) {
     try {
+      if (!this.isSafeSingleRecipient(to)) {
+        throw new Error('Invalid recipient email format');
+      }
+
       const templatePath = path.join(__dirname, '../templates/email', `${templateName}.ejs`);
       const html = await ejs.renderFile(templatePath, data);
 

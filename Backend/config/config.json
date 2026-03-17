@@ -1,9 +1,26 @@
 {
   "development": {
-    "username": "kuldeep",
-    "password": "Kuldeep@12345",
-    "database": "CDRBilling",
+    "username": "",
+    "password": "",
+    "database": "",
     "host": "127.0.0.1",
-    "dialect": "postgres"
+    "dialect": "postgres",
+    "port": 5432
+  },
+  "test": {
+    "username": "",
+    "password": "",
+    "database": "",
+    "host": "127.0.0.1",
+    "dialect": "postgres",
+    "port": 5432
+  },
+  "production": {
+    "username": "",
+    "password": "",
+    "database": "",
+    "host": "127.0.0.1",
+    "dialect": "postgres",
+    "port": 5432
   }
 }

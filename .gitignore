@@ -23,3 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 .fetched_cdrs
+
+# Environment files
+.env
+.env.*
+Backend/.env
+frontend/.env
+!.env.example
+!Backend/.env.example
+!frontend/.env.example

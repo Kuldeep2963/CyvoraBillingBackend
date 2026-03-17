@@ -5,6 +5,12 @@ import { useAuth } from "../context/AuthContext";
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, isAuthenticated, loading } = useAuth();
 
+  const normalizeRole = (role) =>
+    String(role || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
+
   // Still loading auth
   if (loading) {
     return (
@@ -27,8 +33,8 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
   // Wrong role - normalize to lowercase for comparison
   if (allowedRoles) {
-    const userRole = user?.role?.trim().toLowerCase();
-    const normalizedRoles = allowedRoles.map((role) => role.toLowerCase());
+    const userRole = normalizeRole(user?.role);
+    const normalizedRoles = allowedRoles.map((role) => normalizeRole(role));
     if (!normalizedRoles.includes(userRole)) {
       return <Navigate to="/unauthorized" replace />;
     }

@@ -77,7 +77,13 @@ const SidebarContent = ({ onClose, ...rest }) => {
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [notificationPollingSeconds, setNotificationPollingSeconds] = useState(10);
 
-  const userRole = user?.role?.trim().toLowerCase();
+  const normalizeRole = (role) =>
+    String(role || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
+
+  const userRole = normalizeRole(user?.role);
   const pollingMs = useMemo(() => {
     const seconds = Number(notificationPollingSeconds) || 10;
     return Math.max(5, Math.min(60, seconds)) * 1000;
@@ -163,7 +169,7 @@ const SidebarContent = ({ onClose, ...rest }) => {
           path: "/vendorinvoice",
           label: "Vendor Invoices",
           icon: FiFile,
-          roles: ["admin", "rates-dept", "view only"],
+          roles: ["admin","sales-manager", "rates-dept", "view only"],
         },
       ],
     },
@@ -201,13 +207,13 @@ const SidebarContent = ({ onClose, ...rest }) => {
 
   // Filter nav items based on user role
   const filteredNavItems = navItems
-    .filter((item) => item.roles.includes(userRole))
+    .filter((item) => item.roles.some((role) => normalizeRole(role) === userRole))
     .map((item) => {
       if (item.isDropdown && item.subItems) {
         return {
           ...item,
           subItems: item.subItems.filter((sub) =>
-            sub.roles.includes(userRole)
+            sub.roles.some((role) => normalizeRole(role) === userRole)
           ),
         };
       }
