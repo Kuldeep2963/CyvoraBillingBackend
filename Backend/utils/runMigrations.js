@@ -8,7 +8,17 @@ const sequelize = require('../models/db');
 async function runMigrations() {
   try {
     const migrationsDir = path.join(__dirname, '../migrations');
+    
+    // Skip if migrations folder doesn't exist (migrations have been consolidated into autoSyncDB)
+    if (!fs.existsSync(migrationsDir)) {
+      return;
+    }
+
     const migrationFiles = fs.readdirSync(migrationsDir).sort();
+
+    if (migrationFiles.length === 0) {
+      return;
+    }
 
     console.log(`Found ${migrationFiles.length} migration files`);
 
@@ -32,7 +42,6 @@ async function runMigrations() {
       }
     }
 
-    console.log('All migrations processed');
   } catch (error) {
     console.error('Error running migrations:', error);
     // Don't throw - allow app to continue
