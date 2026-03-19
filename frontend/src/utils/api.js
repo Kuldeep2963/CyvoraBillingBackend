@@ -808,6 +808,22 @@ export const runRetentionCleanup = async () => {
   }
 };
 
+export const uploadCountryCodes = async (formData) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings/country-codes/upload`, {
+      method: 'POST',
+      headers: {
+        ...getAuthHeaders()
+      },
+      body: formData,
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error uploading country codes:', error);
+    throw error;
+  }
+};
+
 export const fetchNotifications = async (params = {}) => {
   try {
     const query = new URLSearchParams(params).toString();

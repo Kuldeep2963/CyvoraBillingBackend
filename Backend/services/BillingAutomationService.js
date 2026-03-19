@@ -35,7 +35,7 @@ class BillingAutomationService {
       where: {
         [Op.or]: [
           { nextbillingdate: null },
-          { nextbillingdate: '' }
+          
         ]
       }
     });

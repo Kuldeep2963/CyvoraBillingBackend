@@ -8,7 +8,6 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "seed": "node seedUser.js",
-    "sync": "node syncDB.js",
     "autosync": "node autoSyncDB.js"
   },
   "dependencies": {

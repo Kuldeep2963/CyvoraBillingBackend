@@ -6,9 +6,7 @@ const User = require('../models/User');
 const EmailService = require('../services/EmailService');
 const auth = require('../middleware/auth');
 
-function isPublicSignupEnabled() {
-  return process.env.ALLOW_PUBLIC_SIGNUP === 'true';
-}
+
 
 // Login Route
 router.post('/login', async (req, res) => {
@@ -53,9 +51,6 @@ router.post('/login', async (req, res) => {
 // Signup Route (for testing/initial setup)
 router.post('/signup', async (req, res) => {
   try {
-    if (!isPublicSignupEnabled()) {
-      return res.status(403).json({ error: 'Public signup is disabled' });
-    }
 
     const { email, password, role, first_name, last_name, phone } = req.body;
 

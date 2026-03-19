@@ -1,4 +1,5 @@
 const { Op, fn, col } = require('sequelize');
+const sequelize = require('../models/db');
 const CDR = require('../models/CDR');
 const Account = require('../models/Account');
 const User = require('../models/User');
@@ -128,13 +129,15 @@ const buildAccountConditions = (account, vendorReport) => {
 
 /* ===================== HELPER: BUILD WHERE CLAUSE ===================== */
 const buildWhereClause = async (startDate, endDate, startHour, endHour, startMinute = 0, endMinute = 59, accountId, vendorReport) => {
+  const startTs = Number(formatTime(startDate, startHour, startMinute));
+  const endTs = Number(formatTime(endDate, endHour, endMinute, true));
+
   const where = {
-    starttime: {
-      [Op.between]: [
-        formatTime(startDate, startHour, startMinute),
-        formatTime(endDate, endHour, endMinute, true)
-      ]
-    }
+    [Op.and]: [
+      sequelize.literal(
+        `CASE WHEN "CDR"."starttime" ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END BETWEEN ${startTs} AND ${endTs}`
+      )
+    ]
   };
 
   if (!accountId || accountId === 'all') return where;
@@ -168,7 +171,7 @@ const buildWhereClause = async (startDate, endDate, startHour, endHour, startMin
   const conditions = buildAccountConditions(account, vendorReport);
 
   if (conditions.length) {
-    where[Op.and] = [{ [Op.or]: conditions }];
+    where[Op.and].push({ [Op.or]: conditions });
   }
 
   return where;
@@ -193,7 +196,7 @@ exports.hourlyReport = async (req, res) => {
     const startTimeFormatted = formatTime(startDate, startHour, startMinute);
     const endTimeFormatted = formatTime(endDate, endHour, endMinute, true);
 
-    console.log('📊 Hourly Report Request:', {
+    console.log(' Hourly Report Request:', {
       startDate,
       endDate,
       time: `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')} - ${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`,
@@ -214,9 +217,10 @@ exports.hourlyReport = async (req, res) => {
       vendorReport
     );
 
-    console.log('🔍 Applied WHERE clause (time range):', {
-      startTime: where.starttime?.[Op.between]?.[0],
-      endTime: where.starttime?.[Op.between]?.[1]
+    console.log(' Applied WHERE clause (time range):', {
+      startTime: startTimeFormatted,
+      endTime: endTimeFormatted,
+      castedStartTimeFilter: true
     });
 
     // DB-level grouping by hour only (gross across selected dates)
