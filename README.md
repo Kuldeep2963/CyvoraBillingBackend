@@ -25,8 +25,6 @@ Configure backend environment variables before running the server:
 cp Backend/.env.example Backend/.env
 ```
 
-For production, keep `ALLOW_PUBLIC_SIGNUP=false` unless you explicitly need temporary public bootstrap access.
-
 ## Run
 
 Run frontend dev server:

@@ -3,7 +3,6 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const EmailService = require('../services/EmailService');
 const auth = require('../middleware/auth');
 
 
@@ -44,71 +43,6 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Signup Route (for testing/initial setup)
-router.post('/signup', async (req, res) => {
-  try {
-
-    const { email, password, role, first_name, last_name, phone } = req.body;
-
-    if (!email || !password || !first_name || !last_name) {
-      return res.status(400).json({ error: 'Email, password, first name, and last name are required' });
-    }
-
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    }
-
-    // Check if user already exists
-    const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ error: 'User already exists' });
-    }
-
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    const userCount = await User.count();
-    const normalizedRole = typeof role === 'string' ? role.toLowerCase() : '';
-    const requestedRole = normalizedRole === 'admin' ? 'admin' : 'user';
-    // Only the very first account can become admin via public signup.
-    const assignedRole = userCount === 0 ? requestedRole : 'user';
-
-    // Create user
-    const user = await User.create({
-      email,
-      hashedpassword: hashedPassword,
-      role: assignedRole,
-      first_name,
-      last_name,
-      phone,
-    });
-
-    // Send welcome email with credentials
-    try {
-      await EmailService.sendWelcomeEmail(user, password);
-      console.log('Welcome email sent to:', email);
-    } catch (emailError) {
-      console.error('Failed to send welcome email:', emailError);
-      // Don't fail the user creation if email fails
-    }
-
-    res.status(201).json({
-      message: 'User created successfully',
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        first_name: user.first_name,
-        last_name: user.last_name
-      }
-    });
-  } catch (error) {
-    console.error('Signup error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
