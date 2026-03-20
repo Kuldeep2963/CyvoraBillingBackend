@@ -37,7 +37,7 @@ const PageNavBar = ({
         <Heading 
           size={{ base: "md", md: "lg" }} 
           color="gray.600"
-          fontWeight="700"
+          fontWeight="600"
           whiteSpace="nowrap"
           overflow="hidden"
           textOverflow="ellipsis"

@@ -80,8 +80,8 @@ const SidebarContent = ({ onClose, ...rest }) => {
 
   const userRole = user?.role?.trim().toLowerCase();
   const pollingMs = useMemo(() => {
-    const seconds = Number(notificationPollingSeconds) || 10;
-    return Math.max(5, Math.min(60, seconds)) * 1000;
+    const seconds = Number(notificationPollingSeconds);
+    return Math.max(5, Math.min(3600, seconds)) * 1000;
   }, [notificationPollingSeconds]);
 
   const loadNotifications = useCallback(async () => {
@@ -588,7 +588,13 @@ const Layout = ({ children }) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   return (
-    <Box minH="100vh" bg={useColorModeValue("gray.50", "gray.900")}>
+    <Box
+      minH="100vh"
+      // bg={useColorModeValue("gray.50", "gray.900")}
+      bg={"white"}
+      maxW="100%"
+      overflowX="clip"
+    >
       {/* Desktop Sidebar */}
       <SidebarContent
         onClose={onClose}
@@ -643,7 +649,13 @@ const Layout = ({ children }) => {
       </Flex>
 
       {/* Main Content */}
-      <Box ml={{ base: 0, md: "250px" }} p="6">
+      <Box
+        ml={{ base: 0, md: "250px" }}
+        p={{ base: 3, md: 6 }}
+        maxW="100%"
+        minW={0}
+        overflowX="clip"
+      >
         {children}
       </Box>
     </Box>

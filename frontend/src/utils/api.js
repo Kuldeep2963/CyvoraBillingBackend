@@ -824,6 +824,48 @@ export const uploadCountryCodes = async (formData) => {
   }
 };
 
+export const fetchCountryCodes = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings/country-codes`, {
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching country codes:', error);
+    throw error;
+  }
+};
+
+export const addCountryCode = async (payload) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings/country-codes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(payload),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error adding country code:', error);
+    throw error;
+  }
+};
+
+export const deleteCountryCode = async (code) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings/country-codes/${encodeURIComponent(code)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error deleting country code:', error);
+    throw error;
+  }
+};
+
 export const fetchNotifications = async (params = {}) => {
   try {
     const query = new URLSearchParams(params).toString();

@@ -43,7 +43,7 @@ async function updateGlobalSettings(nextSettings, updatedBy) {
   if (!Number.isFinite(Number(merged.notificationPollingSeconds))) {
     merged.notificationPollingSeconds = DEFAULT_SETTINGS.notificationPollingSeconds;
   }
-  merged.notificationPollingSeconds = Math.max(5, Math.min(60, Number(merged.notificationPollingSeconds)));
+  merged.notificationPollingSeconds = Math.max(5, Math.min(3600, Number(merged.notificationPollingSeconds)));
 
   await SystemSetting.upsert({
     key: SETTINGS_KEY,

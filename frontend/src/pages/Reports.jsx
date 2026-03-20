@@ -188,6 +188,13 @@ const Reports = () => {
     maxMargin: 100,
   });
 
+  const getMinimumStartDate = (endDate) => {
+    const minDate = new Date(endDate);
+    minDate.setHours(0, 0, 0, 0);
+    minDate.setMonth(minDate.getMonth() - 2);
+    return minDate;
+  };
+
   const toast = useToast();
   const cardBg = useColorModeValue("white", "gray.800");
   const borderColor = useColorModeValue("gray.200", "gray.700");
@@ -218,6 +225,37 @@ const Reports = () => {
     }
   };
 
+  const handleStartDateChange = (date) => {
+    if (!date) return;
+
+    const minStartDate = getMinimumStartDate(dateRange.endDate);
+    if (date < minStartDate) {
+      toast({
+        title: "Invalid start date",
+        description: "Start date cannot be more than 2 months before end date",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setDateRange((prev) => ({ ...prev, startDate: minStartDate }));
+      return;
+    }
+
+    setDateRange((prev) => ({ ...prev, startDate: date }));
+  };
+
+  const handleEndDateChange = (date) => {
+    if (!date) return;
+
+    const minStartDate = getMinimumStartDate(date);
+    setDateRange((prev) => ({
+      ...prev,
+      endDate: date,
+      startDate: prev.startDate < minStartDate ? minStartDate : prev.startDate,
+    }));
+  };
+
   const handleGenerateReport = async () => {
     if (!dateRange.startDate || !dateRange.endDate) {
       toast({
@@ -234,6 +272,17 @@ const Reports = () => {
       toast({
         title: "Invalid date range",
         description: "End date must be after start date",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    if (dateRange.startDate < getMinimumStartDate(dateRange.endDate)) {
+      toast({
+        title: "Invalid date range",
+        description: "Start date cannot be more than 2 months before end date",
         status: "warning",
         duration: 3000,
         isClosable: true,
@@ -268,11 +317,11 @@ const Reports = () => {
     const daysDiff = Math.ceil(
       (dateRange.endDate - dateRange.startDate) / (1000 * 60 * 60 * 24),
     );
-    if (daysDiff > 90) {
+    if (daysDiff > 62) {
       toast({
         title: "Large date range",
         description:
-          "For better performance, please select a date range under 90 days",
+          "For better performance, please select a date range under 2 months",
         status: "warning",
         duration: 5000,
         isClosable: true,
@@ -932,10 +981,11 @@ const Reports = () => {
     </FormLabel>
     <DatePicker
       selected={dateRange.startDate}
-      onChange={(date) => setDateRange({ ...dateRange, startDate: date })}
+      onChange={handleStartDateChange}
       selectsStart
       startDate={dateRange.startDate}
       endDate={dateRange.endDate}
+      minDate={getMinimumStartDate(dateRange.endDate)}
       maxDate={dateRange.endDate}
       dateFormat="dd-MM-yyyy"
       customInput={<Input size="sm" />}
@@ -949,7 +999,7 @@ const Reports = () => {
     </FormLabel>
     <DatePicker
       selected={dateRange.endDate}
-      onChange={(date) => setDateRange({ ...dateRange, endDate: date })}
+      onChange={handleEndDateChange}
       selectsEnd
       startDate={dateRange.startDate}
       endDate={dateRange.endDate}

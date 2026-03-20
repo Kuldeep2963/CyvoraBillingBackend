@@ -135,7 +135,7 @@ const buildWhereClause = async (startDate, endDate, startHour, endHour, startMin
   const where = {
     [Op.and]: [
       sequelize.literal(
-        `CASE WHEN "CDR"."starttime" ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END BETWEEN ${startTs} AND ${endTs}`
+        `CASE WHEN "CDR"."starttime"::text ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END BETWEEN ${startTs} AND ${endTs}`
       )
     ]
   };

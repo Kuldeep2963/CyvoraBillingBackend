@@ -205,4 +205,107 @@ router.post('/country-codes/upload', handleCountryCodeUpload, async (req, res) =
   }
 });
 
+router.get('/country-codes', async (_req, res) => {
+  try {
+    const countryCodes = await CountryCode.findAll({
+      attributes: ['code', 'country_name'],
+      order: [
+        ['country_name', 'ASC'],
+        ['code', 'ASC'],
+      ],
+      raw: true,
+    });
+
+    return res.json({
+      countryCodes,
+      total: countryCodes.length,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/country-codes', async (req, res) => {
+  try {
+    const role = req.user?.role?.toLowerCase();
+    if (role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can add country codes' });
+    }
+
+    const code = String(req.body?.code || '').trim();
+    const countryName = String(req.body?.country_name || '').trim();
+
+    if (!code || !countryName) {
+      return res.status(400).json({ error: 'Both code and country_name are required' });
+    }
+
+    const existing = await CountryCode.findByPk(code);
+    let record;
+
+    if (existing) {
+      existing.country_name = countryName;
+      await existing.save();
+      record = existing;
+    } else {
+      record = await CountryCode.create({
+        code,
+        country_name: countryName,
+      });
+    }
+
+    await createNotification({
+      title: existing ? 'Country code updated' : 'Country code added',
+      message: `${code} - ${countryName} saved by ${req.user?.email || 'admin'}.`,
+      type: 'success',
+      category: 'settings',
+    });
+
+    return res.status(existing ? 200 : 201).json({
+      message: existing ? 'Country code updated successfully' : 'Country code added successfully',
+      countryCode: {
+        code: record.code,
+        country_name: record.country_name,
+      },
+      updated: Boolean(existing),
+    });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+router.delete('/country-codes/:code', async (req, res) => {
+  try {
+    const role = req.user?.role?.toLowerCase();
+    if (role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can delete country codes' });
+    }
+
+    const code = String(req.params?.code || '').trim();
+    if (!code) {
+      return res.status(400).json({ error: 'Country code is required' });
+    }
+
+    const existing = await CountryCode.findByPk(code);
+    if (!existing) {
+      return res.status(404).json({ error: 'Country code not found' });
+    }
+
+    await existing.destroy();
+
+    await createNotification({
+      title: 'Country code deleted',
+      message: `${code} - ${existing.country_name} deleted by ${req.user?.email || 'admin'}.`,
+      type: 'warning',
+      category: 'settings',
+    });
+
+    return res.json({
+      message: 'Country code deleted successfully',
+      code,
+    });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
 module.exports = router;
