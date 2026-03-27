@@ -11,8 +11,6 @@ import {
   VStack,
   FormControl,
   FormLabel,
-  Input,
-  Select,
   SimpleGrid,
   Heading,
   Alert,
@@ -22,6 +20,7 @@ import {
   Box,
 } from "@chakra-ui/react";
 import { fetchLiteInvoices } from "../../utils/api";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../memoizedinput/memoizedinput";
 
 const RecordPaymentModal = ({
   isOpen,
@@ -199,7 +198,7 @@ const RecordPaymentModal = ({
                 }
               >
                 <option value="bank_transfer">Bank Transfer</option>
-                <option value="ustd">USTD</option>
+                <option value="usdt">USDT</option>
                 <option value="cash">Cash</option>
                 <option value="cheque">Cheque</option>
                 <option value="credit_card">Credit Card</option>

@@ -4,6 +4,206 @@ const Customer = require('../models/Account');
 const User = require('../models/User');
 const sequelize = require('../models/db');
 const { Op } = require('sequelize');
+const multer = require('multer');
+const path = require('path');
+const crypto = require('crypto');
+const {
+  accountDocumentUploadDir,
+  ensureDirSync,
+  toStoredRelativePath,
+  normalizeStoredPath,
+} = require('../config/storage');
+
+const accountDocMaxFileSizeMb = Math.max(1, Number(process.env.MAX_ACCOUNT_DOCUMENT_FILE_MB) || 25);
+const accountDocMaxFileSize = accountDocMaxFileSizeMb * 1024 * 1024;
+const accountDocAllowedExtensions = new Set([
+  '.pdf', '.png', '.jpg', '.jpeg', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt',
+]);
+
+const accountDocStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    ensureDirSync(accountDocumentUploadDir);
+    cb(null, accountDocumentUploadDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const safeExt = accountDocAllowedExtensions.has(ext) ? ext : '';
+    cb(null, `${Date.now()}-${crypto.randomUUID()}${safeExt}`);
+  },
+});
+
+const accountDocUpload = multer({
+  storage: accountDocStorage,
+  limits: {
+    fileSize: accountDocMaxFileSize,
+    files: 1,
+  },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (!accountDocAllowedExtensions.has(ext)) {
+      return cb(new Error('Invalid document type. Allowed: PDF, PNG, JPG, DOC, DOCX, XLS, XLSX, CSV, TXT'));
+    }
+    cb(null, true);
+  },
+});
+
+const removeStoredFileSafe = async (storedPathOrAbsolutePath) => {
+  const fs = require('fs');
+  const resolvedPath = normalizeStoredPath(storedPathOrAbsolutePath);
+  if (!resolvedPath) return;
+  try {
+    await fs.promises.unlink(resolvedPath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.warn('Failed to delete account document:', resolvedPath, error.message);
+    }
+  }
+};
+
+const splitToList = (value) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => (v == null ? '' : String(v).trim()))
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const normalizeContactChannels = (payload) => {
+  const data = { ...payload };
+
+  data.ratesEmails = splitToList(data.ratesEmails);
+  data.billingEmails = splitToList(data.billingEmails || data.billingEmail);
+  data.disputeEmails = splitToList(data.disputeEmails || data.disputeEmail);
+  data.nocEmails = splitToList(data.nocEmails || data.nocEmail);
+
+  data.ratesMobileNumber = splitToList(data.ratesMobileNumber);
+  data.billingPhoneNumbers = splitToList(data.billingPhoneNumbers);
+  data.disputePhoneNumber = splitToList(data.disputePhoneNumber);
+  data.nocPhoneNumbers = splitToList(data.nocPhoneNumbers);
+
+  // Keep current notification logic working via existing scalar fields.
+  if (!data.billingEmail && data.billingEmails.length > 0) {
+    data.billingEmail = data.billingEmails[0];
+  }
+  if (!data.disputeEmail && data.disputeEmails.length > 0) {
+    data.disputeEmail = data.disputeEmails[0];
+  }
+  if (!data.nocEmail && data.nocEmails.length > 0) {
+    data.nocEmail = data.nocEmails[0];
+  }
+
+  return data;
+};
+
+const normalizeDocuments = (input) => {
+  let parsed = input;
+
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch (_error) {
+      parsed = [];
+    }
+  }
+
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+
+      const title = String(item.title || '').trim();
+      const filePath = String(item.filePath || '').trim();
+      if (!title || !filePath) return null;
+
+      return {
+        id: String(item.id || crypto.randomUUID()),
+        title,
+        filePath,
+        originalName: String(item.originalName || '').trim() || path.basename(filePath),
+        uploadedAt: item.uploadedAt || new Date().toISOString(),
+      };
+    })
+    .filter(Boolean);
+};
+
+const computeNextBillingDate = (lastBillingDate, billingCycle) => {
+  const dt = new Date(lastBillingDate);
+  if (Number.isNaN(dt.getTime())) return null;
+
+  switch (billingCycle) {
+    case 'daily':
+      dt.setDate(dt.getDate() + 1);
+      break;
+    case 'weekly':
+      dt.setDate(dt.getDate() + 7);
+      break;
+    case 'biweekly':
+      dt.setDate(dt.getDate() + 14);
+      break;
+    case 'monthly':
+      dt.setMonth(dt.getMonth() + 1);
+      break;
+    case 'quarterly':
+      dt.setMonth(dt.getMonth() + 3);
+      break;
+    case 'annually':
+      dt.setFullYear(dt.getFullYear() + 1);
+      break;
+    default:
+      break;
+  }
+
+  return dt.toISOString().split('T')[0];
+};
+
+const applyBillingTypeAdjustments = (data) => {
+  if (data.billingType === 'prepaid') {
+    data.creditLimit = 0;
+    data.originalCreditLimit = 0;
+  } else if (data.billingType === 'postpaid') {
+    if (data.creditLimit != null) {
+      data.originalCreditLimit = data.creditLimit;
+    }
+    data.balance = 0;
+  }
+
+  if (data.lastbillingdate && data.billingCycle) {
+    data.nextbillingdate = computeNextBillingDate(data.lastbillingdate, data.billingCycle);
+  }
+
+  return data;
+};
+
+const validateAccountPayload = (data) => {
+  const required = [
+    'accountId',
+    'accountName',
+    'email',
+    'phone',
+    'addressLine1',
+    'city',
+    'postalCode',
+    'country',
+    'lastbillingdate',
+  ];
+
+  const missing = required.filter((field) => !String(data[field] ?? '').trim());
+  if (missing.length > 0) {
+    return `Missing required fields: ${missing.join(', ')}`;
+  }
+
+  return null;
+};
 
 // =======================
 // SEARCH / STATS ROUTES (FIRST)
@@ -230,47 +430,259 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+router.post('/:id/documents', (req, res, next) => {
+  accountDocUpload.single('file')(req, res, (err) => {
+    if (!err) return next();
+
+    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: `File too large. Max allowed is ${accountDocMaxFileSizeMb}MB.` });
+    }
+    return res.status(400).json({ error: err.message || 'Invalid document upload request.' });
+  });
+}, async (req, res) => {
+  try {
+    const account = await Customer.findByPk(parseInt(req.params.id, 10));
+    if (!account) {
+      if (req.file?.path) await removeStoredFileSafe(req.file.path);
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    const title = String(req.body?.title || '').trim();
+    if (!title) {
+      if (req.file?.path) await removeStoredFileSafe(req.file.path);
+      return res.status(400).json({ error: 'Document title is required' });
+    }
+
+    if (!req.file?.path) {
+      return res.status(400).json({ error: 'Document file is required' });
+    }
+
+    const filePath = toStoredRelativePath(path.resolve(req.file.path));
+    if (!filePath) {
+      await removeStoredFileSafe(req.file.path);
+      return res.status(400).json({ error: 'Invalid document storage path' });
+    }
+
+    const existingDocs = normalizeDocuments(account.documents);
+    const newDoc = {
+      id: crypto.randomUUID(),
+      title,
+      filePath,
+      originalName: req.file.originalname,
+      uploadedAt: new Date().toISOString(),
+    };
+
+    const documents = [...existingDocs, newDoc];
+    await account.update({ documents });
+
+    return res.status(201).json({ success: true, document: newDoc, documents });
+  } catch (err) {
+    if (req.file?.path) await removeStoredFileSafe(req.file.path);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/:id/documents/:documentId', async (req, res) => {
+  try {
+    const account = await Customer.findByPk(parseInt(req.params.id, 10));
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+
+    const documentId = String(req.params.documentId || '').trim();
+    if (!documentId) return res.status(400).json({ error: 'Document id is required' });
+
+    const existingDocs = normalizeDocuments(account.documents);
+    const target = existingDocs.find((d) => d.id === documentId);
+    if (!target) return res.status(404).json({ error: 'Document not found' });
+
+    const documents = existingDocs.filter((d) => d.id !== documentId);
+    await account.update({ documents });
+
+    await removeStoredFileSafe(target.filePath);
+    return res.status(200).json({ success: true, documents });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/:id/documents/:documentId/download', async (req, res) => {
+  try {
+    const account = await Customer.findByPk(parseInt(req.params.id, 10));
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+
+    const documentId = String(req.params.documentId || '').trim();
+    if (!documentId) return res.status(400).json({ error: 'Document id is required' });
+
+    const existingDocs = normalizeDocuments(account.documents);
+    const target = existingDocs.find((d) => d.id === documentId);
+    if (!target) return res.status(404).json({ error: 'Document not found' });
+
+    const resolvedPath = normalizeStoredPath(target.filePath);
+    if (!resolvedPath) return res.status(400).json({ error: 'Invalid document path' });
+
+    const fs = require('fs');
+    const fileExists = await fs.promises.stat(resolvedPath).then(() => true).catch(() => false);
+    if (!fileExists) return res.status(404).json({ error: 'Document file not found' });
+
+    const fileName = target.originalName || target.filePath.split('/').pop();
+    res.download(resolvedPath, fileName);
+  } catch (err) {
+    console.error('Error downloading document:', err.message);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/:id/documents/:documentId/view', async (req, res) => {
+  try {
+    const account = await Customer.findByPk(parseInt(req.params.id, 10));
+    if (!account) return res.status(404).json({ error: 'Account not found' });
+
+    const documentId = String(req.params.documentId || '').trim();
+    if (!documentId) return res.status(400).json({ error: 'Document id is required' });
+
+    const existingDocs = normalizeDocuments(account.documents);
+    const target = existingDocs.find((d) => d.id === documentId);
+    if (!target) return res.status(404).json({ error: 'Document not found' });
+
+    const resolvedPath = normalizeStoredPath(target.filePath);
+    if (!resolvedPath) return res.status(400).json({ error: 'Invalid document path' });
+
+    const fs = require('fs');
+    const fileExists = await fs.promises.stat(resolvedPath).then(() => true).catch(() => false);
+    if (!fileExists) return res.status(404).json({ error: 'Document file not found' });
+
+    const fileName = target.originalName || target.filePath.split('/').pop();
+    res.sendFile(resolvedPath, { headers: { 'Content-Disposition': 'inline; filename="' + fileName + '"' } });
+  } catch (err) {
+    console.error('Error viewing document:', err.message);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// Bulk create accounts
+router.post('/bulk', async (req, res) => {
+  const payload = req.body;
+  const inputAccounts = Array.isArray(payload) ? payload : payload?.accounts;
+  const continueOnError = Boolean(payload?.continueOnError);
+
+  if (!Array.isArray(inputAccounts) || inputAccounts.length === 0) {
+    return res.status(400).json({ error: 'accounts array is required' });
+  }
+
+  if (inputAccounts.length > 1000) {
+    return res.status(400).json({ error: 'Maximum 1000 accounts per bulk request' });
+  }
+
+  const prepared = inputAccounts.map((raw) => {
+    const data = normalizeContactChannels({ ...(raw || {}) });
+    if (Object.prototype.hasOwnProperty.call(data, 'documents')) {
+      data.documents = normalizeDocuments(data.documents);
+    }
+    return applyBillingTypeAdjustments(data);
+  });
+
+  const errors = [];
+  const created = [];
+
+  const seenAccountIds = new Set();
+  const seenEmails = new Set();
+
+  prepared.forEach((data, index) => {
+    const baseValidationError = validateAccountPayload(data);
+    if (baseValidationError) {
+      errors.push({ index, accountId: data.accountId || null, error: baseValidationError });
+      return;
+    }
+
+    const normalizedAccountId = String(data.accountId).trim().toLowerCase();
+    const normalizedEmail = String(data.email).trim().toLowerCase();
+
+    if (seenAccountIds.has(normalizedAccountId)) {
+      errors.push({ index, accountId: data.accountId, error: 'Duplicate accountId in request payload' });
+      return;
+    }
+    if (seenEmails.has(normalizedEmail)) {
+      errors.push({ index, accountId: data.accountId, error: 'Duplicate email in request payload' });
+      return;
+    }
+
+    seenAccountIds.add(normalizedAccountId);
+    seenEmails.add(normalizedEmail);
+  });
+
+  if (!continueOnError && errors.length > 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Bulk validation failed',
+      createdCount: 0,
+      failedCount: errors.length,
+      errors,
+    });
+  }
+
+  const validRows = prepared
+    .map((data, index) => ({ data, index }))
+    .filter(({ index }) => !errors.some((e) => e.index === index));
+
+  if (!continueOnError) {
+    const transaction = await sequelize.transaction();
+    try {
+      for (const row of validRows) {
+        const account = await Customer.create(row.data, { transaction });
+        created.push({ index: row.index, id: account.id, accountId: account.accountId, accountName: account.accountName });
+      }
+      await transaction.commit();
+
+      return res.status(201).json({
+        success: true,
+        createdCount: created.length,
+        failedCount: 0,
+        created,
+        errors: [],
+      });
+    } catch (err) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Bulk create failed. No accounts were created.',
+        createdCount: 0,
+        failedCount: validRows.length,
+        errors: [{ error: err.message }],
+      });
+    }
+  }
+
+  for (const row of validRows) {
+    try {
+      const account = await Customer.create(row.data);
+      created.push({ index: row.index, id: account.id, accountId: account.accountId, accountName: account.accountName });
+    } catch (err) {
+      errors.push({ index: row.index, accountId: row.data.accountId || null, error: err.message });
+    }
+  }
+
+  return res.status(201).json({
+    success: true,
+    createdCount: created.length,
+    failedCount: errors.length,
+    created,
+    errors,
+  });
+});
+
 // Create new account
 router.post('/', async (req, res) => {
   try {
-    const data = { ...req.body };
+    const data = normalizeContactChannels({ ...req.body });
+    if (Object.prototype.hasOwnProperty.call(data, 'documents')) {
+      data.documents = normalizeDocuments(data.documents);
+    }
 
     // require last billing date
     if (!data.lastbillingdate) {
       return res.status(400).json({ error: 'lastbillingdate is required' });
     }
 
-    // make billing-type-specific adjustments before creating
-    if (data.billingType === 'prepaid') {
-      // prepaid accounts should only use balance
-      data.creditLimit = 0;
-      data.originalCreditLimit = 0;
-    } else if (data.billingType === 'postpaid') {
-      // ensure original is seeded from incoming limit
-      if (data.creditLimit != null) {
-        data.originalCreditLimit = data.creditLimit;
-      }
-      // prepaid balance must be zero for postpaid accounts
-      data.balance = 0;
-    }
-
-    // calculate next billing date based on lastbillingdate and cycle
-    const computeNext = (last, cycle) => {
-      const dt = new Date(last);
-      switch (cycle) {
-        case 'daily': dt.setDate(dt.getDate() + 1); break;
-        case 'weekly': dt.setDate(dt.getDate() + 7); break;
-        case 'biweekly': dt.setDate(dt.getDate() + 14); break;
-        case 'monthly': dt.setMonth(dt.getMonth() + 1); break;
-        case 'quarterly': dt.setMonth(dt.getMonth() + 3); break;
-        case 'annually': dt.setFullYear(dt.getFullYear() + 1); break;
-        default: break;
-      }
-      return dt.toISOString().split('T')[0];
-    };
-    if (data.lastbillingdate && data.billingCycle) {
-      data.nextbillingdate = computeNext(data.lastbillingdate, data.billingCycle);
-    }
+    applyBillingTypeAdjustments(data);
 
     let account = await Customer.create(data);
     // reload to include owner info
@@ -294,7 +706,10 @@ router.put('/:id', async (req, res) => {
     const account = await Customer.findByPk(parseInt(req.params.id));
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
-    const updates = { ...req.body };
+    const updates = normalizeContactChannels({ ...req.body });
+    if (Object.prototype.hasOwnProperty.call(updates, 'documents')) {
+      updates.documents = normalizeDocuments(updates.documents);
+    }
 
     if (!updates.lastbillingdate) {
       return res.status(400).json({ error: 'lastbillingdate is required' });

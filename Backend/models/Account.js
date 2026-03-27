@@ -53,8 +53,9 @@ const Account = sequelize.define('Account', {
   },
   
   customerauthenticationValue: {
-    type: DataTypes.STRING,
-    comment: 'IP address, gateway ID, or custom field value for authentication'
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Array of IP addresses or custom field values for customer authentication'
   },
 
   vendorauthenticationType: {
@@ -64,8 +65,9 @@ const Account = sequelize.define('Account', {
   },
   
   vendorauthenticationValue: {
-    type: DataTypes.STRING,
-    comment: 'IP address, gateway ID, or custom field value for authentication'
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Array of IP addresses or custom field values for vendor authentication'
   },
   
   // Basic Account Information
@@ -94,6 +96,11 @@ const Account = sequelize.define('Account', {
     },
     comment: 'Email of the primary contact person'
   },
+
+  contactPersonPhone: {
+    type: DataTypes.STRING,
+    comment: 'Phone number of the primary contact person'
+  },
   
   // Contact Information
   email: {
@@ -109,6 +116,30 @@ const Account = sequelize.define('Account', {
     validate: {
       isEmail: true
     }
+  },
+
+  ratesEmails: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Comma-separated rates team email list'
+  },
+
+  ratesMobileNumber: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Rates team mobile number'
+  },
+
+  billingEmails: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Comma-separated billing email list'
+  },
+
+  billingPhoneNumbers: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Billing phone number(s)'
   },
   
   soaEmail: {
@@ -126,6 +157,18 @@ const Account = sequelize.define('Account', {
     },
     comment: 'Email for dispute notifications'
   },
+
+  disputeEmails: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Comma-separated dispute notification email list'
+  },
+
+  disputePhoneNumber: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Dispute contact phone number'
+  },
   
   nocEmail: {
     type: DataTypes.STRING,
@@ -133,6 +176,24 @@ const Account = sequelize.define('Account', {
       isEmail: true
     },
     comment: 'Email for Network Operations Center notifications'
+  },
+
+  nocEmails: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Comma-separated NOC email list'
+  },
+
+  nocPhoneNumbers: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'NOC phone number(s)'
+  },
+
+  documents: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Array of document objects: { id, title, filePath, originalName, uploadedAt }'
   },
   
   phone: {

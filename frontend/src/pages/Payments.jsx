@@ -8,8 +8,6 @@ import {
   useToast,
   HStack,
   Badge,
-  Input,
-  Select,
   Card,
   CardBody,
   SimpleGrid,
@@ -26,6 +24,7 @@ import {
   InputGroup,
   InputLeftElement,
 } from "@chakra-ui/react";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
   FiDollarSign,
@@ -47,7 +46,7 @@ import {
   recordPayment,
   exportReport,
 } from "../utils/api";
-import { format } from "date-fns";
+import { format, max } from "date-fns";
 import { color } from "framer-motion";
 
 const Payments = () => {
@@ -266,13 +265,12 @@ const Payments = () => {
     },
     {
       header: "Customer",
+      maxWidth: "200px",
       key: "customerName",
       render: (value, row) => (
         <VStack align="start" spacing={0}>
-          <Text fontWeight="medium">{value}</Text>
-          <Text fontSize="xs" color="gray.500">
-            {row.customerGatewayId}
-          </Text>
+          <Text noOfLines={1} maxWidth="250px" fontWeight="medium">{value}</Text>
+          
         </VStack>
       ),
     },
@@ -301,8 +299,8 @@ const Payments = () => {
       key: "paymentMethod",
       render: (value) => (
         <Badge
-          variant="outline"
-          colorScheme="purple"
+          variant="ghost"
+          colorScheme="blue"
           textTransform="capitalize"
         >
           {value?.replace("_", " ")}
@@ -377,12 +375,12 @@ const Payments = () => {
           title="Payment Records"
           description="Manage and track all customer payments"
           rightContent={
-            <>
+            <Flex gap={3}>
               <Button
                 leftIcon={<FiDownload />}
-                variant="outline"
+                variant="solid"
                 size="sm"
-                colorScheme="black"
+                colorScheme="green"
                 onClick={handleExport}
                 isDisabled={filteredPayments.length === 0}
               >
@@ -396,7 +394,7 @@ const Payments = () => {
               >
                 Record Payment
               </Button>
-            </>
+            </Flex>
           }
         />
 
@@ -506,12 +504,13 @@ const Payments = () => {
         </SimpleGrid>
 
         {/* Filter Section */}
-        <Flex gap={4}>
-          <InputGroup maxW={{ md: "300px" }} bg={"white"} size={"sm"}>
+        <Flex gap={4} alignItems={"center"}>
+          <InputGroup  maxW={{ md: "300px" }}  size={"sm"}>
             <InputLeftElement pointerEvents="none">
               <FiSearch color="gray.400" />
             </InputLeftElement>
             <Input
+              pl={8}
               placeholder="Search by payment, customer..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -519,9 +518,8 @@ const Payments = () => {
           </InputGroup>
           <Select
             size={"sm"}
-            bg={"white"}
             leftIcon={<FiFilter />}
-            maxW="200px"
+            maxW="250px"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -536,6 +534,7 @@ const Payments = () => {
 
         {/* Data Table */}
         <DataTable
+          m = {2}
           columns={columns}
           data={filteredPayments}
           onView={handleViewDetails}

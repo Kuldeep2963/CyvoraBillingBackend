@@ -56,7 +56,7 @@ const Payment = sequelize.define('Payment', {
   
   // Payment Method
   paymentMethod: {
-    type: DataTypes.ENUM('bank_transfer','ustd', 'credit_card', 'debit_card', 'paypal', 'stripe', 'cash', 'cheque', 'other'),
+    type: DataTypes.ENUM('bank_transfer','usdt', 'credit_card', 'debit_card', 'paypal', 'stripe', 'cash', 'cheque', 'other'),
     allowNull: false
   },
   paymentGateway: {

@@ -1,6 +1,7 @@
 const Notification = require('../models/Notification');
+const { Op } = require('sequelize');
 
-async function createNotification({ title, message, type = 'info', category = 'system', metadata = null }) {
+async function createNotification({ title, message, type = 'info', category = 'system', metadata = null, audienceRole = null }) {
   if (!title || !message) {
     throw new Error('title and message are required');
   }
@@ -10,14 +11,26 @@ async function createNotification({ title, message, type = 'info', category = 's
     message,
     type,
     category,
+    audienceRole,
     metadata,
     isRead: false,
   });
 }
 
-async function listNotifications({ limit = 30, unreadOnly = false } = {}) {
+async function listNotifications({ limit = 30, unreadOnly = false, viewerRole = null } = {}) {
   const normalizedLimit = Math.max(1, Math.min(100, Number(limit) || 30));
-  const where = unreadOnly ? { isRead: false } : {};
+  const where = {};
+
+  if (unreadOnly) {
+    where.isRead = false;
+  }
+
+  if (viewerRole) {
+    where[Op.or] = [
+      { audienceRole: null },
+      { audienceRole: String(viewerRole).toLowerCase() },
+    ];
+  }
 
   const rows = await Notification.findAll({
     where,
@@ -25,7 +38,15 @@ async function listNotifications({ limit = 30, unreadOnly = false } = {}) {
     limit: normalizedLimit,
   });
 
-  const unreadCount = await Notification.count({ where: { isRead: false } });
+  const unreadWhere = { isRead: false };
+  if (viewerRole) {
+    unreadWhere[Op.or] = [
+      { audienceRole: null },
+      { audienceRole: String(viewerRole).toLowerCase() },
+    ];
+  }
+
+  const unreadCount = await Notification.count({ where: unreadWhere });
 
   return {
     notifications: rows,

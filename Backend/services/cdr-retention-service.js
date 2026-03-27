@@ -29,7 +29,7 @@ class CDRRetentionService {
 
   async runCleanup() {
     const settings = await getGlobalSettings();
-    const retentionDays = Number(settings.dataRetentionDays) || 60;
+    const retentionDays = Number(settings.dataRetentionDays);
 
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - retentionDays);

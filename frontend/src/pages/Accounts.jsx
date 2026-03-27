@@ -9,12 +9,10 @@ import {
   useToast,
   HStack,
   Badge,
-  Input,
   useColorModeValue,
   Icon,
   IconButton,
   Spacer,
-  Select,
   Grid,
   InputGroup,
   InputLeftElement,
@@ -23,6 +21,7 @@ import {
   Tooltip,
   Flex,
 } from "@chakra-ui/react";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
   FiPlus,
@@ -35,11 +34,13 @@ import {
   FiClock,
   FiTrendingUp,
   FiArrowUp,
+  FiUpload,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
 import ConfirmDialog from "../components/ConfirmDialog";
 import CreateAccountModal from "../components/modals/CreateAccountModal";
 import TopupModal from "../components/modals/TopupModal";
+import BulkAccountUploadModal from "../components/modals/BulkAccountUploadModal";
 import {
   fetchCustomers,
   createCustomer,
@@ -144,6 +145,7 @@ const Accounts = () => {
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
+  const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
   const [selectedAccountForTopup, setSelectedAccountForTopup] = useState(null);
 
   const toast = useToast();
@@ -152,9 +154,9 @@ const Accounts = () => {
 
   // Options
   const accountRoleOptions = [
-    { value: "customer", label: "Customer", color: "blue" },
-    { value: "vendor", label: "Vendor", color: "purple" },
-    { value: "both", label: "Cust & Ven", color: "green" },
+    { value: "customer", label: "Customer", color: "gray" },
+    { value: "vendor", label: "Vendor", color: "gray" },
+    { value: "both", label: "Bilateral", color: "gray" },
   ];
 
   const accountTypeOptions = [
@@ -166,8 +168,6 @@ const Accounts = () => {
   const statusOptions = [
     { value: "active", label: "Active", color: "green" },
     { value: "inactive", label: "Inactive", color: "gray" },
-    { value: "suspended", label: "Suspended", color: "red" },
-    { value: "pending", label: "Pending", color: "yellow" },
   ];
 
   const carrierTypeOptions = [
@@ -288,17 +288,19 @@ const Accounts = () => {
 
   const calculateCustomerStats = async () => {
     try {
+      const accountId = selectedCustomer?.id;
       const customerCode = selectedCustomer?.customerCode;
       const vendorCode = selectedCustomer?.vendorCode;
 
       // Reset first to avoid showing stale numbers while loading a different account.
       setCdrStats(DEFAULT_CDR_STATS);
 
-      if (!customerCode && !vendorCode) {
+      if (!accountId && !customerCode && !vendorCode) {
         return;
       }
 
       const stats = await fetchCDRStats({
+        accountId,
         customerCode,
         vendorCode,
       });
@@ -324,8 +326,10 @@ const Accounts = () => {
       accountType: "prepaid",
       accountStatus: "active",
       accountId: "",
-      authenticationType: "ip",
-      authenticationValue: "",
+      customerauthenticationType: "ip",
+      customerauthenticationValue: "",
+      vendorauthenticationType: "ip",
+      vendorauthenticationValue: "",
 
       // CDR Mapping Fields
       customerCode: `C_${Math.floor(10000 + Math.random() * 90000)}`,
@@ -380,7 +384,7 @@ const Accounts = () => {
       billingTimezone: "UTC",
       billingStartDate: new Date().toISOString().split("T")[0],
       billingCycle: "monthly",
-      lastbillingdate: "",
+      lastbillingdate: null,
       nextbillingdate: "",
 
       // Payment Settings
@@ -435,6 +439,10 @@ const Accounts = () => {
       isClosable: true,
     });
     loadCustomers();
+  };
+
+  const handleBulkUploadClick = () => {
+    setIsBulkUploadModalOpen(true);
   };
 
   const handleSave = async () => {
@@ -580,8 +588,8 @@ const Accounts = () => {
     
     {
       key: "accountOwner",
-      header: "Owner",
-      minWidth: "130px",
+      header: "Account Owner",
+      minWidth: "150px",
       render: (value, row) => {
         if (row.owner) {
           return `${row.owner.first_name} ${row.owner.last_name}`;
@@ -594,8 +602,8 @@ const Accounts = () => {
     },
     {
       key: "accountRole",
-      header: "Role",
-      // minWidth: "90px",
+      header: "Account Type",
+      minWidth: "130px",
       render: (value) => {
         const role = accountRoleOptions.find((r) => r.value === value);
         return (
@@ -614,29 +622,29 @@ const Accounts = () => {
           <Text fontWeight="medium" fontSize="sm" noOfLines={1}>{value}</Text>
           <HStack spacing={1} mt={1}>
             {row.customerCode && (
-              <Badge fontSize="xs" colorScheme="blue" variant="outline">
-                C: {row.customerCode}
+              <Badge fontSize="xs" colorScheme="black" variant="outline">
+                 {row.customerCode}
               </Badge>
             )}
             {row.vendorCode && (
-              <Badge fontSize="xs" colorScheme="purple" variant="outline">
-                V: {row.vendorCode}
+              <Badge fontSize="xs" colorScheme="black" variant="outline">
+                 {row.vendorCode}
               </Badge>
             )}
           </HStack>
         </Box>
       ),
     },
-    {
-      key: "email",
-      header: "Email",
-      // minWidth: "150px",
-      render: (value) => (
-        <Text fontSize="sm" isTruncated fontWeight={"medium"}>
-          {value}
-        </Text>
-      ),
-    },
+    // {
+    //   key: "email",
+    //   header: "Email",
+    //   // minWidth: "150px",
+    //   render: (value) => (
+    //     <Text fontSize="sm" isTruncated fontWeight={"medium"}>
+    //       {value}
+    //     </Text>
+    //   ),
+    // },
     {
       key: "active",
       header: "Status",
@@ -645,6 +653,8 @@ const Accounts = () => {
         const status = statusOptions.find((s) => s.value === row.accountStatus);
         return (
           <Badge
+           borderRadius={"full"}
+           px={2}
             colorScheme={status?.color || (value ? "green" : "red")}
             variant="subtle"
           >
@@ -660,7 +670,7 @@ const Accounts = () => {
       isNumeric: true,
       render: (value) => (
         <Text
-          fontWeight="bold"
+          fontWeight="medium"
           textAlign="right"
           color={parseFloat(value) < 0 ? "red.600" : "green.600"}
         >
@@ -671,11 +681,11 @@ const Accounts = () => {
     {
       key: "creditLimit",
       header: "Credit Limit",
-      // minWidth: "120px",
+      minWidth: "120px",
       isNumeric: true,
       render: (value) => (
         <Text
-          fontWeight="bold"
+          fontWeight="medium"
           textAlign="right"
           color={parseFloat(value) < 0 ? "red.600" : "green.600"}
         >
@@ -686,14 +696,14 @@ const Accounts = () => {
     {
       key: "lastbillingdate",
       header: "Last Billing",
-      // minWidth: "110px",
-      render: (value) => value || "N/A",
+      minWidth: "120px",
+      render: (value) => value || "-",
     },
     {
       key: "nextbillingdate",
       header: "Next Billing",
-      // minWidth: "110px",
-      render: (value) => value || "N/A",
+      minWidth: "130px",
+      render: (value) => value || "-",
     },
   ];
 
@@ -706,12 +716,20 @@ const Accounts = () => {
           description="Manage customers, vendors, resellers and agents"
           rightContent={
             <>
+            <Flex
+              align={{ base: "stretch", md: "center" }}
+              direction={{ base: "column", md: "row" }}
+              gap={2}
+              w={{ base: "full", md: "auto" }}
+              gridColumn={{ base: 1, md: 2, lg: 4 }}
+            >
+              
               {/* Role Filter */}
               <Select
                 borderRadius={"md"}
                 bg={"white"}
                 size="sm"
-                width="150px"
+                width={{ base: "100%", md: "150px" }}
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
               >
@@ -728,7 +746,7 @@ const Accounts = () => {
                 bg={"white"}
                 borderRadius={"md"}
                 size="sm"
-                width="150px"
+                width={{ base: "100%", md: "150px" }}
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
@@ -767,6 +785,7 @@ const Accounts = () => {
 
                 <Input
                   w="100%"
+                  maxW="250px"
                   placeholder="Search accounts..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -802,15 +821,27 @@ const Accounts = () => {
 
               {user.role === "admin" && (
                 <Button
-                  borderRadius="4px"
+                    borderRadius="6px"
+                    leftIcon={<FiUpload />}
+                    colorScheme="blue"
+                    variant="solid"
+                    onClick={handleBulkUploadClick}
+                    size="sm"
+                  >
+                    Bulk Upload
+                  </Button>)}
+                  <Button
+                  borderRadius="6px"
                   leftIcon={<FiPlus />}
-                  colorScheme="green"
+                  color="white"
+                  bgGradient="linear(to-r, blue.500, blue.600)"
+                  _hover={{ bgGradient: "linear(to-r, blue.600, blue.700)" }}
                   onClick={handleAddNew}
                   size="sm"
                 >
                   Add Account
                 </Button>
-              )}
+              </Flex>
             </>
           }
         />
@@ -827,7 +858,8 @@ const Accounts = () => {
           <Box
             p={4}
             px={6}
-            bgGradient="linear(to-tr, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
+            // bgGradient="linear(to-tr, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
+            bg={"white"}
             borderRadius="md"
             display={"flex"}
             shadow={"md"}
@@ -845,7 +877,8 @@ const Accounts = () => {
           <Box
             p={4}
             px={6}
-            bgGradient="linear(to-tr, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
+            // bgGradient="linear(to-tr, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
+            bg={"white"}
             borderRadius="md"
             display={"flex"}
             shadow={"md"}
@@ -925,7 +958,7 @@ const Accounts = () => {
                 <Button
                   size="xs"
                   colorScheme="green"
-                  variant="outline"
+                  variant="ghost"
                   leftIcon={<FiArrowUp />}
                   onClick={() => handleTopup(row)}
                   mr={2}
@@ -960,6 +993,11 @@ const Accounts = () => {
           onClose={() => setIsTopupModalOpen(false)}
           account={selectedAccountForTopup}
           onTopupSuccess={handleTopupSuccess}
+        />
+        <BulkAccountUploadModal
+          isOpen={isBulkUploadModalOpen}
+          onClose={() => setIsBulkUploadModalOpen(false)}
+          onUploaded={loadCustomers}
         />
         {/* Delete Confirmation */}
         <ConfirmDialog

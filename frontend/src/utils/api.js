@@ -1,18 +1,101 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
+let isRefreshing = false;
+let refreshPromise = null;
+
 const getAuthHeaders = () => {
-  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
+  const accessToken = localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken');
+  return accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {};
 };
 
-const handleResponse = async (response) => {
-  if (response.status === 401) {
-    localStorage.removeItem('token');
+const refreshAccessToken = async () => {
+  try {
+    const refreshToken = localStorage.getItem('refreshToken') || sessionStorage.getItem('refreshToken');
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Token refresh failed');
+    }
+
+    // Determine which storage was used
+    const storage = localStorage.getItem('accessToken') ? localStorage : sessionStorage;
+    storage.setItem('accessToken', data.accessToken);
+
+    return data.accessToken;
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    // Clear auth and redirect to login
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
-    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('accessToken');
+    sessionStorage.removeItem('refreshToken');
     sessionStorage.removeItem('user');
     window.location.href = '/';
+    throw error;
   }
+};
+
+const handleResponse = async (response, originalRequest) => {
+  if (response.status === 401) {
+    // Try to refresh token if we haven't already
+    if (!isRefreshing) {
+      isRefreshing = true;
+      try {
+        refreshPromise = refreshAccessToken();
+        await refreshPromise;
+        isRefreshing = false;
+        refreshPromise = null;
+        
+        // Retry original request with new token
+        if (originalRequest) {
+          const retryResponse = await fetch(originalRequest.url, {
+            ...originalRequest.options,
+            headers: {
+              ...originalRequest.options.headers,
+              ...getAuthHeaders(),
+            },
+          });
+          return await handleResponse(retryResponse);
+        }
+      } catch (error) {
+        isRefreshing = false;
+        refreshPromise = null;
+        throw error;
+      }
+    } else if (refreshPromise) {
+      // Wait for ongoing refresh
+      try {
+        await refreshPromise;
+        // Retry original request with new token
+        if (originalRequest) {
+          const retryResponse = await fetch(originalRequest.url, {
+            ...originalRequest.options,
+            headers: {
+              ...originalRequest.options.headers,
+              ...getAuthHeaders(),
+            },
+          });
+          return await handleResponse(retryResponse);
+        }
+      } catch (error) {
+        throw error;
+      }
+    }
+  }
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Network error' }));
     throw new Error(error.error || `HTTP error! status: ${response.status}`);
@@ -20,12 +103,91 @@ const handleResponse = async (response) => {
   return response.json();
 };
 
+const fetchWithTokenRefresh = async (url, options = {}) => {
+  const { responseType = 'json', ...fetchOptions } = options;
+  const originalRequest = { url, options };
+  
+  const response = await fetch(url, {
+    ...fetchOptions,
+    headers: {
+      ...getAuthHeaders(),
+      ...fetchOptions.headers,
+    },
+  });
+
+  // Handle 401 with token refresh
+  if (response.status === 401) {
+    if (!isRefreshing) {
+      isRefreshing = true;
+      try {
+        refreshPromise = refreshAccessToken();
+        await refreshPromise;
+        isRefreshing = false;
+        refreshPromise = null;
+        
+        // Retry original request with new token
+        const retryResponse = await fetch(url, {
+          ...fetchOptions,
+          headers: {
+            ...getAuthHeaders(),
+            ...fetchOptions.headers,
+          },
+        });
+        
+        if (retryResponse.status === 401) {
+          throw new Error('Unauthorized');
+        }
+        
+        if (!retryResponse.ok) {
+          const error = await retryResponse.json().catch(() => ({ error: 'Network error' }));
+          throw new Error(error.error || `HTTP error! status: ${retryResponse.status}`);
+        }
+        
+        return responseType === 'blob' ? await retryResponse.blob() : await retryResponse.json();
+      } catch (error) {
+        isRefreshing = false;
+        refreshPromise = null;
+        throw error;
+      }
+    } else if (refreshPromise) {
+      // Wait for ongoing refresh
+      try {
+        await refreshPromise;
+        const retryResponse = await fetch(url, {
+          ...fetchOptions,
+          headers: {
+            ...getAuthHeaders(),
+            ...fetchOptions.headers,
+          },
+        });
+        
+        if (retryResponse.status === 401) {
+          throw new Error('Unauthorized');
+        }
+        
+        if (!retryResponse.ok) {
+          const error = await retryResponse.json().catch(() => ({ error: 'Network error' }));
+          throw new Error(error.error || `HTTP error! status: ${retryResponse.status}`);
+        }
+        
+        return responseType === 'blob' ? await retryResponse.blob() : await retryResponse.json();
+      } catch (error) {
+        throw error;
+      }
+    }
+  }
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Network error' }));
+    throw new Error(error.error || `HTTP error! status: ${response.status}`);
+  }
+
+  return responseType === 'blob' ? await response.blob() : await response.json();
+};
+
 export const fetchCDRs = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/cdr`, {
-      headers: getAuthHeaders()
-    });
-    return await handleResponse(response);
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/cdr`);
   } catch (error) {
     console.error('Error fetching CDRs:', error);
     throw error;
@@ -34,10 +196,7 @@ export const fetchCDRs = async () => {
 
 export const fetchCDRCount = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/cdr/count`, {
-      headers: getAuthHeaders()
-    });
-    const data = await handleResponse(response);
+    const data = await fetchWithTokenRefresh(`${API_BASE_URL}/cdr/count`);
     return Number(data?.count || 0);
   } catch (error) {
     console.error('Error fetching CDR count:', error);
@@ -45,33 +204,86 @@ export const fetchCDRCount = async () => {
   }
 };
 
-export const fetchCDRStats = async ({ customerCode, vendorCode } = {}) => {
+export const fetchCDRStats = async ({ accountId, customerCode, vendorCode } = {}) => {
   try {
     const params = new URLSearchParams();
+    if (accountId) params.set('accountId', accountId);
     if (customerCode) params.set('customerCode', customerCode);
     if (vendorCode) params.set('vendorCode', vendorCode);
 
-    const response = await fetch(`${API_BASE_URL}/cdr/stats?${params.toString()}`, {
-      headers: getAuthHeaders()
-    });
-    return await handleResponse(response);
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/cdr/stats?${params.toString()}`);
   } catch (error) {
-    console.error('Error fetching CDR stats:', error);
+    console.warn('CDR stats unavailable, returning safe defaults:', error?.message || error);
+    return {
+      totalCalls: 0,
+      totalDuration: 0,
+      totalRevenue: 0,
+      totalTax: 0,
+      answeredCalls: 0,
+      degraded: true,
+    };
+  }
+};
+
+export const downloadCDRCSV = async ({ startTime, endTime, accountId, cdrSide = 'all' }) => {
+  try {
+    const params = new URLSearchParams({ startTime, endTime });
+    if (accountId && accountId !== 'all') {
+      params.set('accountId', accountId);
+    }
+    if (cdrSide && cdrSide !== 'all') {
+      params.set('cdrSide', cdrSide);
+    }
+    
+    const blob = await fetchWithTokenRefresh(`${API_BASE_URL}/cdr/export?${params.toString()}`, {
+      responseType: 'blob'
+    });
+
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cdrs_${startTime}_to_${endTime}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+    return { success: true };
+  } catch (error) {
+    console.error('Error downloading CDR CSV:', error);
+    throw error;
+  }
+};
+
+export const fetchMissingGateways = async ({ startDate, endDate, search = '', page = 1, limit = 25 } = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (startDate) params.set('startDate', startDate);
+    if (endDate) params.set('endDate', endDate);
+    if (search) params.set('search', search);
+    params.set('page', String(page));
+    params.set('limit', String(limit));
+
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/cdr/missing-gateways?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching missing gateways:', error);
     throw error;
   }
 };
 
 export const createCDR = async (cdrData) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/cdr`, {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/cdr`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders()
       },
       body: JSON.stringify(cdrData),
     });
-    return await handleResponse(response);
   } catch (error) {
     console.error('Error creating CDR:', error);
     throw error;
@@ -80,15 +292,13 @@ export const createCDR = async (cdrData) => {
 
 export const bulkCreateCDRs = async (cdrsData) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/cdr/bulk`, {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/cdr/bulk`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders()
       },
       body: JSON.stringify(cdrsData),
     });
-    return await handleResponse(response);
   } catch (error) {
     console.error('Error bulk creating CDRs:', error);
     throw error;
@@ -97,15 +307,13 @@ export const bulkCreateCDRs = async (cdrsData) => {
 
 export const updateCDR = async (id, cdrData) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/cdr/${id}`, {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/cdr/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders()
       },
       body: JSON.stringify(cdrData),
     });
-    return await handleResponse(response);
   } catch (error) {
     console.error('Error updating CDR:', error);
     throw error;
@@ -114,11 +322,9 @@ export const updateCDR = async (id, cdrData) => {
 
 export const deleteCDR = async (id) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/cdr/${id}`, {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/cdr/${id}`, {
       method: 'DELETE',
-      headers: getAuthHeaders()
     });
-    return await handleResponse(response);
   } catch (error) {
     console.error('Error deleting CDR:', error);
     throw error;
@@ -127,10 +333,7 @@ export const deleteCDR = async (id) => {
 
 export const fetchCustomers = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/customers`, {
-      headers: getAuthHeaders()
-    });
-    const data = await handleResponse(response);
+    const data = await fetchWithTokenRefresh(`${API_BASE_URL}/customers`);
     return data.accounts || [];
   } catch (error) {
     console.error('Error fetching customers:', error);
@@ -153,45 +356,114 @@ export const fetchVendors = async () => {
 
 export const createCustomer = async (customerData) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/customers`, {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/customers`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders()
       },
       body: JSON.stringify(customerData),
     });
-    return await handleResponse(response);
   } catch (error) {
     console.error('Error creating customer:', error);
     throw error;
   }
 };
 
+export const bulkCreateCustomers = async ({ accounts, continueOnError = true }) => {
+  try {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/customers/bulk`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ accounts, continueOnError }),
+    });
+  } catch (error) {
+    console.error('Error bulk creating customers:', error);
+    throw error;
+  }
+};
+
 export const updateCustomer = async (id, customerData) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/customers/${id}`, {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/customers/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders()
       },
       body: JSON.stringify(customerData),
     });
-    return await handleResponse(response);
   } catch (error) {
     console.error('Error updating customer:', error);
     throw error;
   }
 };
 
+export const uploadAccountDocument = async (accountId, { title, file }) => {
+  try {
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('file', file);
+
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/customers/${accountId}/documents`, {
+      method: 'POST',
+      body: formData,
+    });
+  } catch (error) {
+    console.error('Error uploading account document:', error);
+    throw error;
+  }
+};
+
+export const deleteAccountDocument = async (accountId, documentId) => {
+  try {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/customers/${accountId}/documents/${documentId}`, {
+      method: 'DELETE',
+    });
+  } catch (error) {
+    console.error('Error deleting account document:', error);
+    throw error;
+  }
+};
+
+export const downloadAccountDocument = async (accountId, documentId, documentName) => {
+  try {
+    const blob = await fetchWithTokenRefresh(`${API_BASE_URL}/customers/${accountId}/documents/${documentId}/download`, {
+      method: 'GET',
+      responseType: 'blob',
+    });
+
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = documentName || `document-${documentId}`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  } catch (error) {
+    console.error('Error downloading account document:', error);
+    throw error;
+  }
+};
+
+export const viewAccountDocument = (accountId, documentId) => {
+  try {
+    const token = localStorage.getItem('authToken');
+    const url = `${API_BASE_URL}/customers/${accountId}/documents/${documentId}/view`;
+    const documentUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
+    window.open(documentUrl, '_blank', 'noopener,noreferrer');
+  } catch (error) {
+    console.error('Error opening document viewer:', error);
+    throw error;
+  }
+};
+
 export const deleteCustomer = async (id) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/customers/${id}`, {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/customers/${id}`, {
       method: 'DELETE',
-      headers: getAuthHeaders()
     });
-    return await handleResponse(response);
   } catch (error) {
     console.error('Error deleting customer:', error);
     throw error;
@@ -201,10 +473,7 @@ export const deleteCustomer = async (id) => {
 // Report APIs
 export const fetchReportAccounts = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/reports/accounts`, {
-      headers: getAuthHeaders()
-    });
-    return await handleResponse(response);
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/reports/accounts`);
   } catch (error) {
     console.error('Error fetching report accounts:', error);
     throw error;
@@ -213,15 +482,13 @@ export const fetchReportAccounts = async () => {
 
 export const generateReport = async (type, params) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/reports/${type}`, {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/reports/${type}`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        ...getAuthHeaders()
       },
       body: JSON.stringify(params)
     });
-    return await handleResponse(response);
   } catch (error) {
     console.error(`Error generating ${type}:`, error);
     throw error;
@@ -464,11 +731,9 @@ export const downloadInvoice = async (id, invoiceNumber) => {
 
 export const sendInvoiceEmail = async (id) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}/send-email`, {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/billing/invoices/${id}/send-email`, {
       method: 'POST',
-      headers: getAuthHeaders()
     });
-    return await handleResponse(response);
   } catch (error) {
     console.error(`Error sending email for invoice ${id}:`, error);
     throw error;
@@ -477,15 +742,13 @@ export const sendInvoiceEmail = async (id) => {
 
 export const recordPayment = async (paymentData) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/billing/payments`, {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/billing/payments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...getAuthHeaders()
       },
       body: JSON.stringify(paymentData),
     });
-    return await handleResponse(response);
   } catch (error) {
     console.error('Error recording payment:', error);
     throw error;
@@ -509,9 +772,21 @@ export const raiseDispute = async (disputeData) => {
   }
 };
 
-export const getAllDisputes = async () => {
+export const getAllDisputes = async (params = {}) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/billing/disputes`, {
+    const sanitizedParams = Object.fromEntries(
+      Object.entries(params).filter(([, value]) => {
+        if (value === undefined || value === null) return false;
+        const normalized = String(value).trim().toLowerCase();
+        return normalized !== '' && normalized !== 'undefined' && normalized !== 'null';
+      })
+    );
+    const query = new URLSearchParams(sanitizedParams).toString();
+    const url = query
+      ? `${API_BASE_URL}/billing/disputes?${query}`
+      : `${API_BASE_URL}/billing/disputes`;
+
+    const response = await fetch(url, {
       headers: getAuthHeaders()
     });
     return await handleResponse(response);
@@ -703,7 +978,10 @@ export const uploadVendorInvoice = async (formData) => {
 
 export const fetchVendorInvoices = async (params = {}) => {
   try {
-    const query = new URLSearchParams(params).toString();
+    const cleanParams = Object.fromEntries(
+      Object.entries(params).filter(([_, v]) => v != null && v !== '')
+    );
+    const query = new URLSearchParams(cleanParams).toString();
     const url = query
       ? `${API_BASE_URL}/vendor-invoices?${query}`
       : `${API_BASE_URL}/vendor-invoices`;

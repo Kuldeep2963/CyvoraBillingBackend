@@ -19,18 +19,14 @@ import {
   useColorModeValue,
   HStack,
   VStack,
-  Select,
 } from '@chakra-ui/react';
 import { 
   FiMoreVertical, 
   FiEdit2, 
   FiTrash2, 
   FiEye, 
-  FiChevronRight,
-  FiChevronsRight,
-  FiChevronLeft,
-  FiChevronsLeft 
 } from 'react-icons/fi';
+import TablePagination from './TablePagination';
 
 const DataTable = ({
   columns,
@@ -148,6 +144,7 @@ const DataTable = ({
 
   return (
     <Box 
+      className="app-table-shell"
       borderWidth="1px" 
       borderRadius="lg" 
       borderColor={borderColor}
@@ -158,16 +155,18 @@ const DataTable = ({
     >
       <Box 
         overflowY="auto"
-        overflowX="hidden"
+        overflowX="auto"
         height={height}
         position="relative"
       >
         <Table 
+          className="app-table"
           variant="simple" 
           size={compact ? "xs" : "sm"}
+          width="max-content"
+          minWidth="100%"
           sx={{
-            // tableLayout: 'fixed',
-            // width: '100%',
+            
             'th': {
               py: 2,
               px: 3,
@@ -199,11 +198,12 @@ const DataTable = ({
             <Tr>
               {columns.map((column) => (
                 <Th 
+                  className="app-table-header-cell"
                   key={column.key} 
                   minWidth={column.minWidth || "auto"}
                   isNumeric={column.isNumeric}
                 >
-                  <Flex align="center" justify={column.isNumeric ? "flex-end" : "flex-start"}>
+                  <Flex className="app-table-column-title" align="center" justify={column.isNumeric ? "flex-end" : "flex-start"}>
                     {column.header}
                     {column.tooltip && (
                       <Tooltip label={column.tooltip}>
@@ -215,8 +215,9 @@ const DataTable = ({
               ))}
               {actions && (
                 <Th 
-                  width="140px" 
-                  textAlign="right"
+                  className="app-table-header-cell"
+                  w="50px" 
+                  textAlign="center"
                 >
                   Actions
                 </Th>
@@ -254,18 +255,20 @@ const DataTable = ({
             ) : (
               paginatedData.map((item, index) => (
                 <Tr
+                  className="app-table-row"
                   key={item.id || index}
                   _hover={{ bg: rowHoverBg }}
                   transition="all 0.2s"
                   bg={striped && index % 2 === 0 ? stripedBg : 'transparent'}
                 >
                   {columns.map((column) => (
-                    <Td key={`${item.id}-${column.key}`} minWidth={column.minWidth || "auto"}>
+                    <Td className="app-table-cell" key={`${item.id}-${column.key}`} minWidth={column.minWidth || "auto"}>
                       {renderCell(item, column)}
                     </Td>
                   ))}
                   {actions && (
                     <Td 
+                      className="app-table-cell"
                       width="140px" 
                       textAlign="right"
                     >
@@ -284,11 +287,12 @@ const DataTable = ({
                             aria-label="Actions"
                             _hover={{ bg: useColorModeValue('gray.100', 'gray.600') }}
                           />
-                          <MenuList minW="160px" boxShadow="lg" py={2}>
+                          <MenuList minW="170px" boxShadow="lg" py={2}>
                             {onView && (
                               <MenuItem 
                                 icon={<FiEye size={14} />} 
                                 onClick={() => onView(item)}
+                                color={"gray.600"}
                               >
                                 View Details
                               </MenuItem>
@@ -297,8 +301,9 @@ const DataTable = ({
                               <MenuItem 
                                 icon={<FiEdit2 size={14} />} 
                                 onClick={() => onEdit(item)}
+                                color={"gray.600"}
                               >
-                                Edit Record
+                                Edit Account
                               </MenuItem>
                             )}
                             {onDelete && (
@@ -307,7 +312,7 @@ const DataTable = ({
                                 onClick={() => onDelete(item)}
                                 color="red.500"
                               >
-                                Delete Record
+                                Delete Account
                               </MenuItem>
                             )}
                           </MenuList>
@@ -322,82 +327,16 @@ const DataTable = ({
         </Table>
       </Box>
 
-      {/* Pagination Footer - Moved outside scrollable Box */}
-      <Flex 
-        px={6} 
-        py={4}
-        justify="space-between"
-        align="center"
-        bg={useColorModeValue('gray.100', 'gray.900')}
-        borderTop="1px solid"
-        borderColor={borderColor}
-        flexWrap="wrap"
-        gap={4}
-      >
-        <HStack spacing={4}>
-          <Text fontSize="sm" color="gray.500">
-            Showing <b>{Math.min(startIndex + 1, totalItems)}</b> to <b>{Math.min(startIndex + pageSize, totalItems)}</b> of <b>{totalItems}</b> items
-          </Text>
-          <Select
-            size="sm"
-            width="110px"
-            borderRadius="md"
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(parseInt(e.target.value));
-              setCurrentPage(1);
-            }}
-            bg={useColorModeValue('white', 'gray.800')}
-          >
-            <option value={10}>10 rows</option>
-            <option value={25}>25 rows</option>
-            <option value={50}>50 rows</option>
-            <option value={100}>100 rows</option>
-          </Select>
-        </HStack>
-
-        <HStack spacing={2}>
-          <IconButton
-            size="sm"
-            icon={<FiChevronsLeft />}
-            variant="outline"
-            onClick={() => handlePageChange(1)}
-            isDisabled={currentPage === 1}
-            aria-label="First page"
-          />
-          <IconButton
-            size="sm"
-            icon={<FiChevronLeft />}
-            variant="outline"
-            onClick={() => handlePageChange(currentPage - 1)}
-            isDisabled={currentPage === 1}
-            aria-label="Previous page"
-          />
-          
-          <Flex align="center" px={2}>
-            <Text fontSize="sm" fontWeight="medium">
-              Page {currentPage} of {totalPages || 1}
-            </Text>
-          </Flex>
-
-          <IconButton
-            size="sm"
-            icon={<FiChevronRight />}
-            variant="outline"
-            onClick={() => handlePageChange(currentPage + 1)}
-            isDisabled={currentPage === totalPages || totalPages === 0}
-            aria-label="Next page"
-          />
-          <IconButton
-            size="sm"
-            icon={<FiChevronsRight />}
-            variant="outline"
-            onClick={() => handlePageChange(totalPages)}
-            isDisabled={currentPage === totalPages || totalPages === 0}
-            aria-label="Last page"
-          />
-        </HStack>
-      </Flex>
+      <TablePagination
+        page={currentPage}
+        pageSize={pageSize}
+        total={totalItems}
+        onPageChange={handlePageChange}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setCurrentPage(1);
+        }}
+      />
     </Box>
   );
 };

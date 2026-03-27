@@ -11,11 +11,9 @@ import {
   Grid,
   Heading,
   HStack,
-  Input,
   InputGroup,
   InputLeftElement,
   InputRightElement,
-  Select,
   SimpleGrid,
   Text,
   VStack,
@@ -48,10 +46,12 @@ import {
   InputGroup as ChakraInputGroup,
   InputLeftElement as ChakraInputLeftElement,
 } from "@chakra-ui/react";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import { useNavigate } from "react-router-dom";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { fetchVendors, uploadVendorInvoice, fetchVendorInvoices, markInvoiceAsPaid } from "../utils/api";
+import TablePagination from "../components/TablePagination";
 import {
   FiUploadCloud,
   FiFile,
@@ -118,13 +118,22 @@ const InvoicesTab = ({ onAddNew }) => {
   const [invoices, setInvoices] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError]       = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
 
   const loadInvoices = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await fetchVendorInvoices();
-      setInvoices(data);
+      const response = await fetchVendorInvoices({
+        page,
+        limit: pageSize,
+        search: search || undefined,
+      });
+      const rows = response?.data || response || [];
+      setInvoices(Array.isArray(rows) ? rows : []);
+      setPagination(response?.pagination || { total: rows.length || 0, page, limit: pageSize, totalPages: 1 });
     } catch (err) {
       setError(err.message || "Failed to load invoices");
       toast({
@@ -137,19 +146,9 @@ const InvoicesTab = ({ onAddNew }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [toast]);
+  }, [toast, page, pageSize, search]);
 
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
-
-  const filtered = invoices.filter(inv =>
-    inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) ||
-    (inv.vendor?.accountName || "").toLowerCase().includes(search.toLowerCase()) ||
-    (inv.vendor?.vendorCode || "").toLowerCase().includes(search.toLowerCase())
-  );
-
-  const totalAmount = filtered.reduce((s, i) => s + parseFloat(i.grandTotal || 0), 0);
-  const approvedCount = filtered.filter(i => i.status === "approved").length;
-  const pendingCount = filtered.filter(i => i.status === "pending").length;
 
   const handleMarkAsPaid = async (id) => {
     try {
@@ -202,7 +201,7 @@ const InvoicesTab = ({ onAddNew }) => {
             <HStack>
               <Box w={1} h={5} bg="blue.500" borderRadius="full" />
               <Heading size="sm" color="gray.800">Vendor Invoices</Heading>
-              <Badge colorScheme="blue" variant="subtle" fontSize="xs">{filtered.length} records</Badge>
+              <Badge colorScheme="blue" variant="subtle" fontSize="xs">{pagination.total || invoices.length} records</Badge>
             </HStack>
             <HStack spacing={3}>
               {/* Search */}
@@ -212,7 +211,10 @@ const InvoicesTab = ({ onAddNew }) => {
                   pl={8}
                   placeholder="Search invoices..."
                   value={search}
-                  onChange={e => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
                   borderRadius="8px"
                   borderColor={border}
                   fontSize="13px"
@@ -247,7 +249,7 @@ const InvoicesTab = ({ onAddNew }) => {
             <Table variant="simple" size="sm">
               <Thead>
                 <Tr>
-                  {["Invoice #", "Vendor", "Issue Date", "Billing Period", "Grand Total", "Duration", "Status", "Actions"].map(h => (
+                  {["Invoice No.", "Vendor", "Issue Date", "Billing Period", "Grand Total", "Duration", "Status", "Actions"].map(h => (
                     <Th key={h} fontSize="11px" color="gray.800" bg={"gray.200"} fontWeight="700" letterSpacing="0.06em"
                       textTransform="uppercase" borderColor={border} py={3}>{h}</Th>
                   ))}
@@ -278,7 +280,7 @@ const InvoicesTab = ({ onAddNew }) => {
                       </Flex>
                     </Td>
                   </Tr>
-                ) : filtered.length === 0 ? (
+                ) : invoices.length === 0 ? (
                   <Tr>
                     <Td colSpan={9} borderColor={border}>
                       <Flex direction="column" align="center" py={10} color="gray.400">
@@ -289,7 +291,7 @@ const InvoicesTab = ({ onAddNew }) => {
                     </Td>
                   </Tr>
                 ) : (
-                  filtered.map((inv, idx) => (
+                  invoices.map((inv, idx) => (
                     <Tr key={inv.id}
                       _hover={{ bg: useColorModeValue("gray.50", "gray.750") }}
                       transition="background 0.15s"
@@ -310,8 +312,7 @@ const InvoicesTab = ({ onAddNew }) => {
                         </Text>
                       </Td>
                       <Td borderColor={border} py={3}>
-                        <Text fontSize="12px" color="gray.6
-                        00">
+                        <Text fontSize="13px" color="gray.600 ">
                           {new Date(inv.startDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
                           {" – "}
                           {new Date(inv.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
@@ -323,7 +324,7 @@ const InvoicesTab = ({ onAddNew }) => {
                         </Text>
                       </Td>
                       <Td borderColor={border} py={3}>
-                        <Text fontSize="12px" color="teal.600" fontWeight="500">{fmtSeconds(inv.totalSeconds)}</Text>
+                        <Text fontSize="13px" color="teal.600" fontWeight="500">{fmtSeconds(inv.totalSeconds)}</Text>
                       </Td>
                       
                       <Td borderColor={border} py={3}>
@@ -346,6 +347,17 @@ const InvoicesTab = ({ onAddNew }) => {
             </Table>
           </TableContainer>
         </CardBody>
+        <TablePagination
+          page={pagination.page || page}
+          pageSize={pagination.limit || pageSize}
+          total={pagination.total || 0}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          isDisabled={isLoading}
+        />
       </Card>
     </VStack>
    
@@ -515,9 +527,9 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
                 <input ref={fileRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.csv,.xls,.xlsx"
                   onChange={e => { addFiles(e.target.files); e.target.value = ""; }} />
                 <Box color="blue.400" mb={3} display="flex" justifyContent="center"><FiUploadCloud size={40} /></Box>
-                <Text fontWeight="600" fontSize="sm" color="gray.700" mb={1}>Drag & drop invoice files here</Text>
+                <Text fontWeight="600" fontSize="sm" color="gray.700" mb={1}>Upload file</Text>
                 <Text fontSize="xs" color="gray.400" mb={3}>PDF, PNG, JPG, CSV, XLS / XLSX • Max 25 MB each</Text>
-                <Button size="xs" colorScheme="blue" variant="outline" pointerEvents="none">Browse Files</Button>
+                {/* <Button size="xs" colorScheme="blue" variant="outline" pointerEvents="none">Browse Files</Button> */}
               </Box>
               {files.length > 0 && (
                 <VStack spacing={2} align="stretch">

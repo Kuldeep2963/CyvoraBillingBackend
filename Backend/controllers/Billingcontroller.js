@@ -1866,14 +1866,48 @@ exports.raiseDispute = async (req, res) => {
 /* ===================== GET ALL DISPUTES ===================== */
 exports.getAllDisputes = async (req, res) => {
   try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 10));
+    const offset = (page - 1) * limit;
+    const search = String(req.query.search || '').trim();
+    const rawStatus = req.query.status;
+    const normalizedStatus = rawStatus === undefined || rawStatus === null
+      ? ''
+      : String(rawStatus).trim().toLowerCase();
+    const validStatuses = ['open', 'in_review', 'resolved', 'closed'];
+    const status = validStatuses.includes(normalizedStatus) ? normalizedStatus : '';
+
+    const where = {};
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (search) {
+      where[Op.or] = [
+        { customerName: { [Op.iLike]: `%${search}%` } },
+        { customerCode: { [Op.iLike]: `%${search}%` } },
+        { invoiceNumber: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
     console.log('GET All Disputes - querying database...');
-    const disputes = await Dispute.findAll({
-      order: [['createdAt', 'DESC']]
+    const { rows, count } = await Dispute.findAndCountAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset,
     });
-    console.log(`GET All Disputes - found ${disputes.length} disputes`);
+    console.log(`GET All Disputes - found ${rows.length} disputes on page ${page}`);
     res.json({
       success: true,
-      data: disputes
+      data: rows,
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit),
+      },
     });
   } catch (error) {
     console.error('Get All Disputes Error:', error);
@@ -1889,12 +1923,18 @@ exports.getAllDisputes = async (req, res) => {
 exports.updateDispute = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, comment } = req.body;
+    const { comment } = req.body;
+    const rawStatus = req.body?.status;
+    const normalizedStatus = rawStatus === undefined || rawStatus === null
+      ? ''
+      : String(rawStatus).trim().toLowerCase();
 
     const valid = ['open', 'in_review', 'resolved', 'closed'];
+    const status = valid.includes(normalizedStatus) ? normalizedStatus : '';
+    const statusProvided = normalizedStatus !== '' && normalizedStatus !== 'undefined' && normalizedStatus !== 'null';
     
     // Check if there's at least a status change or a comment
-    if (!status && !comment) {
+    if (!statusProvided && !comment) {
       return res.status(400).json({
         success: false,
         error: 'Provide either a status change or a comment'
@@ -1902,7 +1942,7 @@ exports.updateDispute = async (req, res) => {
     }
     
     // If status is provided, validate it
-    if (status && !valid.includes(status)) {
+    if (statusProvided && !status) {
       return res.status(400).json({
         success: false,
         error: 'Invalid status value'

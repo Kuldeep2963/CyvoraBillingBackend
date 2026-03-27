@@ -99,7 +99,7 @@ class EmailService {
   }
 
   async sendWelcomeEmail(user, password) {
-    const portalUrl = process.env.BASE_API_URL;
+    const portalUrl = "https://cdr-billing-frontend-kappa.vercel.app/";
     return this.sendEmail(
       user.email,
       'Welcome to CDR Billing System - Your Login Credentials',

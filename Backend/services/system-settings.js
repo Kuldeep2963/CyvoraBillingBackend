@@ -8,6 +8,8 @@ const DEFAULT_SETTINGS = {
   timezone: 'UTC',
   dataRetentionDays: 60,
   notificationPollingSeconds: 10,
+  lastProcessedCdrFilename: '',
+  lastProcessedCdrTimestampUtc: '',
   emailNotifications: true,
   notifyInvoiceGenerated: true,
   notifyPaymentDue: true,
@@ -17,22 +19,46 @@ const DEFAULT_SETTINGS = {
   notificationEmail: '',
 };
 
+const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS);
+
+const normalizeIncomingSettings = (raw = {}) => {
+  const source = raw && typeof raw === 'object' ? raw : {};
+
+  // Map known legacy keys to canonical settings keys.
+  const legacyMapped = {
+    ...source,
+    dataRetentionDays: source.dataRetentionDays ?? source.dataretentiondays,
+    notificationPollingSeconds:
+      source.notificationPollingSeconds ?? source.notificationpollingseconds,
+  };
+
+  // Keep only supported settings keys.
+  return SETTINGS_KEYS.reduce((acc, key) => {
+    if (legacyMapped[key] !== undefined) {
+      acc[key] = legacyMapped[key];
+    }
+    return acc;
+  }, {});
+};
+
 async function getGlobalSettings() {
   const row = await SystemSetting.findByPk(SETTINGS_KEY);
   if (!row) {
     return { ...DEFAULT_SETTINGS };
   }
+  const normalized = normalizeIncomingSettings(row.value || {});
   return {
     ...DEFAULT_SETTINGS,
-    ...(row.value || {}),
+    ...normalized,
   };
 }
 
 async function updateGlobalSettings(nextSettings, updatedBy) {
   const currentSettings = await getGlobalSettings();
+  const normalizedNext = normalizeIncomingSettings(nextSettings);
   const merged = {
     ...currentSettings,
-    ...nextSettings,
+    ...normalizedNext,
   };
 
   if (!Number.isFinite(Number(merged.dataRetentionDays))) {

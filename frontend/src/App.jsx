@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Outlet, Navigate } from 'react-router-dom';
-import { ChakraProvider, Box } from '@chakra-ui/react';
+import { Box } from '@chakra-ui/react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import CDRUpload from './pages/CDRUpload';
@@ -14,9 +14,11 @@ import LoginPage from './pages/LoginPage';
 import SOAPage from './pages/SOA';
 import AddUser from './pages/AddUser';
 import Vendorinvoice from './pages/Vendorinvoice';
+import AdminCDRDownload from './pages/AdminCDRDownload';
 import ProtectedRoute from './components/ProtectedRoute';
 import Unauthorized from './pages/Unauthorized';
 import { useAuth } from './context/AuthContext';
+import AccountExposure from './pages/AccountExposure';
 
 const AppLayout = () => (
   <ProtectedRoute allowedRoles={["admin", "sales-manager", "rates-dept", "noc-dept", "view only"]}>
@@ -35,15 +37,15 @@ const LoginRoute = () => {
 
 function App() {
   return (
-    <ChakraProvider>
-      <Router>
-        <Routes>
-          {/* Public */}
-          <Route path="/" element={<LoginRoute />} />
-          <Route path="/unauthorized" element={<Unauthorized />} />
+    <Router>
+      <Routes>
+        {/* Public */}
+        <Route path="/" element={<LoginRoute />} />
+        <Route path="/login" element={<LoginRoute />} />
+        <Route path="/unauthorized" element={<Unauthorized />} />
 
-          {/* Protected routes */}
-          <Route element={<AppLayout />}>
+        {/* Protected routes */}
+        <Route element={<AppLayout />}>
 
             {/* All roles */}
             <Route path="/dashboard" element={
@@ -68,7 +70,7 @@ function App() {
 
             {/* admin, sales-manager, view only */}
             <Route path="/invoices" element={
-              <ProtectedRoute allowedRoles={["admin", "sales-manager", "view only"]}>
+              <ProtectedRoute allowedRoles={["admin", "sales-manager","rates-dept","view only"]}>
                 <Invoices />
               </ProtectedRoute>
             } />
@@ -115,14 +117,25 @@ function App() {
               </ProtectedRoute>
             } />
 
-          </Route>
+            {/* admin only */}
+            <Route path="/admin-cdr-download" element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <AdminCDRDownload />
+              </ProtectedRoute>
+            } />
+            <Route path="/account-exposure" element={
+              <ProtectedRoute allowedRoles={["admin","rates-dept", "view only"]}>
+                <AccountExposure />
+              </ProtectedRoute>
+            } />
 
-          {/* Catch all */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
 
-        </Routes>
-      </Router>
-    </ChakraProvider>
+        {/* Catch all */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+
+      </Routes>
+    </Router>
   );
 }
 

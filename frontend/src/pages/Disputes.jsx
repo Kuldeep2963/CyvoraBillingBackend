@@ -8,8 +8,6 @@ import {
   useToast,
   HStack,
   Badge,
-  Input,
-  Select,
   Card,
   CardBody,
   CardHeader,
@@ -47,6 +45,7 @@ import {
   MenuItem,
   Textarea,
 } from "@chakra-ui/react";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
   FiAlertCircle,
@@ -69,6 +68,7 @@ import { getAllDisputes, deleteDispute, updateDisputeStatus } from "../utils/api
 import ConfirmDialog from "../components/ConfirmDialog";
 import CommentsModal from "../components/modals/CommentsModal";
 import { format } from "date-fns";
+import TablePagination from "../components/TablePagination";
 
 // ── Status helpers ────────────────────────────────────────────
 const getStatusColor = (status) => {
@@ -121,6 +121,9 @@ const Disputes = () => {
   const [selectedDispute,  setSelectedDispute]  = useState(null);
   const [disputeToDelete,  setDisputeToDelete]  = useState(null);
   const [isDeleting,       setIsDeleting]       = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
   const [stats, setStats] = useState({
     openDisputes: 0, totalDisputes: 0, totalDisputedAmount: 0, inReviewCount: 0,
   });
@@ -142,34 +145,26 @@ const Disputes = () => {
   const hoverBg     = useColorModeValue("blue.50",  "gray.700");
 
   // ── Load ────────────────────────────────────────────────────
-  useEffect(() => { loadDisputes(); }, []);
-
-  useEffect(() => {
-    let filtered = disputes;
-    if (searchTerm) {
-      const t = searchTerm.toLowerCase();
-      filtered = filtered.filter(
-        (d) =>
-          d.customerName?.toLowerCase().includes(t) ||
-          d.customerCode?.toLowerCase().includes(t) ||
-          d.invoiceNumber?.toLowerCase().includes(t),
-      );
-    }
-    if (statusFilter !== "all") filtered = filtered.filter((d) => d.status === statusFilter);
-    setFilteredDisputes(filtered);
-  }, [disputes, searchTerm, statusFilter]);
+  useEffect(() => { loadDisputes(); }, [page, pageSize, searchTerm, statusFilter]);
 
   const loadDisputes = async () => {
     setIsLoading(true);
     try {
-      const response = await getAllDisputes();
+      const response = await getAllDisputes({
+        page,
+        limit: pageSize,
+        search: searchTerm || undefined,
+        status: statusFilter !== "all" ? statusFilter : undefined,
+      });
       if (response.success) {
         const data = response.data || [];
         setDisputes(data);
+        setFilteredDisputes(data);
+        setPagination(response.pagination || { total: data.length, page: 1, limit: pageSize, totalPages: 1 });
         setStats({
           openDisputes:        data.filter((d) => d.status === "open").length,
           inReviewCount:       data.filter((d) => d.status === "in_review").length,
-          totalDisputes:       data.length,
+          totalDisputes:       response?.pagination?.total ?? data.length,
           totalDisputedAmount: data.reduce((s, d) => s + parseFloat(d.disputeAmount || 0), 0),
         });
       } else {
@@ -488,13 +483,13 @@ const Disputes = () => {
               </InputLeftElement>
               <Input
                 pl={9} placeholder="Search customer, code, invoice…"
-                value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
                 borderRadius="8px" borderColor={borderColor} fontSize="13px"
                 _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }}
               />
             </InputGroup>
             <Select size="sm" maxW="180px" borderRadius="8px" borderColor={borderColor}
-              value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+              value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
               fontSize="13px">
               <option value="all">All Statuses</option>
               <option value="open">Open</option>
@@ -504,7 +499,7 @@ const Disputes = () => {
             </Select>
             {(searchTerm || statusFilter !== "all") && (
               <Button size="sm" variant="ghost" colorScheme="gray" fontSize="12px"
-                onClick={() => { setSearchTerm(""); setStatusFilter("all"); }}>
+                onClick={() => { setSearchTerm(""); setStatusFilter("all"); setPage(1); }}>
                 Clear
               </Button>
             )}
@@ -528,7 +523,7 @@ const Disputes = () => {
           </HStack>
         </CardHeader>
 
-        <TableContainer h="320px" overflowY="auto" overflowX="auto">
+        <TableContainer h="320px" overflowY="auto" overflowX="auto" m={2}>
           <Table variant="simple" size="sm">
             <Thead bg="gray.200" position="sticky" top={0} zIndex={1}>
               <Tr>
@@ -579,6 +574,18 @@ const Disputes = () => {
             </Tbody>
           </Table>
         </TableContainer>
+
+        <TablePagination
+          page={pagination.page || page}
+          pageSize={pagination.limit || pageSize}
+          total={pagination.total || 0}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          isDisabled={isLoading}
+        />
       </Card>
 
       {/* ── Dispute Detail Modal ────────────────────────────── */}

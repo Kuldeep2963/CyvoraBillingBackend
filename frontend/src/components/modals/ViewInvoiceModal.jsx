@@ -15,7 +15,6 @@ import {
   ModalBody,
   ModalCloseButton,
   Table,
-  Input,
   Thead,
   Tbody,
   Tr,
@@ -39,6 +38,7 @@ import {
   Spinner,
   Center,
 } from "@chakra-ui/react";
+import { MemoizedInput as Input } from "../memoizedinput/memoizedinput";
 import {
   FiDownload,
   FiMail,

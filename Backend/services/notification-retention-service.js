@@ -5,7 +5,7 @@ const Notification = require('../models/Notification');
 class NotificationRetentionService {
   constructor() {
     this.started = false;
-    this.retentionDays = 7;
+    this.retentionDays = 5;
   }
 
   start() {

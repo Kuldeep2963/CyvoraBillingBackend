@@ -1,16 +1,15 @@
 import React, { useState } from 'react';
 import {
   HStack,
-  Input,
   InputGroup,
   InputLeftElement,
-  Select,
   Button,
   Icon,
   Box,
   useColorModeValue,
 } from '@chakra-ui/react';
 import { FiSearch, FiRefreshCw, FiCalendar } from 'react-icons/fi';
+import { MemoizedInput as Input, MemoizedSelect as Select } from './memoizedinput/memoizedinput';
 
 const FilterBar = ({
   onSearch,

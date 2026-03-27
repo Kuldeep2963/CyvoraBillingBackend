@@ -38,6 +38,7 @@ import {
 } from "../utils/api";
 import FilterCard from "../components/formats/DateField";
 import RaiseDisputeModal from "../components/modals/RaiseDisputeModal";
+import PageNavBar from "../components/PageNavBar";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -482,8 +483,12 @@ const fetchAllVendorData = async (selectedAccount, startDate, endDate) => {
 
   // ── Uploaded vendor invoices ──────────────────────────────────
   let uploadedInvoices = [];
-  if (manualRes && Array.isArray(manualRes)) {
-    uploadedInvoices = manualRes
+  const manualRows = Array.isArray(manualRes)
+    ? manualRes
+    : (Array.isArray(manualRes?.data) ? manualRes.data : []);
+
+  if (manualRows.length > 0) {
+    uploadedInvoices = manualRows
       .filter((inv) => {
         // Double check matching by vendorCode or vendorId using loose equality (==)
         // to handle cases where one side might be a string and the other a number
@@ -850,25 +855,11 @@ const SOAPage = () => {
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <Box bg="gray.50" minH="100vh">
-      {/* ── Header ────────────────────────────────────────────────────────── */}
-      <Flex
+      <PageNavBar
+        title="Statement of Account"
+        description="Compare customer billing vs. vendor costs for bilateral accounts"
         mb={5}
-        bgGradient="linear(to-r, blue.100, blue.200, blue.300)"
-        px={5}
-        py={2}
-        borderRadius="10px"
-        align="center"
-        justify="space-between"
-      >
-        <Box>
-          <Heading size="lg" color="gray.600">
-            Statement of Account
-          </Heading>
-          <Text fontSize="sm" color="gray.500">
-            Compare customer billing vs. vendor costs for bilateral accounts
-          </Text>
-        </Box>
-      </Flex>
+      />
 
       {loadingAccounts ? (
         <Flex justify="center" mt={20}>

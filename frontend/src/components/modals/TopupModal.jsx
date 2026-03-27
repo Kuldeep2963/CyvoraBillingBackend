@@ -11,8 +11,6 @@ import {
   VStack,
   FormControl,
   FormLabel,
-  Input,
-  Select,
   Heading,
   Alert,
   AlertIcon,
@@ -26,7 +24,8 @@ import {
   NumberDecrementStepper,
 } from "@chakra-ui/react";
 import { topupAccount } from "../../utils/api";
-import { format } from "date-fns";
+import { toDateInput } from "../../utils/dateInput";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../memoizedinput/memoizedinput";
 
 const TopupModal = ({
   isOpen,
@@ -42,7 +41,7 @@ const TopupModal = ({
     paymentReference: "",
     paymentProof: "",
     notes: "",
-    topupDate: format(new Date(), "yyyy-MM-dd"),
+    topupDate: toDateInput(new Date()),
   });
 
   const handleInputChange = (e) => {
@@ -173,7 +172,7 @@ const TopupModal = ({
                 onChange={handleInputChange}
               >
                 <option value="bank_transfer">Bank Transfer</option>
-                <option value="ustd">USTD</option>
+                <option value="usdt">USDT</option>
                 <option value="credit_card">Credit Card</option>
                 <option value="debit_card">Debit Card</option>
                 <option value="paypal">PayPal</option>

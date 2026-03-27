@@ -24,15 +24,23 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Generate JWT
-    const token = jwt.sign(
+    // Generate Access Token (2 hours)
+    const accessToken = jwt.sign(
       { id: user.id, email: user.email, role: user.role, firstName: user.first_name, lastName: user.last_name },
       process.env.JWT_SECRET,
       { expiresIn: '2h' }
     );
 
+    // Generate Refresh Token (7 days)
+    const refreshToken = jwt.sign(
+      { id: user.id, type: 'refresh' },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
     res.json({
-      token,
+      accessToken,
+      refreshToken,
       user: {
         id: user.id,
         email: user.email,
@@ -44,6 +52,55 @@ router.post('/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Refresh Token Route
+router.post('/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token is required' });
+    }
+
+    // Verify refresh token
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+
+    // Check if token is a refresh token
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({ error: 'Invalid token type' });
+    }
+
+    // Find user
+    const user = await User.findByPk(decoded.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Generate new access token (2 hours)
+    const newAccessToken = jwt.sign(
+      { id: user.id, email: user.email, role: user.role, firstName: user.first_name, lastName: user.last_name },
+      process.env.JWT_SECRET,
+      { expiresIn: '2h' }
+    );
+
+    res.json({
+      accessToken: newAccessToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        firstName: user.first_name,
+        lastName: user.last_name
+      }
+    });
+  } catch (error) {
+    console.error('Refresh token error:', error);
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Refresh token expired, please login again' });
+    }
+    res.status(401).json({ error: 'Invalid refresh token' });
   }
 });
 

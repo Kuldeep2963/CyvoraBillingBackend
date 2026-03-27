@@ -196,10 +196,10 @@ exports.getDashboardStats = async (req, res) => {
     
     const where = getDateRange(range, startDate, endDate);
 
-    // 1. Dashboard Stats: {total calls, total revenue, active customers, total duration}
+    // 1. Dashboard Stats: {completed calls, total revenue, active customers, total duration}
     const stats = await CDR.findOne({
       attributes: [
-        [fn('COUNT', col('id')), 'totalCalls'],
+        [fn('SUM', H.completedCall), 'totalCalls'],
         [fn('SUM', H.revenue), 'totalRevenue'],
         [fn('SUM', H.durationSec), 'totalDuration'],
         [fn('COUNT', fn('DISTINCT', col('customeraccount'))), 'activeCustomers']
@@ -247,17 +247,21 @@ exports.getDashboardStats = async (req, res) => {
       totalCalls: Number(c.totalCalls)
     }));
 
-    // 5. Financial Summary: total revenue, tax collected, income fee, agent fee
+    // 5. Financial Summary: total revenue, total margin, failed calls, total cost
     const financialSummary = await CDR.findOne({
       attributes: [
         [fn('SUM', H.revenue), 'totalRevenue'],
-        [fn('SUM', H.tax), 'taxCollected'],
-        [fn('SUM', H.incomeFee), 'incomeFee'],
-        [fn('SUM', H.agentFee), 'agentFee']
+        [fn('SUM', H.cost), 'totalCost'],
+        [fn('SUM', H.failedCall), 'failedCalls'],
       ],
       where,
       raw: true
     });
+
+    const totalRevenue = Number(financialSummary.totalRevenue || 0);
+    const totalCost = Number(financialSummary.totalCost || 0);
+    const failedCalls = Number(financialSummary.failedCalls || 0);
+    const totalMargin = totalRevenue - totalCost;
 
     res.json({
       success: true,
@@ -281,10 +285,10 @@ exports.getDashboardStats = async (req, res) => {
 }),
         customerDistribution: topCustomers,
         financialSummary: {
-          totalRevenue: parseFloat(Number(financialSummary.totalRevenue || 0).toFixed(4)),
-          taxCollected: parseFloat(Number(financialSummary.taxCollected || 0).toFixed(4)),
-          incomeFee: parseFloat(Number(financialSummary.incomeFee || 0).toFixed(4)),
-          agentFee: parseFloat(Number(financialSummary.agentFee || 0).toFixed(4))
+          totalRevenue: parseFloat(totalRevenue.toFixed(4)),
+          totalMargin: parseFloat(totalMargin.toFixed(4)),
+          failedCalls: Math.round(failedCalls),
+          totalCost: parseFloat(totalCost.toFixed(4))
         }
       }
     });

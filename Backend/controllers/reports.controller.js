@@ -127,20 +127,240 @@ const buildAccountConditions = (account, vendorReport) => {
   return or;
 };
 
+/* ===================== HELPER: GET UNMATCHED CDRS (MISSING GATE) ===================== */
+/**
+ * Fetch CDRs that don't match any active account configuration
+ * Useful for identifying missing gateway accounts or data quality issues
+ * @param {string} startTs - Start timestamp (milliseconds)
+ * @param {string} endTs - End timestamp (milliseconds)
+ * @param {boolean} vendorReport - Is this a vendor report?
+ * @returns {Promise<Array>} - CDRs that don't match any account
+ */
+const getUnmatchedCDRs = async (startTs, endTs, vendorReport) => {
+  try {
+    // Get all active accounts
+    const accounts = await Account.findAll({
+      where: { active: true },
+      attributes: [
+        'customerCode', 'vendorCode', 'gatewayId',
+        'customerauthenticationType', 'customerauthenticationValue',
+        'vendorauthenticationType', 'vendorauthenticationValue',
+        'accountRole'
+      ],
+      raw: true
+    });
+
+    // Build exclusion conditions (opposite of inclusion)
+    const exclusionConditions = [];
+
+    accounts.forEach(account => {
+      const shouldCheck = vendorReport 
+        ? ['vendor', 'both'].includes(account.accountRole)
+        : ['customer', 'both'].includes(account.accountRole);
+
+      if (!shouldCheck) return;
+
+      const authType = vendorReport 
+        ? (account.vendorauthenticationType || account.customerauthenticationType)
+        : account.customerauthenticationType;
+      const authValue = vendorReport
+        ? (account.vendorauthenticationValue || account.customerauthenticationValue)
+        : account.customerauthenticationValue;
+
+      if (authType === 'ip' && authValue) {
+        exclusionConditions.push(
+          vendorReport ? { calleeip: authValue } : { callerip: authValue }
+        );
+      } else if (authType === 'custom' && authValue) {
+        const field = vendorReport ? 'agentaccount' : 'customeraccount';
+        exclusionConditions.push({ [field]: { [Op.like]: `%${authValue}%` } });
+      }
+
+      // Fallback codes
+      const code = vendorReport ? account.vendorCode : account.customerCode;
+      const codeField = vendorReport ? 'agentaccount' : 'customeraccount';
+      if (code) {
+        exclusionConditions.push({ [codeField]: code });
+      }
+    });
+
+    // Query CDRs that DON'T match any account
+    const where = {
+      [Op.and]: [
+        sequelize.literal(
+          `CASE WHEN "CDR"."starttime"::text ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END BETWEEN ${startTs} AND ${endTs}`
+        )
+      ]
+    };
+
+    // If we have exclusion conditions, use NOT (OR)
+    if (exclusionConditions.length > 0) {
+      where[Op.and].push({
+        [Op.not]: {
+          [Op.or]: exclusionConditions
+        }
+      });
+    }
+
+    const unmatched = await CDR.findAll({
+      attributes: [
+        vendorReport ? 'agentaccount' : 'customeraccount',
+        vendorReport ? 'agentname' : 'customername',
+        vendorReport ? 'calleeip' : 'callerip',
+        [fn('COUNT', col('*')), 'count'],
+        [fn('SUM', H.durationSec), 'duration'],
+        [fn('SUM', H.revenue), 'revenue'],
+        [fn('SUM', H.cost), 'cost']
+      ],
+      where,
+      group: [
+        vendorReport ? 'agentaccount' : 'customeraccount',
+        vendorReport ? 'agentname' : 'customername',
+        vendorReport ? 'calleeip' : 'callerip'
+      ],
+      limit: 100,
+      raw: true
+    });
+
+    console.log(` Found ${unmatched.length} unmatched CDR groups (missing gate)`);
+    return unmatched;
+  } catch (error) {
+    console.error('!! Error fetching unmatched CDRs:', error);
+    return [];
+  }
+};
+
+/* ===================== HELPER: BUILD ALL ACCOUNTS WHERE CLAUSE ===================== */
+/**
+ * Optimized function to build WHERE clause for "all" accounts using authentication-based matching
+ * Instead of returning all CDRs, this filters by authentication values (IP, custom fields, codes)
+ * @param {string} startTs - Start timestamp
+ * @param {string} endTs - End timestamp
+ * @param {string} timerangeLiteral - SQL CASE statement for time range
+ * @param {boolean} vendorReport - Is this a vendor report?
+ * @returns {Object} Updated WHERE clause with account-based OR conditions
+ */
+const buildAllAccountsWhereClause = async (timerangeLiteral, vendorReport) => {
+  const where = {
+    [Op.and]: [timerangeLiteral]
+  };
+
+  try {
+    // 🔍 Fetch all active accounts efficiently
+    const accounts = await Account.findAll({
+      where: { active: true },
+      attributes: [
+        'id', 'accountRole', 'customerCode', 'vendorCode', 'gatewayId',
+        'customerauthenticationType', 'customerauthenticationValue',
+        'vendorauthenticationType', 'vendorauthenticationValue',
+        'customername', 'accountName'
+      ],
+      raw: true
+    });
+
+    if (accounts.length === 0) {
+      console.log('⚠️  No active accounts found for all-account report');
+      return where; // Return time-range only filter
+    }
+
+    // 🔐 Build compound OR conditions for all matching accounts
+    const allAccountConditions = [];
+
+    accounts.forEach(account => {
+      // Filter accounts based on report type: customer vs vendor
+      const shouldIncludeAsCustomer = !vendorReport && 
+        ['customer', 'both'].includes(account.accountRole);
+      
+      const shouldIncludeAsVendor = vendorReport && 
+        ['vendor', 'both'].includes(account.accountRole);
+
+      if (!shouldIncludeAsCustomer && !shouldIncludeAsVendor) {
+        return; // Skip this account for this report type
+      }
+
+      // Build conditions for this account
+      const accountConditions = [];
+
+      // 1️⃣ CUSTOMER AUTHENTICATION (for customer reports)
+      if (shouldIncludeAsCustomer) {
+        const custAuthType = account.customerauthenticationType;
+        const custAuthValue = account.customerauthenticationValue;
+
+        if (custAuthType === 'ip' && custAuthValue) {
+          accountConditions.push({ callerip: custAuthValue });
+        } else if (custAuthType === 'custom' && custAuthValue) {
+          accountConditions.push({ customeraccount: { [Op.like]: custAuthValue } });
+          accountConditions.push({ customername: { [Op.like]: custAuthValue } });
+        }
+
+        // Fallback to customerCode or gatewayId
+        if (accountConditions.length === 0) {
+          const cCode = account.customerCode || account.gatewayId;
+          if (cCode) accountConditions.push({ customeraccount: cCode });
+        }
+      }
+
+      // 2️⃣ VENDOR AUTHENTICATION (for vendor reports)
+      if (shouldIncludeAsVendor) {
+        const vendAuthType = account.vendorauthenticationType;
+        const vendAuthValue = account.vendorauthenticationValue;
+
+        if (vendAuthType === 'ip' && vendAuthValue) {
+          accountConditions.push({ calleeip: vendAuthValue });
+        } else if (vendAuthType === 'custom' && vendAuthValue) {
+          accountConditions.push({ agentaccount: { [Op.like]: vendAuthValue } });
+          accountConditions.push({ agentname: { [Op.like]: vendAuthValue } });
+        }
+
+        // Fallback to vendorCode or gatewayId
+        if (accountConditions.length === 0) {
+          const vCode = account.vendorCode || account.gatewayId;
+          if (vCode) accountConditions.push({ agentaccount: vCode });
+        }
+      }
+
+      // Add this account's conditions to the master OR list
+      if (accountConditions.length > 0) {
+        allAccountConditions.push(...accountConditions);
+      }
+    });
+
+    // ✅ Combine all account conditions with OR
+    if (allAccountConditions.length > 0) {
+      where[Op.and].push({
+        [Op.or]: allAccountConditions
+      });
+      console.log(`✅ Built optimized WHERE clause matching ${accounts.length} accounts with ${allAccountConditions.length} conditions`);
+    } else {
+      console.warn('⚠️  No matching account conditions found for report type');
+    }
+  } catch (error) {
+    console.error('❌ Error in buildAllAccountsWhereClause:', error);
+    // Fallback to time-range only, don't throw
+  }
+
+  return where;
+};
+
 /* ===================== HELPER: BUILD WHERE CLAUSE ===================== */
 const buildWhereClause = async (startDate, endDate, startHour, endHour, startMinute = 0, endMinute = 59, accountId, vendorReport) => {
   const startTs = Number(formatTime(startDate, startHour, startMinute));
   const endTs = Number(formatTime(endDate, endHour, endMinute, true));
 
-  const where = {
-    [Op.and]: [
-      sequelize.literal(
-        `CASE WHEN "CDR"."starttime"::text ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END BETWEEN ${startTs} AND ${endTs}`
-      )
-    ]
-  };
+  // Create the SQL CASE statement for time range filtering
+  const timerangeLiteral = sequelize.literal(
+    `CASE WHEN "CDR"."starttime"::text ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END BETWEEN ${startTs} AND ${endTs}`
+  );
 
-  if (!accountId || accountId === 'all') return where;
+  // 🎯 OPTIMIZATION: Handle "all" accounts with authentication-based matching
+  if (!accountId || accountId === 'all') {
+    return await buildAllAccountsWhereClause(timerangeLiteral, vendorReport);
+  }
+
+  // Original single-account logic
+  const where = {
+    [Op.and]: [timerangeLiteral]
+  };
 
   // Look up account by ID (could be database ID or business identifier)
   let account = null;
@@ -998,7 +1218,7 @@ exports.debugMapping = async (req, res) => {
   exports.getReportAccounts = async (req, res) => {
     try {
       const accounts = await Account.findAll({
-        attributes: ['id', 'accountId', 'accountName', 'accountRole', 'customerCode', 'vendorCode', 'gatewayId','accountOwner','customerauthenticationType','customerauthenticationValue'],
+        attributes: ['id', 'accountId', 'accountName', 'accountRole', 'customerCode','lastbillingdate','nextbillingdate', 'vendorCode','accountOwner','customerauthenticationType','customerauthenticationValue'],
         where: { active: true },
         order: [['accountName', 'ASC']],
         raw: true

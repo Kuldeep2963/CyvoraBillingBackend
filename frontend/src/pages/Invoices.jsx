@@ -24,8 +24,6 @@ import {
   Tr,
   Th,
   Td,
-  Input,
-  Select,
   FormControl,
   FormLabel,
   Card,
@@ -76,6 +74,7 @@ import {
   Accordion,
   Checkbox,
 } from "@chakra-ui/react";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
   FiFileText,
@@ -848,7 +847,7 @@ const Invoices = () => {
         title="Invoice Management"
         description="Manage customer invoices, track payments, and generate reports"
         rightContent={
-          <>
+          <Flex gap={3}>
             <Menu>
               <MenuButton
                 as={Button} leftIcon={<FiPlus />} borderRadius="md"
@@ -871,7 +870,7 @@ const Invoices = () => {
             </Menu>
 
             <Menu>
-              <MenuButton as={Button} colorScheme="black" leftIcon={<FiSettings />} variant="outline" size="sm">
+              <MenuButton as={Button} colorScheme="blue" leftIcon={<FiSettings />} variant="solid" size="sm">
                 Actions
               </MenuButton>
               <MenuList>
@@ -896,7 +895,7 @@ const Invoices = () => {
                 <MenuItem icon={<FiTrash2 />} onClick={handleDeleteSelected} color="red.500">Delete Selected</MenuItem>
               </MenuList>
             </Menu>
-          </>
+          </Flex>
         }
       />
 
@@ -947,7 +946,7 @@ const Invoices = () => {
         }}
       >
         <TabList gap={8}>
-          <Flex px={3} borderRadius="12px" alignItems="center" flex={2} gap={4}>
+          <Flex px={3} borderRadius="12px" alignItems="center" flex={2} gap={4} mb={2}>
             <Text fontWeight="bold" color="gray.700">Invoice Type:</Text>
             <Select bg="gray.200" maxW="250px" borderRadius="8px" value={invoiceTypeFilter}
               size="sm" onChange={(e) => setInvoiceTypeFilter(e.target.value)}>
@@ -996,12 +995,12 @@ const Invoices = () => {
                   />
                 </Th>
                 <Th color="gray.700">Invoice No.</Th>
+                <Th color="gray.700">Invoice Type</Th>
                 <Th color="gray.700">Customer</Th>
                 <Th color="gray.700">Period</Th>
                 <Th color="gray.700">Amount</Th>
                 <Th color="gray.700">Due Date</Th>
                 <Th color="gray.700">Status</Th>
-                <Th color="gray.700">Invoice Type</Th>
                 <Th color="gray.700">Actions</Th>
               </Tr>
             </Thead>
@@ -1051,6 +1050,7 @@ const Invoices = () => {
                           }}
                         />
                       </Td>
+                      
                       <Td>
                         <VStack align="start" spacing={0}>
                           
@@ -1067,6 +1067,14 @@ const Invoices = () => {
                             )}
                             </HStack>
                         </VStack>
+                      </Td>
+                      <Td>
+                        <Badge
+                          colorScheme="gray"
+                          px={3} py={0} borderRadius="full"
+                        >
+                          {invoice.invoiceType}
+                        </Badge>
                       </Td>
                       <Td maxW="170px" overflowX="auto"
                         sx={{ "&::-webkit-scrollbar": { display: "none" }, msOverflowStyle: "none", scrollbarWidth: "none" }}>
@@ -1087,8 +1095,8 @@ const Invoices = () => {
                       </Td>
                       <Td>
                         <VStack align="start" spacing={0}>
-                          <Text fontWeight="bold" color="green.600" fontSize="lg">
-                            ${parseFloat(invoice.totalAmount || 0).toFixed(2)}
+                          <Text fontWeight="medium" color="green.700" fontSize="md">
+                            ${parseFloat(invoice.totalAmount || 0).toFixed(4)}
                           </Text>
                           <Text fontSize="xs" color="gray.500">{invoice.items?.length || 0} destinations</Text>
                         </VStack>
@@ -1115,15 +1123,9 @@ const Invoices = () => {
                           {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
                         </Badge>
                       </Td>
+                      
                       <Td>
-                        <Badge
-                          colorScheme={invoice.invoiceType === "customer" ? "blue" : "orange"}
-                          px={3} py={0} borderRadius="full"
-                        >
-                          {invoice.invoiceType}
-                        </Badge>
-                      </Td>
-                      <Td>
+                        <HStack spacing={2} justify="end">
                         <Menu>
                           <MenuButton
                             as={IconButton}
@@ -1146,7 +1148,7 @@ const Invoices = () => {
                           </MenuList>
                         </Menu>
                             <IconButton bg={"white"} icon={<FiEye />} fontSize="13px" onClick={() => handleViewInvoice(invoice)}/>
-
+                        </HStack>
                       </Td>
                     </Tr>
                   );

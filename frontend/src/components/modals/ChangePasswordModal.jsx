@@ -11,7 +11,6 @@ import {
   VStack,
   FormControl,
   FormLabel,
-  Input,
   FormErrorMessage,
   Alert,
   AlertIcon,
@@ -23,6 +22,7 @@ import {
   Box,
   Text,
 } from "@chakra-ui/react";
+import { MemoizedInput as Input } from "../memoizedinput/memoizedinput";
 import { FiEye, FiEyeOff } from "react-icons/fi";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
@@ -274,14 +274,14 @@ const ChangePasswordModal = ({ isOpen, onClose }) => {
               <FormErrorMessage fontSize="xs">{errors.confirmPassword}</FormErrorMessage>
             </FormControl>
 
-            <Alert status="info" borderRadius="lg" bg="blue.50" borderLeft="4px solid" borderColor="blue.500" mt={2}>
+            {/* <Alert status="info" borderRadius="lg" bg="blue.50" borderLeft="4px solid" borderColor="blue.500" mt={2}>
               <AlertIcon />
               <Box fontSize="xs" color="blue.800">
                 <Text fontWeight="600">Password Requirements:</Text>
                 <Text mt={1}>• Minimum 8 characters</Text>
                 <Text>• Must be different from your current password</Text>
               </Box>
-            </Alert>
+            </Alert> */}
           </VStack>
         </ModalBody>
 

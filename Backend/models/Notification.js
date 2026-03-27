@@ -25,6 +25,11 @@ const Notification = sequelize.define('Notification', {
     allowNull: false,
     defaultValue: 'system',
   },
+  audienceRole: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'audience_role',
+  },
   isRead: {
     type: DataTypes.BOOLEAN,
     allowNull: false,

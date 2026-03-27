@@ -1,196 +1,238 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Avatar,
+  Badge,
   Box,
-  Heading,
-  SimpleGrid,
   Card,
   CardBody,
-  Text,
-  VStack,
-  HStack,
-  Badge,
-  Icon,
-  useToast,
+  CardHeader,
+  Center,
+  Divider,
   Flex,
   Grid,
   GridItem,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  TableContainer,
-  StackDivider,
-  Avatar,
-  Divider,
-  Select,
-  CardHeader,
-  Center,
+  HStack,
+  Icon,
+  SimpleGrid,
   Spinner,
+  StackDivider,
+  Table,
+  TableContainer,
+  Tbody,
+  Td,
+  Text,
+  Th,
+  Thead,
+  Tr,
+  VStack,
+  useToast,
 } from "@chakra-ui/react";
+import { MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
+import DestinationMap from "../components/DestinationMap";
 import {
-  FiPhoneCall,
-  FiDollarSign,
-  FiUsers,
-  FiClock,
-  FiTrendingUp,
-  FiTrendingDown,
-  FiActivity,
-  FiGlobe,
-  FiCalendar,
-  FiPercent,
-} from "react-icons/fi";
-import {
-  ComposedChart,
   Bar,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Line,
 } from "recharts";
-import { fetchDashboardStats, fetchTopDestinations } from "../utils/api";
+import {
+  FiActivity,
+  FiCalendar,
+  FiClock,
+  FiDollarSign,
+  FiGlobe,
+  FiPercent,
+  FiPhoneCall,
+  FiTrendingDown,
+  FiTrendingUp,
+  FiUsers,
+} from "react-icons/fi";
 import { format } from "date-fns";
-import { BlinkBlur, Slab } from "react-loading-indicators";
+import { BlinkBlur } from "react-loading-indicators";
+import { formatInTimeZone } from "date-fns-tz";
+import {
+  fetchDashboardStats,
+  fetchTopDestinations,
+  getGlobalSettings,
+} from "../utils/api";
 
-// ── helpers ───────────────────────────────────────────────────
 const formatDuration = (minutes) => {
   if (!minutes) return "0m";
   const hours = Math.floor(minutes / 60);
-  const mins  = Math.floor(minutes % 60);
+  const mins = Math.floor(minutes % 60);
   return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 };
 
 const formatACD = (decimalMinutes) => {
-  if (!decimalMinutes || decimalMinutes === 0) return "0:00";
+  if (!decimalMinutes) return "0:00";
   const totalSeconds = Math.floor(decimalMinutes * 60);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 };
 
-// Rolling 3-point average for trend line — avoids flat-line-over-bar visual
-const withTrend = (data = []) =>
-  data.map((d, i, arr) => {
+const withTrend = (data = []) => {
+  const maxCalls = data.reduce(
+    (max, item) => Math.max(max, Number(item.calls) || 0),
+    0,
+  );
+  const visualOffset = Math.max(1, Math.round(maxCalls * 0.03));
+  return data.map((d, i, arr) => {
     const slice = arr.slice(Math.max(0, i - 2), i + 1);
-    const avg   = slice.reduce((s, x) => s + (x.calls || 0), 0) / slice.length;
-    return { ...d, trend: Math.round(avg) };
+    const avg = slice.reduce((s, x) => s + (x.calls || 0), 0) / slice.length;
+    return {
+      ...d,
+      trend: Math.round(Math.max(avg, Number(d.calls) || 0) + visualOffset),
+    };
   });
+};
 
-// ── StatCard ──────────────────────────────────────────────────
-const StatCard = ({ title, value, change, icon: IconComp, color, helpText, trend, bgGradient }) => (
+const parseFilenameUtc = (filename = "") => {
+  const match = String(filename).match(
+    /^cdr_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.csv$/i,
+  );
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second] = match;
+  const utcDate = new Date(
+    Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+    ),
+  );
+  return Number.isNaN(utcDate.getTime()) ? null : utcDate;
+};
+
+const toUtcHHMM = (dateObj) => {
+  if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime()))
+    return "--:--";
+  const hh = String(dateObj.getUTCHours()).padStart(2, "0");
+  const mm = String(dateObj.getUTCMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+};
+
+const StatCard = ({
+  title,
+  value,
+  change,
+  icon: IconComp,
+  color,
+  helpText,
+  trend,
+  loading = false,
+}) => (
   <Card
-    bgGradient="linear(to-tr, blue.200, rgba(255,255,255,0.8), rgba(240,245,255,0.5))"
-    backdropFilter="blur(10px)"
+    bg="white"
     border="1px solid"
     borderColor="gray.100"
-    borderRadius="lg"
+    borderRadius="12px"
     boxShadow="md"
-    overflow="hidden"
-    _hover={{ transform: "translateY(-4px)", boxShadow: "0 12px 40px rgba(0,0,0,0.1)" }}
-    transition="all 0.3s ease"
   >
     <CardBody p={4}>
-      <Flex direction="column" height="100%">
-        <Flex justify="space-between" align="start" mb={4}>
-          <Box flex="1" minW={0} mr={3}>
-            <Text color="gray.700" fontSize="sm" fontWeight="medium" mb={1} noOfLines={1}>
-              {title}
-            </Text>
-            <Text fontSize={{ base: "xl", md: "2xl" }} fontWeight="bold" color="gray.700" isTruncated>
+      <Flex justify="space-between" align="start" mb={4}>
+        <Box minW={0} flex={1} mr={3}>
+          <Text color="gray.500" fontSize="sm" fontWeight={600} noOfLines={1}>
+            {title}
+          </Text>
+          {loading ? (
+            <Flex h="32px" align="center">
+              <Spinner size="sm" color="gray.400" />
+            </Flex>
+          ) : (
+            <Text
+              fontSize={{ base: "xl", md: "xl" }}
+              fontWeight="bold"
+              color="gray.600"
+              isTruncated
+            >
               {value}
             </Text>
-          </Box>
-          <Box
-            p={3}
-            bgGradient={bgGradient || `linear(to-br, ${color}.50, ${color}.100)`}
-            borderRadius="lg"
-            flexShrink={0}
-          >
-            <Box as={IconComp} size={24} color={`${color}.600`} />
-          </Box>
-        </Flex>
-        <Box mt="auto">
-          <HStack spacing={2} flexWrap="wrap">
-            <Box
-              as={trend === "up" ? FiTrendingUp : FiTrendingDown}
-              color={trend === "up" ? "green.500" : "red.500"}
-              size={16}
-            />
-            <Text fontSize="sm" color={trend === "up" ? "green.600" : "red.600"} fontWeight="medium">
-              {change}
-            </Text>
-            <Text fontSize="xs" color="gray.500" ml="auto">
-              {helpText}
-            </Text>
-          </HStack>
+          )}
+        </Box>
+        <Box p={2} borderRadius="lg">
+          <Box as={IconComp} size={22} color={`${color}.600`} />
         </Box>
       </Flex>
+      {loading ? (
+        <Text fontSize="xs" color="gray.500">
+          Loading...
+        </Text>
+      ) : (
+        <HStack spacing={2}>
+          <Box
+            as={trend === "up" ? FiTrendingUp : FiTrendingDown}
+            color={trend === "up" ? "green.600" : "red.500"}
+          />
+          <Text
+            fontSize="sm"
+            color={trend === "up" ? "green.600" : "red.600"}
+            fontWeight="medium"
+          >
+            {change}
+          </Text>
+          <Text fontSize="xs" color="gray.500" ml="auto">
+            {helpText}
+          </Text>
+        </HStack>
+      )}
     </CardBody>
   </Card>
 );
 
-// ── MetricItem ────────────────────────────────────────────────
-const MetricItem = ({ label, value, icon: IconComp, color, subtext }) => (
-  <Box>
-    <HStack spacing={3} align="start">
-      <Box as={IconComp} color={`${color}.500`} mt={1} flexShrink={0} />
-      <Box flex="1" minW={0}>
-        <Text fontSize="sm" color="gray.600" fontWeight="medium">
-          {label}
-        </Text>
-        <Text fontSize="lg" fontWeight="bold" color="gray.800" isTruncated>
-          {value}
-        </Text>
-        {subtext && (
-          <Text fontSize="xs" color="gray.500" mt={0.5}>
-            {subtext}
-          </Text>
-        )}
-      </Box>
-    </HStack>
-  </Box>
+const MetricItem = ({ label, value, icon: IconComp, color }) => (
+  <HStack align="start" spacing={3}>
+    <Box as={IconComp} color={`${color}.500`} mt={1} />
+    <Box minW={0}>
+      <Text fontSize="sm" color="gray.600" fontWeight="medium">
+        {label}
+      </Text>
+      <Text fontSize="lg" color="gray.600" fontWeight="bold" isTruncated>
+        {value}
+      </Text>
+    </Box>
+  </HStack>
 );
 
-// ── Main Dashboard ────────────────────────────────────────────
 const Dashboard = () => {
-  const [stats, setStats]                     = useState(null);
-  const [chartData, setChartData]             = useState({});
-  const [financialData, setFinancialData]     = useState({});
-
-  // FIX: two completely separate loading states.
-  // `initialLoad`   — true only on the very first mount; shows full-page spinner.
-  // `dashLoading`   — true while re-fetching dashboard stats (timeRange change / auto-refresh).
-  //                   Does NOT unmount the page — shows a subtle inline indicator instead.
-  // `topDestLoading`— scoped to the top-destinations card only.
-  const [initialLoad, setInitialLoad]         = useState(true);
-  const [dashLoading, setDashLoading]         = useState(false);
-  const [topDestLoading, setTopDestLoading]   = useState(false);
-
-  const [timeRange, setTimeRange]             = useState("today");
-  const [topDestSort, setTopDestSort]         = useState("cost");
-  const [topDestinations, setTopDestinations] = useState([]);
-  const [currentTime, setCurrentTime]         = useState(new Date());
-
   const toast = useToast();
 
-  // ── live clock ────────────────────────────────────────────
+  const [stats, setStats] = useState(null);
+  const [financialData, setFinancialData] = useState({});
+  const [chartData, setChartData] = useState({});
+  const [topDestinations, setTopDestinations] = useState([]);
+  const [lastProcessedMeta, setLastProcessedMeta] = useState({
+    filename: "",
+    timeLabel: "--:-- UTC",
+  });
+
+  const [initialLoad, setInitialLoad] = useState(true);
+  const [dashLoading, setDashLoading] = useState(false);
+  const [topDestLoading, setTopDestLoading] = useState(false);
+
+  const [timeRange, setTimeRange] = useState("today");
+  const [topDestSort, setTopDestSort] = useState("cost");
+  const [currentTime, setCurrentTime] = useState(new Date());
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // ── data loaders ──────────────────────────────────────────
-
   const loadTopDestinations = useCallback(async (range, sortBy) => {
     try {
       setTopDestLoading(true);
       const response = await fetchTopDestinations({ range, sortBy });
-      if (response.success) setTopDestinations(response.data);
+      if (response?.success)
+        setTopDestinations(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error("fetchTopDestinations error:", error);
     } finally {
@@ -198,88 +240,114 @@ const Dashboard = () => {
     }
   }, []);
 
-  const loadDashboardData = useCallback(async (range) => {
-    try {
-      setDashLoading(true);
-      const dashData = await fetchDashboardStats({ range });
-      if (dashData.success) {
-        const { stats: s, hourlyDistribution, customerDistribution, financialSummary } =
-          dashData.data;
-        setStats(s);
-        setFinancialData(financialSummary);
-        setChartData({
-          hourlyCalls: withTrend(
-            hourlyDistribution.map((h) => ({ hour: `${h.hour}:00`, calls: h.callsCount }))
-          ),
-          customerDistribution: customerDistribution.map((c) => ({
-            name: c.customerName,
-            value: c.totalCalls,
-          })),
+  const loadDashboardData = useCallback(
+    async (range) => {
+      try {
+        setDashLoading(true);
+        const dashData = await fetchDashboardStats({ range });
+        if (dashData?.success) {
+          const {
+            stats: s,
+            hourlyDistribution,
+            customerDistribution,
+            financialSummary,
+          } = dashData.data;
+          setStats(s || {});
+          setFinancialData(financialSummary || {});
+          setChartData({
+            hourlyCalls: withTrend(
+              (hourlyDistribution || []).map((h) => ({
+                hour: `${h.hour}:00`,
+                calls: h.callsCount,
+              })),
+            ),
+            customerDistribution: (customerDistribution || []).map((c) => ({
+              name: c.customerName,
+              value: c.totalCalls,
+            })),
+          });
+        }
+      } catch (error) {
+        toast({
+          title: "Error loading data",
+          description: "Failed to fetch dashboard data.",
+          status: "error",
+          duration: 5000,
+          isClosable: true,
         });
+      } finally {
+        setDashLoading(false);
+        setInitialLoad(false);
       }
-    } catch (error) {
-      toast({
-        title: "Error loading data",
-        description: "Failed to fetch dashboard data.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
+    },
+    [toast],
+  );
+
+  const loadLastProcessedMeta = useCallback(async () => {
+    try {
+      const settings = await getGlobalSettings();
+      const filename = settings?.lastProcessedCdrFilename || "";
+
+      const fromSetting = settings?.lastProcessedCdrTimestampUtc
+        ? new Date(settings.lastProcessedCdrTimestampUtc)
+        : null;
+      const fromFilename = parseFilenameUtc(filename);
+      const sourceDate =
+        fromSetting && !Number.isNaN(fromSetting.getTime())
+          ? fromSetting
+          : fromFilename;
+
+      setLastProcessedMeta({
+        filename,
+        timeLabel: `${toUtcHHMM(sourceDate)} UTC`,
       });
-    } finally {
-      setDashLoading(false);
-      // FIX: clear the full-page spinner after the very first successful load
-      setInitialLoad(false);
+    } catch (error) {
+      console.error("Failed to load last processed CDR metadata", error);
     }
-  }, [toast]);
+  }, []);
 
-  // ── FIX: SPLIT useEffects so changing topDestSort does NOT trigger loadDashboardData ──
-  //
-  // Before: one refreshData() called BOTH loaders. Any dep change (including topDestSort)
-  // triggered setLoading(true) → full-page spinner → whole page unmounted and remounted.
-  //
-  // After:
-  //   Effect 1 — runs on timeRange change + auto-refresh interval. Calls BOTH loaders
-  //              because a range change affects everything.
-  //   Effect 2 — runs ONLY on topDestSort change. Calls ONLY loadTopDestinations.
-  //              The dashboard stats and charts are completely untouched.
-
-  // Effect 1: timeRange drives everything + 10-min auto-refresh
   useEffect(() => {
     loadDashboardData(timeRange);
     loadTopDestinations(timeRange, topDestSort);
+    loadLastProcessedMeta();
 
-    const interval = setInterval(() => {
-      loadDashboardData(timeRange);
-      loadTopDestinations(timeRange, topDestSort);
-    }, 10 * 60 * 1000);
+    const interval = setInterval(
+      () => {
+        loadDashboardData(timeRange);
+        loadTopDestinations(timeRange, topDestSort);
+        loadLastProcessedMeta();
+      },
+      10 * 60 * 1000,
+    );
 
     return () => clearInterval(interval);
-    // topDestSort intentionally excluded — handled by Effect 2
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeRange, loadDashboardData, loadTopDestinations]);
+  }, [
+    timeRange,
+    topDestSort,
+    loadDashboardData,
+    loadTopDestinations,
+    loadLastProcessedMeta,
+  ]);
 
-  // Effect 2: sort-only change — only reload the destinations card
-  useEffect(() => {
-    // Skip on initial mount (Effect 1 already loads it with the correct sort)
-    if (initialLoad) return;
-    loadTopDestinations(timeRange, topDestSort);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topDestSort]);
-
-  // ── stable helpers ────────────────────────────────────────
+  const hourlyCalls = useMemo(() => chartData.hourlyCalls || [], [chartData]);
+  const customerDistribution = useMemo(
+    () => chartData.customerDistribution || [],
+    [chartData],
+  );
   const destKey = (d) => `${d.destination}__${d.trunk}`;
 
-  const hourlyCalls          = useMemo(() => chartData.hourlyCalls         || [], [chartData]);
-  const customerDistribution = useMemo(() => chartData.customerDistribution || [], [chartData]);
-
-  // FIX: full-page spinner only on first mount — never again after that
   if (initialLoad) {
     return (
       <Box w="full">
-        <Center height="90vh">
+        <Center h="90vh">
           <VStack spacing={4}>
             <BlinkBlur color="#3182ce" />
-            <Text fontSize="lg" fontStyle="italic" color="gray.500" fontWeight="medium">
+            <Text
+              fontSize="lg"
+              fontStyle="italic"
+              color="gray.500"
+              fontWeight="medium"
+            >
               Loading dashboard analytics...
             </Text>
           </VStack>
@@ -291,125 +359,207 @@ const Dashboard = () => {
   return (
     <Box w="full" maxW="100%" overflowX="clip">
       <VStack spacing={4} align="stretch">
+        <Box position="sticky" top={0} zIndex={20}>
+          <PageNavBar
+            position="static"
+            pb="70px"
+            title="CDR Analytics Dashboard"
+            description="Real-time insights into call data records, destinations and customers"
+            rightContent={
+              <HStack
+                spacing={3}
+                flexWrap="wrap"
+                justify={{ base: "center", md: "flex-end" }}
+                w="full"
+              >
+                <Box px={3} py={1} bg={"gray.200"} borderRadius={"md"}>
+                  <HStack spacing={3}>
+                    <HStack spacing={2}>
+                      <Icon as={FiCalendar} color="blue.400" />
+                      <Text fontSize="sm" fontWeight="bold" color="gray.600">
+                        {formatInTimeZone(currentTime, "UTC", "MMM dd, yyyy")}
+                      </Text>
+                    </HStack>
+                    <Divider orientation="vertical" h="20px" />
+                    <HStack spacing={2}>
+                      <Icon as={FiClock} color="blue.400" />
+                      <Text
+                        fontSize="sm"
+                        fontWeight="bold"
+                        color="gray.600"
+                        minW="72px"
+                      >
+                        {formatInTimeZone(currentTime, "UTC", "HH:mm:ss")} UTC
+                      </Text>
+                    </HStack>
+                  </HStack>
+                </Box>
 
-        {/* ── Header ─────────────────────────────────────────── */}
-        {/* FIX: subtle inline refresh indicator — page never unmounts on timeRange change */}
-        {dashLoading && (
-          <Flex
-            align="center" justify="center" gap={2}
-            py={1} px={3}
-            bg="blue.50" borderRadius="md"
-            border="1px solid" borderColor="blue.100"
+                <Box
+                  px={3}
+                  py={1}
+                  bg="gray.200"
+                  borderRadius="md"
+                  border="1px solid"
+                  borderColor="gray.100"
+                  boxShadow="sm"
+                >
+                  <VStack align="start" spacing={0}>
+                    <Text fontSize="13px" color="gray.600" fontWeight="600">
+                      Last CDR : {lastProcessedMeta.timeLabel}
+                    </Text>
+                    {/* <Text fontSize="xs" color="gray.500" maxW="240px" isTruncated title={lastProcessedMeta.filename || "No processed file yet"}>
+                      {lastProcessedMeta.filename || "No processed file yet"}
+                    </Text> */}
+                  </VStack>
+                </Box>
+
+                <Select
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value)}
+                  w={{ base: "full", md: "150px" }}
+                  size="sm"
+                  borderRadius="md"
+                  border="1px solid gray"
+                  bg="gray.200"
+                >
+                  <option value="today">Today</option>
+                  <option value="week">Weekly</option>
+                  <option value="biweekly">Biweekly</option>
+                </Select>
+              </HStack>
+            }
+          />
+
+          <SimpleGrid
+            columns={{ base: 1, sm: 2, lg: 4 }}
+            spacing={4}
+            mt="-60px"
+            zIndex={20}
+            px={2}
           >
-            <Spinner size="xs" color="blue.500" />
-            <Text fontSize="xs" color="blue.600" fontWeight="medium">
-              Refreshing dashboard data...
-            </Text>
-          </Flex>
-        )}
-        <PageNavBar
-          title="CDR Analytics Dashboard"
-          description="Real-time insights into call data records, destinations and customers"
-          rightContent={
-            // FIX: flexWrap so clock + select stack gracefully on very small screens
-            <HStack spacing={3} flexWrap="wrap" justify={{ base: "center", md: "flex-end" }} w="full">
-              <Box
-                px={3} py={1} bg="gray.200" borderRadius="md"
-                border="1px solid" borderColor="gray.100" boxShadow="sm"
-              >
-                <HStack spacing={3}>
-                  <HStack spacing={2}>
-                    <Icon as={FiCalendar} color="purple.500" />
-                    <Text fontSize="sm" fontWeight="bold" color="gray.700">
-                      {format(currentTime, "MMM dd, yyyy")}
-                    </Text>
-                  </HStack>
-                  <Divider orientation="vertical" height="20px" />
-                  <HStack spacing={2}>
-                    <Icon as={FiClock} color="blue.500" />
-                    {/* FIX: minW keeps layout stable as seconds tick */}
-                    <Text fontSize="sm" fontWeight="bold" color="gray.700" minW="72px">
-                      {format(currentTime, "HH:mm:ss")}
-                    </Text>
-                  </HStack>
-                </HStack>
-              </Box>
+            <StatCard
+              title="Completed Calls"
+              value={Number(stats?.totalCalls || 0).toLocaleString()}
+              change="Live"
+              icon={FiPhoneCall}
+              color="purple"
+              helpText="Successfully connected calls"
+              trend="up"
+              loading={dashLoading}
+            />
+            <StatCard
+              title="Total Revenue"
+              value={`$${Number(stats?.totalRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`}
+              change="Cumulative"
+              icon={FiDollarSign}
+              color="green"
+              helpText="Total billing revenue"
+              trend="up"
+              loading={dashLoading}
+            />
+            <StatCard
+              title="Active Customers"
+              value={Number(stats?.activeCustomers || 0)}
+              change="Unique"
+              icon={FiUsers}
+              color="purple"
+              helpText="Customer accounts"
+              trend="up"
+              loading={dashLoading}
+            />
+            <StatCard
+              title="Total Duration"
+              value={formatDuration(Number(stats?.totalDuration || 0))}
+              change="Total hours"
+              icon={FiClock}
+              color="orange"
+              helpText="Call time aggregate"
+              trend="up"
+              loading={dashLoading}
+            />
+          </SimpleGrid>
+        </Box>
 
-              <Select
-                value={timeRange}
-                onChange={(e) => setTimeRange(e.target.value)}
-                w={{ base: "full", md: "150px" }}
-                size="sm"
-                borderRadius="md"
-                border="1px solid gray"
-                bg="gray.200"
-              >
-                <option value="today">Today</option>
-                <option value="week">Weekly</option>
-                <option value="biweekly">Biweekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="3month">3 Months</option>
-              </Select>
-            </HStack>
-          }
-        />
-
-        {/* ── Stat Cards ─────────────────────────────────────── */}
-        <SimpleGrid columns={{ base: 1, sm: 2, lg: 4 }} spacing={4}>
-          <StatCard
-            title="Total Calls"
-            value={stats.totalCalls.toLocaleString()}
-            change="Live"
-            icon={FiPhoneCall}
-            color="purple"
-            helpText="Total calls processed"
-            trend="up"
-            bgGradient="linear(to-br, purple.50, blue.50)"
-          />
-          <StatCard
-            title="Total Revenue"
-            value={`$${stats.totalRevenue.toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}`}
-            change="Cumulative"
-            icon={FiDollarSign}
-            color="green"
-            helpText="Total billing revenue"
-            trend="up"
-            bgGradient="linear(to-br, green.50, teal.50)"
-          />
-          <StatCard
-            title="Active Customers"
-            value={stats.activeCustomers}
-            change="Unique"
-            icon={FiUsers}
-            color="purple"
-            helpText="Customer accounts"
-            trend="up"
-            bgGradient="linear(to-br, purple.50, pink.50)"
-          />
-          <StatCard
-            title="Total Duration"
-            value={formatDuration(stats.totalDuration)}
-            change="Total Minutes"
-            icon={FiClock}
-            color="orange"
-            helpText="Call time aggregate"
-            trend="up"
-            bgGradient="linear(to-br, orange.50, yellow.50)"
-          />
-        </SimpleGrid>
-
-        {/* ── Top Destinations + Financial Summary ────────────── */}
-        {/* FIX: better breakpoint ratio — md was 3fr/1fr which crushed the financial card */}
         <Grid
-          templateColumns={{ base: "1fr", md: "2fr 1fr", lg: "5fr 1fr" }}
+          templateColumns={{ base: "1fr", lg: "4fr 1fr" }}
           gap={4}
           w="full"
           maxW="100%"
         >
-          {/* Top Destinations */}
+          <GridItem minW={0}>
+            <DestinationMap
+              destinations={topDestinations}
+              loading={topDestLoading}
+            />
+          </GridItem>
+
+          <GridItem minW={0}>
+            <Card
+              bg="white"
+              border="1px solid"
+              borderColor="gray.100"
+              borderRadius="lg"
+              boxShadow="lg"
+              overflow="hidden"
+              h="full"
+            >
+              <CardHeader bg="rgb(237, 242, 247)" py={2}>
+                <HStack spacing={2}>
+                  <Icon as={FiDollarSign} w={5} h={5} color="green.600" />
+                  <Text size="md" color="gray.500" fontWeight={600}>
+                    Financial Summary
+                  </Text>
+                </HStack>
+              </CardHeader>
+              <CardBody py={4} px={4} overflowY="auto">
+                {dashLoading ? (
+                  <Flex h="220px" align="center" justify="center">
+                    <Spinner size="md" color="gray.400" />
+                  </Flex>
+                ) : (
+                  <VStack
+                    px={2}
+                    spacing={5}
+                    justify="space-between"
+                    align="stretch"
+                    mb={4}
+                  >
+                    <MetricItem
+                      label="Total Revenue"
+                      value={`$${Number(financialData?.totalRevenue || 0).toFixed(4)}`}
+                      icon={FiDollarSign}
+                      color="green"
+                    />
+                    <Divider />
+                    <MetricItem
+                      label="Total Margin"
+                      value={`$${Number(financialData?.totalMargin || 0).toFixed(4)}`}
+                      icon={FiPercent}
+                      color="purple"
+                    />
+                    <Divider />
+                    <MetricItem
+                      label="Failed Calls"
+                      value={`${Number(financialData?.failedCalls || 0)}`}
+                      icon={FiTrendingUp}
+                      color="blue"
+                    />
+                    <Divider />
+                    <MetricItem
+                      label="Total Cost"
+                      value={`$${Number(financialData?.totalCost || 0).toFixed(4)}`}
+                      icon={FiUsers}
+                      color="orange"
+                    />
+                  </VStack>
+                )}
+              </CardBody>
+            </Card>
+          </GridItem>
+        </Grid>
+
+        <Grid w="full" maxW="100%">
           <GridItem minW={0}>
             <Card
               bg="white"
@@ -419,7 +569,7 @@ const Dashboard = () => {
               boxShadow="md"
               overflow="hidden"
             >
-              <CardHeader py={2} bg="blue.200">
+              <CardHeader py={2} bg="rgb(237, 242, 247)">
                 <Flex
                   justify="space-between"
                   align={{ base: "start", md: "center" }}
@@ -429,19 +579,25 @@ const Dashboard = () => {
                   <HStack spacing={3}>
                     <Icon as={FiGlobe} w={5} h={5} color="blue.600" />
                     <VStack align="start" spacing={0}>
-                      <Heading size="md" color="gray.800" fontWeight="semibold">
+                      <Text size="lg" color="gray.500" fontWeight={600}>
                         Top Destinations
-                      </Heading>
+                      </Text>
                       <Text fontSize="xs" color="gray.500">
                         Performance by country
                       </Text>
                     </VStack>
                   </HStack>
                   <HStack spacing={2} w={{ base: "full", md: "auto" }}>
-                    <Text fontSize="sm" fontWeight="bold" color="gray.800">
-                      Sort by:
+                    <Text
+                      fontSize="sm"
+                      fontWeight="bold"
+                      color="gray.500"
+                      whiteSpace="nowrap"
+                    >
+                      Sort by :
                     </Text>
                     <Select
+                      color="gray.500"
                       borderRadius="md"
                       bg="white"
                       size="sm"
@@ -457,9 +613,7 @@ const Dashboard = () => {
                 </Flex>
               </CardHeader>
 
-              <CardBody p={0}>
-                {/* FIX: minW reduced — 920px forced scroll even on wide desktops.
-                         600px keeps all columns visible while allowing natural flex. */}
+              <CardBody p={2}>
                 <TableContainer
                   w="full"
                   maxW="100%"
@@ -498,13 +652,12 @@ const Dashboard = () => {
                       {topDestLoading ? (
                         <Tr>
                           <Td colSpan={10} textAlign="center" py={10}>
-                            <Flex justify="center">
-                              <Slab color="#3182ce" />
+                            <Flex justify="center" h="300px" align="center">
+                              <Spinner size="md" color="gray.400" />
                             </Flex>
                           </Td>
                         </Tr>
-                      ) : topDestinations?.length > 0 ? (
-                        // FIX: stable key using destination+trunk instead of array index
+                      ) : topDestinations.length > 0 ? (
                         topDestinations.map((d) => (
                           <Tr
                             key={destKey(d)}
@@ -522,7 +675,11 @@ const Dashboard = () => {
                               {d.destination}
                             </Td>
                             <Td whiteSpace="nowrap">
-                              <Badge colorScheme="purple" variant="subtle" fontSize="2xs">
+                              <Badge
+                                colorScheme="purple"
+                                variant="subtle"
+                                fontSize="2xs"
+                              >
                                 {d.trunk}
                               </Badge>
                             </Td>
@@ -532,19 +689,36 @@ const Dashboard = () => {
                             </Td>
                             <Td isNumeric>{d.minutes}</Td>
                             <Td isNumeric>
-                              <Badge px={2} colorScheme={d.ASR > 50 ? "green" : "orange"}>
+                              <Badge
+                                px={2}
+                                colorScheme={d.ASR > 50 ? "green" : "orange"}
+                              >
                                 {d.ASR}%
                               </Badge>
                             </Td>
                             <Td isNumeric>{formatACD(d.ACD)}</Td>
-                            <Td isNumeric fontWeight="semibold" color="blue.400">
-                              ${d.cost.toFixed(4)}
+                            <Td
+                              isNumeric
+                              fontWeight="semibold"
+                              color="blue.400"
+                            >
+                              ${Number(d.cost || 0).toFixed(4)}
                             </Td>
-                            <Td isNumeric color={d.margin >= 0 ? "green.700" : "red.700"}>
-                              ${d.margin.toFixed(5)}
+                            <Td
+                              isNumeric
+                              color={d.margin >= 0 ? "green.700" : "red.700"}
+                            >
+                              ${Number(d.margin || 0).toFixed(5)}
                             </Td>
-                            <Td isNumeric color={d.marginPercentage >= 0 ? "green.700" : "red.700"}>
-                              {d.marginPercentage.toFixed(4)}%
+                            <Td
+                              isNumeric
+                              color={
+                                d.marginPercentage >= 0
+                                  ? "green.700"
+                                  : "red.700"
+                              }
+                            >
+                              {Number(d.marginPercentage || 0).toFixed(4)}%
                             </Td>
                           </Tr>
                         ))
@@ -563,78 +737,9 @@ const Dashboard = () => {
               </CardBody>
             </Card>
           </GridItem>
-
-          {/* Financial Summary */}
-          {/* FIX: added maxH + overflowY to CardBody so it never overflows viewport */}
-          <GridItem minW={0}>
-            <Card
-              bg="white"
-              border="1px solid"
-              borderColor="gray.100"
-              borderRadius="lg"
-              boxShadow="lg"
-              overflow="hidden"
-              _hover={{ boxShadow: "0 20px 60px rgba(0,0,0,0.08)" }}
-              transition="all 0.3s ease"
-              h="full"
-            >
-              <CardHeader bg="blue.200" py={2}>
-                <HStack spacing={2}>
-                  <Icon as={FiDollarSign} w={5} h={5} color="green.600" />
-                  <Heading size="md" color="gray.800" fontWeight="semibold">
-                    Financial Summary
-                  </Heading>
-                </HStack>
-              </CardHeader>
-              {/* FIX: constrained height with scroll so it doesn't blow out on short screens */}
-              <CardBody
-                py={4}
-                px={4}
-                overflowY="auto"
-                maxH={{ base: "300px", md: "none" }}
-              >
-                <VStack spacing={3} align="stretch">
-                  <MetricItem
-                    label="Total Revenue"
-                    value={`$${financialData.totalRevenue?.toFixed(2) || "0.00"}`}
-                    icon={FiDollarSign}
-                    color="green"
-                    subtext="From all calls"
-                  />
-                  <Divider />
-                  <MetricItem
-                    label="Tax Collected"
-                    value={`$${financialData.taxCollected?.toFixed(2) || "0.00"}`}
-                    icon={FiPercent}
-                    color="purple"
-                    subtext="Total tax amount"
-                  />
-                  <Divider />
-                  <MetricItem
-                    label="Income Fee"
-                    value={`$${financialData.incomeFee?.toFixed(2) || "0.00"}`}
-                    icon={FiTrendingUp}
-                    color="blue"
-                    subtext="Service income"
-                  />
-                  <Divider />
-                  <MetricItem
-                    label="Agent Fees"
-                    value={`$${financialData.agentFee?.toFixed(2) || "0.00"}`}
-                    icon={FiUsers}
-                    color="orange"
-                    subtext="Total agent fee"
-                  />
-                </VStack>
-              </CardBody>
-            </Card>
-          </GridItem>
         </Grid>
 
-        {/* ── Hourly Chart + Top Customers ───────────────────── */}
         <Grid templateColumns={{ base: "1fr", lg: "2fr 1fr" }} gap={4}>
-
-          {/* Hourly Call Distribution */}
           <GridItem>
             <Card
               bg="white"
@@ -643,77 +748,68 @@ const Dashboard = () => {
               borderRadius="lg"
               boxShadow="lg"
               overflow="hidden"
-              _hover={{ boxShadow: "0 20px 60px rgba(0,0,0,0.08)" }}
-              transition="all 0.3s ease"
             >
-              <CardHeader bg="blue.200" py={2}>
+              <CardHeader bg="rgb(237, 242, 247)" py={2}>
                 <HStack spacing={3}>
                   <Icon as={FiActivity} w={5} h={5} color="blue.600" />
                   <VStack align="start" spacing={0}>
-                    <Heading size="md" color="gray.800" fontWeight="semibold">
+                    <Text size="md" color="gray.500" fontWeight={600}>
                       Hourly Call Distribution
-                    </Heading>
-                    <Text fontSize="xs" color="gray.600">
+                    </Text>
+                    <Text fontSize="xs" color="gray.500">
                       Call volume by hour
                     </Text>
                   </VStack>
                 </HStack>
               </CardHeader>
               <CardBody p={{ base: 3, md: 6 }}>
-                <Box height={{ base: "220px", md: "300px" }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    {/* FIX: Bar uses "calls", Line uses "trend" (rolling avg) — visually distinct */}
-                    <ComposedChart
-                      data={hourlyCalls}
-                      margin={{ top: 5, right: 10, left: -10, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                      <XAxis
-                        dataKey="hour"
-                        stroke="#6B7280"
-                        fontSize={11}
-                        tick={{ fontSize: 10 }}
-                      />
-                      <YAxis
-                        yAxisId="left"
-                        stroke="#6B7280"
-                        fontSize={11}
-                        width={40}
-                      />
-                      <YAxis
-                        yAxisId="right"
-                        orientation="right"
-                        stroke="#6B7280"
-                        fontSize={11}
-                        width={40}
-                      />
-                      <Tooltip />
-                      <Legend wrapperStyle={{ fontSize: "12px" }} />
-                      <Bar
-                        yAxisId="left"
-                        dataKey="calls"
-                        fill="#039b68"
-                        radius={[4, 4, 0, 0]}
-                        name="Call Volume"
-                      />
-                      {/* FIX: "trend" key is the rolling average — not a duplicate of "calls" */}
-                      <Line
-                        yAxisId="right"
-                        type="monotone"
-                        dataKey="trend"
-                        stroke="#f59e0b"
-                        name="Trend Line"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </ComposedChart>
-                  </ResponsiveContainer>
+                <Box h={{ base: "220px", md: "300px" }}>
+                  {dashLoading ? (
+                    <Flex h="100%" align="center" justify="center">
+                      <Spinner size="md" color="gray.400" />
+                    </Flex>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={hourlyCalls}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                        <XAxis
+                          dataKey="hour"
+                          stroke="#6B7280"
+                          fontSize={11}
+                          tick={{ fontSize: 10 }}
+                        />
+                        <YAxis
+                          yAxisId="left"
+                          stroke="#6B7280"
+                          fontSize={11}
+                          width={40}
+                        />
+                        <Tooltip />
+                        <Legend wrapperStyle={{ fontSize: "12px" }} />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="calls"
+                          fill="#2F855A"
+                          radius={[4, 4, 0, 0]}
+                          name="Call Volume"
+                        />
+                        <Line
+                          yAxisId="left"
+                          type="monotone"
+                          dataKey="trend"
+                          stroke="#f59e0b"
+                          name="Trend Line"
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  )}
                 </Box>
               </CardBody>
             </Card>
           </GridItem>
 
-          {/* Top Customers */}
           <GridItem>
             <Card
               bg="white"
@@ -722,17 +818,15 @@ const Dashboard = () => {
               borderRadius="lg"
               boxShadow="lg"
               overflow="hidden"
-              _hover={{ boxShadow: "0 20px 60px rgba(0,0,0,0.08)" }}
-              transition="all 0.3s ease"
             >
-              <CardHeader bg="blue.200" py={2}>
+              <CardHeader bg="rgb(237, 242, 247)" py={2}>
                 <HStack spacing={3}>
                   <Icon as={FiUsers} w={5} h={5} color="purple.600" />
                   <VStack align="start" spacing={0}>
-                    <Heading size="md" color="gray.800" fontWeight="semibold">
+                    <Text size="md" color="gray.500" fontWeight={600}>
                       Top Customers
-                    </Heading>
-                    <Text fontSize="xs" color="gray.600">
+                    </Text>
+                    <Text fontSize="xs" color="gray.500">
                       Distribution by Total Calls
                     </Text>
                   </VStack>
@@ -741,43 +835,45 @@ const Dashboard = () => {
 
               <CardBody p={0} pb={2}>
                 <VStack spacing={0} align="stretch">
-                  {/* Sticky column headers */}
                   <HStack
                     justify="space-between"
                     px={4}
                     py={2}
-                    bg="gray.200"
+                    bg="rgb(244, 247, 253)"
                     borderBottom="1px solid"
                     borderColor="gray.200"
                     position="sticky"
                     top={0}
                     zIndex={1}
                   >
-                    <Text fontSize="xs" fontWeight="bold" color="gray.800" letterSpacing="wide">
+                    <Text
+                      fontSize="xs"
+                      fontWeight="bold"
+                      color="rgb(141, 151, 181)"
+                      letterSpacing="wide"
+                    >
                       CUSTOMER
                     </Text>
-                    <Text fontSize="xs" fontWeight="bold" color="gray.800" letterSpacing="wide">
+                    <Text
+                      fontSize="xs"
+                      fontWeight="bold"
+                      color="rgb(141, 151, 181)"
+                      letterSpacing="wide"
+                    >
                       TOTAL CALLS
                     </Text>
                   </HStack>
-
-                  {/* Scrollable rows */}
-                  <Box
-                    maxH={{ base: "260px", md: "300px" }}
-                    overflowY="auto"
-                    sx={{
-                      "&::-webkit-scrollbar": { width: "4px" },
-                      "&::-webkit-scrollbar-track": { background: "gray.100" },
-                      "&::-webkit-scrollbar-thumb": { background: "gray.400", borderRadius: "24px" },
-                    }}
-                  >
+                  <Box maxH={{ base: "260px", md: "300px" }} overflowY="auto">
                     <VStack
                       spacing={0}
                       align="stretch"
                       divider={<StackDivider borderColor="gray.100" />}
                     >
-                      {customerDistribution.length > 0 ? (
-                        // FIX: stable key using customer name instead of array index
+                      {dashLoading ? (
+                        <Flex py={10} justify="center" align="center">
+                          <Spinner size="md" color="gray.400" />
+                        </Flex>
+                      ) : customerDistribution.length > 0 ? (
                         customerDistribution.map((item) => (
                           <HStack
                             key={item.name}
@@ -785,26 +881,37 @@ const Dashboard = () => {
                             px={3}
                             py={3}
                             _hover={{ bg: "gray.50" }}
-                            transition="background 0.2s ease"
                           >
                             <HStack spacing={3} minW={0} flex={1}>
-                              <Avatar bg="green.500" size="xs" name={item.name} flexShrink={0} />
-                              {/* FIX: maxW capped on mobile so name doesn't push count off screen */}
+                              <Avatar
+                                bg="green.500"
+                                size="xs"
+                                name={item.name}
+                                flexShrink={0}
+                              />
                               <Text
                                 fontSize="sm"
                                 fontWeight="500"
                                 color="gray.700"
                                 isTruncated
-                                maxW={{ base: "120px", sm: "160px", md: "full" }}
+                                maxW={{
+                                  base: "120px",
+                                  sm: "160px",
+                                  md: "full",
+                                }}
                               >
                                 {item.name}
                               </Text>
                             </HStack>
                             <HStack spacing={1} flexShrink={0}>
-                              <Text fontSize="sm" fontWeight="600" color="gray.900">
+                              <Text
+                                fontSize="md"
+                                fontWeight="600"
+                                color="blue.700"
+                              >
                                 {item.value}
                               </Text>
-                              <Text fontSize="xs" color="gray.500">
+                              <Text fontSize="xs" color="gray.600">
                                 calls
                               </Text>
                             </HStack>
@@ -824,7 +931,6 @@ const Dashboard = () => {
             </Card>
           </GridItem>
         </Grid>
-
       </VStack>
     </Box>
   );

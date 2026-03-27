@@ -5,6 +5,25 @@ const Payment = require('../models/Payment');
 const sequelize = require('../config/database');
 const path = require('path');
 const fs = require('fs');
+const { normalizeStoredPath, toStoredRelativePath } = require('../config/storage');
+
+const removeFileSafe = async (storedPathOrAbsolutePath) => {
+  const resolvedPath = normalizeStoredPath(storedPathOrAbsolutePath);
+  if (!resolvedPath) return;
+
+  try {
+    await fs.promises.unlink(resolvedPath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.warn('Failed to remove vendor invoice file:', resolvedPath, error.message);
+    }
+  }
+};
+
+const cleanupUploadedFiles = async (files) => {
+  const filePaths = Array.isArray(files) ? files.map((file) => file?.path).filter(Boolean) : [];
+  await Promise.allSettled(filePaths.map((filePath) => removeFileSafe(filePath)));
+};
 
 const generatePaymentNumber = async () => {
   const year = new Date().getFullYear();
@@ -30,6 +49,8 @@ const generatePaymentNumber = async () => {
 
 exports.createVendorInvoice = async (req, res) => {
   const transaction = await sequelize.transaction();
+  const uploadedFiles = Array.isArray(req.files) ? req.files : [];
+
   try {
     const {
       vendorId,
@@ -62,7 +83,9 @@ exports.createVendorInvoice = async (req, res) => {
     finalVendorId = account.id;
     finalVendorCode = account.vendorCode;
 
-    const filePaths = req.files ? req.files.map(file => file.path) : [];
+    const filePaths = uploadedFiles
+      .map((file) => toStoredRelativePath(path.resolve(file.path)))
+      .filter(Boolean);
 
     const invoice = await VendorInvoice.create({
       vendorId: finalVendorId,
@@ -97,6 +120,7 @@ exports.createVendorInvoice = async (req, res) => {
     });
   } catch (error) {
     if (transaction) await transaction.rollback();
+    await cleanupUploadedFiles(uploadedFiles);
     console.error('Error creating vendor invoice:', error);
     res.status(500).json({
       message: 'Failed to create vendor invoice',
@@ -107,7 +131,10 @@ exports.createVendorInvoice = async (req, res) => {
 
 exports.getVendorInvoices = async (req, res) => {
   try {
-    const { vendorCode, vendorId, startDate, endDate } = req.query;
+    const { vendorCode, vendorId, startDate, endDate, search, status } = req.query;
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 10));
+    const offset = (page - 1) * limit;
     const whereClause = {};
 
     if (vendorId) {
@@ -125,18 +152,52 @@ exports.getVendorInvoices = async (req, res) => {
       whereClause.endDate = { [Op.lte]: endDate };
     }
 
-    const invoices = await VendorInvoice.findAll({
+    if (status) {
+      whereClause.status = String(status).trim();
+    }
+
+    const include = [
+      {
+        model: Account,
+        as: 'vendor',
+        attributes: ['id', 'accountName', 'vendorCode']
+      }
+    ];
+
+    if (search && String(search).trim()) {
+      const q = `%${String(search).trim()}%`;
+      whereClause[Op.or] = [
+        { invoiceNumber: { [Op.iLike]: q } },
+        { vendorCode: { [Op.iLike]: q } },
+      ];
+      include[0].where = {
+        [Op.or]: [
+          { accountName: { [Op.iLike]: q } },
+          { vendorCode: { [Op.iLike]: q } },
+        ],
+      };
+      include[0].required = false;
+    }
+
+    const { rows, count } = await VendorInvoice.findAndCountAll({
       where: whereClause,
-      include: [
-        {
-          model: Account,
-          as: 'vendor',
-          attributes: ['id', 'accountName', 'vendorCode']
-        }
-      ],
-      order: [['createdAt', 'DESC']]
+      include,
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset,
+      distinct: true,
     });
-    res.status(200).json(invoices);
+
+    res.status(200).json({
+      success: true,
+      data: rows,
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit),
+      },
+    });
   } catch (error) {
     console.error('Error fetching vendor invoices:', error);
     res.status(500).json({
@@ -260,11 +321,9 @@ exports.deleteVendorInvoice = async (req, res) => {
     if (invoice.filePaths) {
       try {
         const paths = JSON.parse(invoice.filePaths);
-        paths.forEach(p => {
-          if (p && fs.existsSync(p)) {
-            fs.unlinkSync(p);
-          }
-        });
+        if (Array.isArray(paths) && paths.length > 0) {
+          await Promise.allSettled(paths.map((filePath) => removeFileSafe(filePath)));
+        }
       } catch (e) {
         console.warn('Failed to parse or delete invoice files', e);
       }

@@ -8,11 +8,9 @@ import {
   Grid,
   Heading,
   HStack,
-  Input,
   InputGroup,
   InputLeftElement,
   InputRightElement,
-  Select,
   Switch,
   Text,
   VStack,
@@ -39,9 +37,11 @@ import {
   MenuItem,
   Tooltip,
 } from "@chakra-ui/react";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import { useState, useEffect, useCallback } from "react";
 import { createUser, fetchUsers, deleteUser } from "../utils/api";
 import ConfirmDialog from "../components/ConfirmDialog";
+import PageNavBar from "../components/PageNavBar";
 import { FiMail } from "react-icons/fi";
 import { FiRotateCcw, FiUser, FiPlus, FiSearch, FiRefreshCw, FiMoreVertical, FiUsers, FiAlertTriangle } from "react-icons/fi";
 import { Icon } from "lucide-react";
@@ -192,7 +192,7 @@ const UsersTab = ({ onAddNew, refreshSignal }) => {
             <Table variant="simple" size="sm">
               <Thead bg={"gray.200"}>
                 <Tr>
-                  {[ "ID", "Name", "Email", "Phone", "Role", ""].map(h => (
+                  {[ "ID", "Name", "Email", "Phone", "Role", "Actions"].map(h => (
                     <Th key={h} fontSize="11px" color="gray.700" fontWeight="700" letterSpacing="0.06em"
                       textTransform="uppercase" borderColor={border} py={3}>{h}</Th>
                   ))}
@@ -265,7 +265,6 @@ const UsersTab = ({ onAddNew, refreshSignal }) => {
                           <MenuButton as={IconButton} icon={<FiMoreVertical />} variant="ghost" size="xs"
                             color="gray.600" _hover={{ color: "gray.700", bg: "gray.100" }} borderRadius="6px" />
                           <MenuList fontSize="sm" minW="130px" shadow="lg" borderColor={border}>
-                            <MenuItem fontSize="13px">View Details</MenuItem>
                             <MenuItem fontSize="13px" color="red.500" onClick={() => setDeleteUserId(u.id)}>Delete</MenuItem>
                           </MenuList>
                         </Menu>
@@ -592,13 +591,11 @@ export default function AddUser() {
 
   return (
     <Box>
-      {/* Page heading */}
-      <Flex align="center" bgGradient="linear(to-r,blue.100,blue.200,blue.300)" px={4} py={2} borderRadius={"12px"} justify="space-between" mb={4}>
-        <Box>
-          <Heading size="lg" color="gray.600">User Management</Heading>
-          <Text fontSize="sm" color="gray.500">Manage system users and access permissions</Text>
-        </Box>
-      </Flex>
+      <PageNavBar
+        title="User Management"
+        description="Manage system users and access permissions"
+        mb={4}
+      />
 
       {/* Tab bar */}
       <Box bg={cardBg} border="1px" borderColor={border} borderRadius="12px"
@@ -609,8 +606,8 @@ export default function AddUser() {
             <Flex key={tab.index} align="center" gap={2} px={5} py={2} borderRadius="9px"
               cursor="pointer" fontWeight={isActive ? "600" : "500"} fontSize="14px"
               color={isActive ? "white" : "gray.500"}
-              bg={isActive ? "blue.500" : "transparent"}
-              boxShadow={isActive ? "0 2px 8px rgba(49,130,206,0.35)" : "none"}
+              bg={isActive ? "blue.300" : "transparent"}
+              boxShadow={isActive ? "0 2px 8px rgba(149, 174, 228, 0.35)" : "none"}
               transition="all 0.2s" onClick={() => setActiveTab(tab.index)}
               _hover={!isActive ? { bg: "gray.100", color: "gray.700" } : {}}
               userSelect="none">

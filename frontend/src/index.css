@@ -17,21 +17,193 @@ code {
     monospace;
 }
 
-/* Custom scrollbar */
+/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #888;
+  background-color: #d3d3d3;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background-color: #a9a9a9;
 }
+
+/* Firefox scrollbar */
+* {
+  scrollbar-color: #d3d3d3 transparent;
+  scrollbar-width: thin;
+}
+
+:root {
+  /* --app-input-bg: #f7fafc; */
+  --app-input-bg: "";
+  --app-input-bg-focus: #ffffff;
+  --app-input-border: #e2e8f0;
+  --app-input-border-hover: #cbd5e0;
+  --app-input-border-focus: #4299e1;
+  --app-input-text: #2d3748;
+  --app-input-shadow-focus: 0 0 0 3px rgba(66, 153, 225, 0.15);
+  --app-input-radius: 8px;
+  --app-input-height: 36px;
+  --app-input-font-size: 13px;
+
+  --app-table-border: rgba(216, 227, 252, 1);
+  --app-table-header-bg: rgb(244, 247, 253);
+  --app-table-header-color: rgb(141, 151, 181);
+  --app-table-cell-color: rgb(43, 54, 116);
+  --app-table-row-hover: #f4f7fc;
+  --app-table-row-bg: #ffffff;
+  --app-table-footer-bg: #f4f7fc;
+}
+
+.app-table-shell {
+  width: 100%;
+  border: 1px solid var(--app-table-border);
+  border-radius: 12px;
+  color: var(--app-table-cell-color);
+  padding: 0;
+}
+
+.chakra-table__container {
+  border: 1px solid var(--app-table-border);
+  border-radius: 12px;
+}
+
+.app-table {
+  width: 100%;
+}
+
+.chakra-table {
+  width: 100%;
+}
+
+.app-table-header-cell {
+  border-right: 1px solid var(--app-table-border) !important;
+  color: var(--app-table-header-color) !important;
+  background-color: var(--app-table-header-bg) !important;
+  font-weight: 600 !important;
+  font-size: clamp(10px, 1.5vw, 10px) !important;
+  font-family: 'DM Sans','sans-serif' !important;
+  text-align: center !important;
+  /* height: 60px !important; */
+  padding: 8px !important;
+}
+
+.chakra-table thead th {
+  border-right: 1px solid var(--app-table-border) !important;
+  color: var(--app-table-header-color) !important;
+  background-color: var(--app-table-header-bg) !important;
+  font-weight: 600 !important;
+  font-size: clamp(12px, 1.5vw, 12px) !important;
+  font-family: 'DM Sans', sans-serif !important;
+  text-align: center !important;
+  /* min-height: 60px !important; */
+  padding: 8px !important;
+}
+
+.chakra-table thead th:last-child {
+  border-right: none !important;
+}
+
+.app-table-header-cell:focus,
+.app-table-header-cell:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.app-table-column-title {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: visible;
+}
+
+.app-table-row {
+  font-weight: 500;
+  font-size: 17px;
+  color: var(--chakra-colors-secondaryGray-600, #4a5568);
+  background-color: var(--app-table-row-bg);
+  overflow: visible !important;
+}
+
+.chakra-table tbody tr {
+  font-weight: 500;
+  font-size: 17px;
+  color: var(--chakra-colors-secondaryGray-600, #4a5568);
+  background-color: var(--app-table-row-bg);
+  overflow: visible !important;
+}
+
+.app-table-row:hover {
+  background-color: var(--app-table-row-hover) !important;
+}
+
+.chakra-table tbody tr:hover {
+  background-color: var(--app-table-row-hover) !important;
+}
+
+.app-table-cell {
+  border-right: 1px solid var(--app-table-border) !important;
+  color: var(--app-table-cell-color) !important;
+  font-size: clamp(13px, 1.5vw, 15px) !important;
+  font-weight: 500 !important;
+  font-family: 'DM Sans', sans-serif !important;
+  overflow: auto !important;
+  overflow-x: auto !important;
+  white-space: nowrap !important;
+  text-overflow: clip !important;
+  /* text-align: center !important; */
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+.chakra-table tbody td {
+  border-right: 1px solid var(--app-table-border) !important;
+  color: var(--app-table-cell-color) !important;
+  font-size: clamp(13px, 1.5vw, 15px) !important;
+  font-weight: 500 !important;
+  font-family: 'DM Sans', sans-serif !important;
+  overflow: auto !important;
+  overflow-x: auto !important;
+  white-space: nowrap !important;
+  text-overflow: clip !important;
+  /* text-align: center !important; */
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+.chakra-table tbody td:last-child {
+  border-right: none !important;
+}
+
+.app-table-pagination {
+  background-color: var(--app-table-footer-bg) !important;
+  border-top: none !important;
+  border-left: 1px solid #d1d5db !important;
+  border-right: 1px solid #d1d5db !important;
+  border-bottom: 1px solid #d1d5db !important;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.app-table-pagination .chakra-select,
+.app-table-pagination .chakra-select__wrapper,
+.app-table-pagination .chakra-select__icon-wrapper,
+.app-table-pagination p,
+.app-table-pagination span {
+  font-family: 'DM Sans', sans-serif !important;
+  font-weight: 600 !important;
+  font-size: clamp(13px, 1.5vw, 15px) !important;
+  color: #4a5568 !important;
+}
+
+/* Input/select global styling removed in favor of memoized form controls. */
+

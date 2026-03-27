@@ -13,8 +13,6 @@ import {
   ModalFooter,
   ModalBody,
   ModalCloseButton,
-  Input,
-  Select,
   FormControl,
   FormLabel,
   Alert,
@@ -25,6 +23,7 @@ import {
   Radio,
 } from "@chakra-ui/react";
 import { FiFileText } from "react-icons/fi";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../memoizedinput/memoizedinput";
 
 const GenerateInvoiceModal = ({
   isOpen,
@@ -34,6 +33,50 @@ const GenerateInvoiceModal = ({
   customers,
   onGenerate,
 }) => {
+  const getAccountSelectionValue = (account, invoiceType) => {
+    return (
+      account.gatewayId ||
+      (invoiceType === "vendor" ? account.vendorCode : account.customerCode) ||
+      account.accountId ||
+      ""
+    );
+  };
+
+  const getSelectedAccount = (selectionValue, invoiceType) => {
+    return customers.find((account) => {
+      if (invoiceType === "vendor" && !(account.accountRole === "vendor" || account.accountRole === "both")) {
+        return false;
+      }
+      if (invoiceType !== "vendor" && !(account.accountRole === "customer" || account.accountRole === "both")) {
+        return false;
+      }
+      return getAccountSelectionValue(account, invoiceType) === selectionValue;
+    });
+  };
+
+  const handleAccountChange = (selectionValue) => {
+    const selectedAccount = getSelectedAccount(selectionValue, generateForm.invoiceType);
+
+    setGenerateForm({
+      ...generateForm,
+      customerId: selectionValue,
+      periodStart: selectedAccount?.lastbillingdate || generateForm.periodStart,
+      periodEnd: selectedAccount?.nextbillingdate || generateForm.periodEnd,
+    });
+  };
+
+  const handleInvoiceTypeChange = (invoiceType) => {
+    const selectedAccount = getSelectedAccount(generateForm.customerId, invoiceType);
+
+    setGenerateForm({
+      ...generateForm,
+      invoiceType,
+      customerId: selectedAccount ? generateForm.customerId : "",
+      periodStart: selectedAccount?.lastbillingdate || generateForm.periodStart,
+      periodEnd: selectedAccount?.nextbillingdate || generateForm.periodEnd,
+    });
+  };
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside">
       <ModalOverlay />
@@ -59,12 +102,7 @@ const GenerateInvoiceModal = ({
 
               <RadioGroup
                 value={generateForm.invoiceType}
-                onChange={(value) =>
-                  setGenerateForm({
-                    ...generateForm,
-                    invoiceType: value,
-                  })
-                }
+                onChange={handleInvoiceTypeChange}
               >
                 <HStack spacing={6}>
                   <Radio value="customer">Customer Invoice</Radio>
@@ -80,12 +118,7 @@ const GenerateInvoiceModal = ({
               <Select
                 placeholder={`Choose a ${generateForm.invoiceType === "vendor" ? "vendor" : "customer"}...`}
                 value={generateForm.customerId}
-                onChange={(e) =>
-                  setGenerateForm({
-                    ...generateForm,
-                    customerId: e.target.value,
-                  })
-                }
+                onChange={(e) => handleAccountChange(e.target.value)}
                 size="md"
               >
                 {customers
@@ -98,13 +131,7 @@ const GenerateInvoiceModal = ({
                   .map((customer) => (
                     <option
                       key={customer.accountId}
-                      value={
-                        customer.gatewayId ||
-                        (generateForm.invoiceType === "vendor"
-                          ? customer.vendorCode
-                          : customer.customerCode) ||
-                        customer.accountId
-                      }
+                      value={getAccountSelectionValue(customer, generateForm.invoiceType)}
                     >
                       {customer.accountName} (
                       {(generateForm.invoiceType === "vendor"

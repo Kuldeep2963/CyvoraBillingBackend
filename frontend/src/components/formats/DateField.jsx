@@ -4,11 +4,12 @@ import {
   CardBody,
   Flex,
   Text,
-  Select,
+  // Select,
   Button,
   Box,
   Spacer,
 } from "@chakra-ui/react";
+import { MemoizedSelect as Select } from "../memoizedinput/memoizedinput";
 import { SearchIcon } from "@chakra-ui/icons";
 
 // Reusable styled date input with floating label
@@ -36,27 +37,10 @@ const DateField = ({ label, value, onChange }) => (
       value={value}
       onChange={onChange}
       sx={{
-        padding: "8px 12px",
-        borderRadius: "8px",
-        border: "1.5px solid",
-        borderColor: "#E2E8F0",
-        background: "#F7FAFC",
-        fontSize: "13px",
-        fontFamily: "inherit",
-        color: "#2D3748",
-        fontWeight: "500",
-        outline: "none",
+        px: "12px",
+        py: "8px",
         minWidth: "150px",
         cursor: "pointer",
-        transition: "all 0.2s",
-        "&:focus": {
-          borderColor: "#4299E1",
-          boxShadow: "0 0 0 3px rgba(66,153,225,0.15)",
-          background: "white",
-        },
-        "&:hover": {
-          borderColor: "#CBD5E0",
-        },
         "&::-webkit-calendar-picker-indicator": {
           cursor: "pointer",
           opacity: 0.45,

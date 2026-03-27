@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Flex,
-  Heading,
   Link as ChakraLink,
   VStack,
   Icon,
@@ -12,21 +11,16 @@ import {
   Text,
   HStack,
   Badge,
-  IconButton,
-  Drawer,
-  DrawerOverlay,
-  DrawerContent,
-  DrawerCloseButton,
-  useDisclosure,
-  Spacer,
   Tooltip,
   Collapse,
+  Button,
   Menu,
   MenuButton,
   MenuList,
   MenuItem,
-  MenuDivider,
+  Portal,
   Spinner,
+  useDisclosure,
 } from "@chakra-ui/react";
 import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -34,8 +28,6 @@ import ConfirmDialog from "./ConfirmDialog";
 import ChangePasswordModal from "./modals/ChangePasswordModal";
 import {
   FiHome,
-  FiUpload,
-  FiList,
   FiUsers,
   FiUser,
   FiLock,
@@ -44,12 +36,16 @@ import {
   FiDollarSign,
   FiBell,
   FiCreditCard,
-  FiMenu,
   FiLogOut,
   FiChevronDown,
   FiChevronRight,
   FiFile,
   FiAlertTriangle,
+  FiBellOff,
+  FiDownload,
+  FiTrendingUp,
+  FiShoppingBag,
+  FiCheckCircle,
 } from "react-icons/fi";
 import {
   fetchNotifications,
@@ -58,7 +54,7 @@ import {
   markNotificationRead,
 } from "../utils/api";
 
-const SidebarContent = ({ onClose, ...rest }) => {
+const SidebarContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -76,13 +72,62 @@ const SidebarContent = ({ onClose, ...rest }) => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
-  const [notificationPollingSeconds, setNotificationPollingSeconds] = useState(10);
+  const [notificationPollingSeconds, setNotificationPollingSeconds] =
+    useState(10);
 
   const userRole = user?.role?.trim().toLowerCase();
   const pollingMs = useMemo(() => {
     const seconds = Number(notificationPollingSeconds);
     return Math.max(5, Math.min(3600, seconds)) * 1000;
   }, [notificationPollingSeconds]);
+
+  const formatNotificationTime = useCallback((value) => {
+    if (!value) {
+      return "Just now";
+    }
+
+    let date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      const numeric = Number(value);
+      if (!Number.isNaN(numeric)) {
+        date = new Date(numeric < 1e12 ? numeric * 1000 : numeric);
+      }
+    }
+
+    if (Number.isNaN(date.getTime())) {
+      return "Just now";
+    }
+
+    const now = Date.now();
+    const diffMs = now - date.getTime();
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    const clockTime = date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    if (diffMs < minute) {
+      return `Just now • ${clockTime}`;
+    }
+    if (diffMs < hour) {
+      return `${Math.floor(diffMs / minute)}m ago • ${clockTime}`;
+    }
+    if (diffMs < day) {
+      return `${Math.floor(diffMs / hour)}h ago • ${clockTime}`;
+    }
+    if (diffMs < 7 * day) {
+      return `${Math.floor(diffMs / day)}d ago • ${clockTime}`;
+    }
+
+    return date.toLocaleString([], {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }, []);
 
   const loadNotifications = useCallback(async () => {
     setLoadingNotifications(true);
@@ -100,12 +145,13 @@ const SidebarContent = ({ onClose, ...rest }) => {
   useEffect(() => {
     getGlobalSettings()
       .then((settings) => {
-        setNotificationPollingSeconds(Number(settings.notificationPollingSeconds) || 10);
+        setNotificationPollingSeconds(
+          Number(settings.notificationPollingSeconds) || 10,
+        );
       })
       .catch(() => {
         setNotificationPollingSeconds(10);
       });
-
     loadNotifications();
   }, [loadNotifications]);
 
@@ -113,7 +159,6 @@ const SidebarContent = ({ onClose, ...rest }) => {
     const timer = setInterval(() => {
       loadNotifications();
     }, pollingMs);
-
     return () => clearInterval(timer);
   }, [pollingMs, loadNotifications]);
 
@@ -122,12 +167,10 @@ const SidebarContent = ({ onClose, ...rest }) => {
       const nextPoll = Number(event?.detail?.notificationPollingSeconds) || 10;
       setNotificationPollingSeconds(nextPoll);
     };
-
     window.addEventListener("settings-updated", onSettingsUpdated);
-    return () => window.removeEventListener("settings-updated", onSettingsUpdated);
+    return () =>
+      window.removeEventListener("settings-updated", onSettingsUpdated);
   }, []);
-
-  // alert(userRole);
 
   const navItems = [
     {
@@ -164,7 +207,27 @@ const SidebarContent = ({ onClose, ...rest }) => {
           path: "/vendorinvoice",
           label: "Vendor Invoices",
           icon: FiFile,
-          roles: ["admin","sales-manager", "rates-dept", "view only"],
+          roles: ["admin", "sales-manager", "rates-dept", "view only"],
+        },
+      ],
+    },
+    {
+      label: "Rates",
+      icon: FiTrendingUp,
+      isDropdown: true,
+      roles: ["admin", "sales-manager", "rates-dept", "view only"],
+      subItems: [
+        {
+          path: "/customer-rates",
+          label: "Customer Rates",
+          icon: FiUsers,
+          roles: ["admin", "sales-manager", "rates-dept", "view only"],
+        },
+        {
+          path: "/vendor-rates",
+          label: "Vendor Rates",
+          icon: FiShoppingBag,
+          roles: ["admin", "sales-manager", "rates-dept", "view only"],
         },
       ],
     },
@@ -187,6 +250,12 @@ const SidebarContent = ({ onClose, ...rest }) => {
       roles: ["admin", "sales-manager", "rates-dept", "noc-dept", "view only"],
     },
     {
+      path: "/account-exposure",
+      label: "Account Exposure",
+      icon: FiUser,
+      roles: ["admin", "sales-manager", "rates-dept", "noc-dept", "view only"],
+    },
+    {
       path: "/settings",
       label: "Settings",
       icon: FiSettings,
@@ -198,41 +267,37 @@ const SidebarContent = ({ onClose, ...rest }) => {
       icon: FiUser,
       roles: ["admin"],
     },
+    {
+      path: "/admin-cdr-download",
+      label: "Download CDR",
+      icon: FiDownload,
+      roles: ["admin"],
+    },
   ];
 
-  // Filter nav items based on user role
   const filteredNavItems = navItems
     .filter((item) => item.roles.includes(userRole))
     .map((item) => {
       if (item.isDropdown && item.subItems) {
         return {
           ...item,
-          subItems: item.subItems.filter((sub) =>
-            sub.roles.includes(userRole)
-          ),
+          subItems: item.subItems.filter((sub) => sub.roles.includes(userRole)),
         };
       }
       return item;
     })
     .filter((item) => !item.isDropdown || item.subItems?.length > 0);
 
-  // Auto-expand dropdown if a subitem is active on mount / route change
   React.useEffect(() => {
     filteredNavItems.forEach((item) => {
       if (item.isDropdown) {
         const isActive = item.subItems.some(
-          (sub) => sub.path === location.pathname
+          (sub) => sub.path === location.pathname,
         );
-        if (isActive) {
-          setOpenDropdown(item.label);
-        }
+        if (isActive) setOpenDropdown(item.label);
       }
     });
   }, [location.pathname]);
-
-  const handleLogout = () => {
-    onLogoutOpen();
-  };
 
   const onLogoutConfirm = () => {
     logout();
@@ -243,7 +308,7 @@ const SidebarContent = ({ onClose, ...rest }) => {
   const renderNavItem = (item) => {
     if (item.isDropdown) {
       const isActive = item.subItems.some(
-        (sub) => sub.path === location.pathname
+        (sub) => sub.path === location.pathname,
       );
       const isOpen = openDropdown === item.label;
 
@@ -252,14 +317,9 @@ const SidebarContent = ({ onClose, ...rest }) => {
           <Flex
             p={3}
             borderRadius="md"
-            bg={isActive ? "gray.800" : "transparent"}
-            color={isActive ? "white" : "gray.400"}
+            color={isActive ? "blue.500" : "gray.500"}
             fontWeight={isActive ? "600" : "500"}
-            _hover={{
-              bg: "gray.800",
-              textDecoration: "none",
-              color: "white",
-            }}
+            _hover={{ textDecoration: "none" }}
             alignItems="center"
             justifyContent="space-between"
             cursor="pointer"
@@ -283,27 +343,17 @@ const SidebarContent = ({ onClose, ...rest }) => {
                   p={2}
                   pl={6}
                   borderRadius="md"
-                  bg={
-                    location.pathname === subItem.path
-                      ? "gray.800"
-                      : "transparent"
-                  }
                   color={
-                    location.pathname === subItem.path ? "white" : "gray.400"
+                    location.pathname === subItem.path ? "blue.500" : "gray.500"
                   }
                   fontWeight={
                     location.pathname === subItem.path ? "600" : "500"
                   }
-                  _hover={{
-                    bg: "gray.800",
-                    textDecoration: "none",
-                    color: "white",
-                  }}
+                  _hover={{ textDecoration: "none" }}
                   display="flex"
                   alignItems="center"
                   fontSize="sm"
                   transition="all 0.2s"
-                  onClick={onClose}
                 >
                   <Icon as={subItem.icon} mr={2} boxSize={3.5} />
                   {subItem.label}
@@ -322,21 +372,13 @@ const SidebarContent = ({ onClose, ...rest }) => {
         key={item.path}
         p={3}
         borderRadius="md"
-        bg={location.pathname === item.path ? "gray.800" : "transparent"}
-        color={location.pathname === item.path ? "white" : "gray.400"}
+        color={location.pathname === item.path ? "blue.500" : "gray.500"}
         fontWeight={location.pathname === item.path ? "600" : "500"}
-        _hover={{
-          bg: "gray.800",
-          textDecoration: "none",
-          color: "white",
-        }}
+        _hover={{ textDecoration: "none" }}
         display="flex"
         alignItems="center"
         transition="all 0.2s"
-        onClick={() => {
-          setOpenDropdown(null);
-          onClose();
-        }}
+        onClick={() => setOpenDropdown(null)}
       >
         <Icon as={item.icon} mr={3} />
         {item.label}
@@ -346,17 +388,16 @@ const SidebarContent = ({ onClose, ...rest }) => {
 
   return (
     <Box
-      bg={"black"}
-      p={4}
+      bg="white"
       borderRight="1px"
       borderColor={useColorModeValue("gray.200", "gray.700")}
-      w={{ base: "full", md: "250px" }}
+      w="250px"
       pos="fixed"
-      zIndex={20}
-      h="full"
+      zIndex="sticky"
+      h="100vh"
       display="flex"
       flexDirection="column"
-      {...rest}
+      overflow="hidden"
     >
       <ConfirmDialog
         isOpen={isLogoutOpen}
@@ -373,8 +414,8 @@ const SidebarContent = ({ onClose, ...rest }) => {
         onClose={onChangePasswordClose}
       />
 
-      {/* Header Section */}
-      <Flex direction="column" align="center" mb={8}>
+      {/* Header */}
+      <Flex direction="column" align="center" mb={6} pt={4}>
         <Image
           src="/pai-telecom-logo.png"
           alt="PAI Telecom logo"
@@ -386,17 +427,17 @@ const SidebarContent = ({ onClose, ...rest }) => {
         </Text>
       </Flex>
 
-      {/* Navigation Section */}
+      {/* Navigation */}
       <VStack
+        p={2}
+        pl={4}
         spacing={1}
         align="stretch"
         flex={1}
-        h={"70vh"}
+        minH={0}
         overflowY="auto"
         sx={{
-          "&::-webkit-scrollbar": {
-            display: "none",
-          },
+          "&::-webkit-scrollbar": { display: "none" },
           scrollbarWidth: "none",
           msOverflowStyle: "none",
         }}
@@ -404,22 +445,16 @@ const SidebarContent = ({ onClose, ...rest }) => {
         {filteredNavItems.map((item) => renderNavItem(item))}
       </VStack>
 
-      {/* Footer Section - pinned to bottom */}
+      {/* Footer - pinned to bottom */}
       <Box
-        pt={3}
-        mt={4}
-        borderTop="1px solid"
-        borderColor="gray.800"
+        mt={2}
+        borderTop="2px solid"
+        borderColor="gray.300"
         flexShrink={0}
+        bg="gray.200"
+        px={2}
       >
-        <HStack
-          spacing={3}
-          p={2}
-          borderRadius="md"
-          cursor="pointer"
-          _hover={{ bg: "gray.900" }}
-          transition="all 0.2s"
-        >
+        <HStack spacing={3} p={2} borderRadius="md" transition="all 0.2s">
           <Menu placement="top-start">
             <MenuButton
               as={Box}
@@ -431,23 +466,18 @@ const SidebarContent = ({ onClose, ...rest }) => {
             >
               <HStack spacing={3}>
                 <Avatar
-                  size="sm"
+                  size="xs"
                   name={user?.email || "Admin User"}
                   color="white"
                   bg="green.700"
                 />
                 <Box flex={2} minW={0}>
-                  <Text
-                    fontWeight="medium"
-                    color="white"
-                    fontSize="sm"
-                    noOfLines={1}
-                  >
+                  <Text fontWeight="medium" fontSize="sm" noOfLines={1}>
                     {user?.email || "Admin User"}
                   </Text>
                   <Text
                     fontSize="xs"
-                    color="gray.400"
+                    color="gray.600"
                     textTransform="capitalize"
                   >
                     {user?.role || "Administrator"}
@@ -456,18 +486,12 @@ const SidebarContent = ({ onClose, ...rest }) => {
               </HStack>
             </MenuButton>
 
-            <MenuList
-              bg="gray.800"
-              borderColor="gray.700"
-              shadow="md"
-              minW="150px"
-              zIndex="popover"
-            >
+            <MenuList bg="gray.200" shadow="md" minW="150px" zIndex="popover">
               <MenuItem
                 icon={<Icon as={FiLock} />}
-                bg="gray.800"
-                color="white"
-                _hover={{ bg: "gray.700" }}
+                bg="gray.200"
+                fontSize="sm"
+                _hover={{ bg: "gray.300" }}
                 onClick={onChangePasswordOpen}
               >
                 Change Password
@@ -475,109 +499,218 @@ const SidebarContent = ({ onClose, ...rest }) => {
             </MenuList>
           </Menu>
 
-          <HStack spacing={3} alignItems="center">
-            <Menu placement="right-end" closeOnSelect={false}>
+          <Flex gap={5} alignItems="center">
+            <Menu placement="right-end" closeOnSelect={false} strategy="fixed">
               <MenuButton as={Box} cursor="pointer" position="relative">
-                <Tooltip
-                  bg="white"
-                  p={2}
-                  borderRadius="lg"
-                  shadow="xl"
-                  color="black"
-                  label="Notifications"
-                  placement="right"
-                  fontSize="sm"
-                >
-                  <Box position="relative">
-                    <Icon
-                      boxSize={5}
-                      as={FiBell}
-                      color="blue.400"
-                      _hover={{ color: "blue.300" }}
-                    />
-                    {unreadCount > 0 && (
-                      <Badge
-                        position="absolute"
-                        top="-6px"
-                        right="-6px"
-                        fontSize="2xs"
-                        colorScheme="red"
-                        borderRadius="full"
-                        minW="16px"
-                        px={1}
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="center"
-                      >
-                        {unreadCount > 9 ? "9+" : unreadCount}
-                      </Badge>
-                    )}
-                  </Box>
-                </Tooltip>
+                <Box position="relative">
+                  <Icon
+                    boxSize={5}
+                    as={FiBell}
+                    color="blue.600"
+                    _hover={{ color: "blue.300" }}
+                  />
+                  {unreadCount > 0 && (
+                    <Badge
+                      position="absolute"
+                      top="-6px"
+                      right="-6px"
+                      fontSize="2xs"
+                      colorScheme="red"
+                      borderRadius="full"
+                      minW="16px"
+                      px={1}
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                    >
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </Badge>
+                  )}
+                </Box>
               </MenuButton>
 
-              <MenuList
-                bg="gray.800"
-                borderColor="gray.700"
-                color="white"
-                minW="320px"
-                maxW="360px"
-                zIndex="popover"
-              >
-                <MenuItem
-                  bg="gray.800"
-                  color="blue.200"
-                  _hover={{ bg: "gray.700" }}
-                  onClick={async () => {
-                    await markAllNotificationsRead();
-                    await loadNotifications();
-                  }}
+              <Portal>
+                <MenuList
+                  bg="white"
+                  color="gray.800"
+                  minW="380px"
+                  maxW="380px"
+                  boxShadow="2xl"
+                  p={0}
+                  zIndex="tooltip"
+                  overflow="hidden"
+                  borderRadius="xl"
                 >
-                  Mark all as read
-                </MenuItem>
-                <MenuDivider borderColor="gray.700" />
-                {loadingNotifications && (
-                  <Box px={3} py={2}>
-                    <Spinner size="sm" />
-                  </Box>
-                )}
-                {!loadingNotifications && notifications.length === 0 && (
-                  <Box px={3} py={2}>
-                    <Text fontSize="sm" color="gray.300">No notifications</Text>
-                  </Box>
-                )}
-                {!loadingNotifications &&
-                  notifications.map((item) => (
-                    <MenuItem
-                      key={item.id}
-                      bg="gray.800"
-                      whiteSpace="normal"
-                      alignItems="flex-start"
-                      _hover={{ bg: "gray.700" }}
+                  <Flex
+                    align="center"
+                    justify="space-between"
+                    px={4}
+                    py={2}
+                    // bg="rgb(237, 242, 247)"
+                  >
+                    <Text fontWeight={600} color={"gray.600"} fontSize="md">
+                      Notifications
+                    </Text>
+                    <Button
+                      leftIcon={<FiCheckCircle />}
+                      size="sm"
+                      variant="outline"
+                      colorScheme="green"
+                      fontSize="xs"
                       onClick={async () => {
-                        if (!item.isRead) {
-                          await markNotificationRead(item.id);
-                          await loadNotifications();
-                        }
+                        await markAllNotificationsRead();
+                        await loadNotifications();
                       }}
+                      _hover={{ bg: "whiteAlpha.200" }}
                     >
-                      <Box>
-                        <Text fontSize="sm" fontWeight={item.isRead ? "500" : "700"}>{item.title}</Text>
-                        <Text fontSize="xs" color="gray.300">{item.message}</Text>
-                      </Box>
-                    </MenuItem>
-                  ))}
-              </MenuList>
+                      Mark all as read
+                    </Button>
+                  </Flex>
+
+                  <Box
+                   minH={"300px"}
+                    maxH="300px"
+                    overflowY="auto"
+                    ssx={{
+                      scrollbarWidth: "thin",
+                      scrollbarColor: "#CBD5E0 transparent",
+                      "&::-webkit-scrollbar": { width: "4px" },
+                      "&::-webkit-scrollbar-thumb": {
+                        background: "#CBD5E0",
+                        borderRadius: "4px",
+                      },
+                      "&::-webkit-scrollbar-thumb:hover": {
+                        background: "#A0AEC0",
+                      },
+                    }}
+                  >
+                    {loadingNotifications && (
+                      <Flex justify="center" align="center" py={10}>
+                        <Spinner size="sm" color="blue.500" thickness="2px" />
+                      </Flex>
+                    )}
+
+                    {!loadingNotifications && notifications.length === 0 && (
+                      <VStack py={10} spacing={2}>
+                        <Icon as={FiBellOff} fontSize="xl" color="gray.300" />
+                        <Text fontSize="sm" color="gray.400">
+                          You're all caught up
+                        </Text>
+                      </VStack>
+                    )}
+
+                    {!loadingNotifications &&
+                      notifications.map((item) => (
+                        <Box
+                          key={item.id}
+                          display="flex"
+                          alignItems="flex-start"
+                          gap={3}
+                          px={4}
+                          py={3}
+                          borderBottom="0.5px solid"
+                          borderColor="gray.100"
+                          bg={item.isRead ? "white" : "gray.100"}
+                          cursor="pointer"
+                          transition="background 0.15s"
+                          _hover={{ bg: item.isRead ? "gray.50" : "gray.200" }}
+                          _last={{ borderBottom: "none" }}
+                          onClick={async () => {
+                            if (!item.isRead) {
+                              await markNotificationRead(item.id);
+                              await loadNotifications();
+                            }
+                          }}
+                        >
+                          {/* Unread dot */}
+                          <Box
+                            mt="6px"
+                            minW="7px"
+                            h="7px"
+                            borderRadius="full"
+                            bg={item.isRead ? "transparent" : "blue.500"}
+                            flexShrink={0}
+                          />
+
+                          {/* Icon */}
+                          <Flex
+                            w="34px"
+                            h="34px"
+                            borderRadius="full"
+                            bg={
+                              item.type === "payment"
+                                ? "green.50"
+                                : item.type === "alert"
+                                  ? "red.50"
+                                  : item.type === "invoice"
+                                    ? "orange.50"
+                                    : "blue.50"
+                            }
+                            align="center"
+                            justify="center"
+                            flexShrink={0}
+                          >
+                            <Icon
+                              as={
+                                item.type === "payment"
+                                  ? FiCreditCard
+                                  : item.type === "alert"
+                                    ? FiAlertTriangle
+                                    : item.type === "invoice"
+                                      ? FiFileText
+                                      : FiBell
+                              }
+                              boxSize={4}
+                              color={
+                                item.type === "payment"
+                                  ? "green.600"
+                                  : item.type === "alert"
+                                    ? "red.600"
+                                    : item.type === "invoice"
+                                      ? "orange.500"
+                                      : "blue.600"
+                              }
+                            />
+                          </Flex>
+
+                          {/* Content */}
+                          <Box flex={1} minW={0}>
+                            <Text
+                              fontSize="13px"
+                              fontWeight={item.isRead ? "400" : "500"}
+                              color="gray.800"
+                              noOfLines={1}
+                            >
+                              {item.title}
+                            </Text>
+                            <Text
+                              fontSize="12px"
+                              color="gray.600"
+                              noOfLines={2}
+                              mt="2px"
+                              lineHeight="1.5"
+                            >
+                              {item.message}
+                            </Text>
+                            <Text fontSize="11px" color="gray.500" mt="4px">
+                              {formatNotificationTime(item.createdAt)}
+                            </Text>
+                          </Box>
+                        </Box>
+                      ))}
+                  </Box>
+                </MenuList>
+              </Portal>
             </Menu>
 
             <Icon
               as={FiLogOut}
-              color="gray.400"
+              color="red.600"
               cursor="pointer"
               _hover={{ color: "red.400" }}
-              onClick={handleLogout}
+              onClick={onLogoutOpen}
             />
-          </HStack>
+          </Flex>
         </HStack>
       </Box>
     </Box>
@@ -585,77 +718,12 @@ const SidebarContent = ({ onClose, ...rest }) => {
 };
 
 const Layout = ({ children }) => {
-  const { isOpen, onOpen, onClose } = useDisclosure();
-
   return (
-    <Box
-      minH="100vh"
-      // bg={useColorModeValue("gray.50", "gray.900")}
-      bg={"white"}
-      maxW="100%"
-      overflowX="clip"
-    >
-      {/* Desktop Sidebar */}
-      <SidebarContent
-        onClose={onClose}
-        display={{ base: "none", md: "block" }}
-      />
-
-      {/* Mobile Drawer */}
-      <Drawer
-        autoFocus={false}
-        isOpen={isOpen}
-        placement="left"
-        onClose={onClose}
-        returnFocusOnClose={false}
-        onOverlayClick={onClose}
-        size="xs"
-      >
-        <DrawerOverlay />
-        <DrawerContent bg="black">
-          <DrawerCloseButton color="white" />
-          <SidebarContent onClose={onClose} />
-        </DrawerContent>
-      </Drawer>
-
-      {/* Mobile nav */}
-      <Flex
-        display={{ base: "flex", md: "none" }}
-        ml={{ base: 0, md: 60 }}
-        px={{ base: 4, md: 24 }}
-        height="20"
-        alignItems="center"
-        bg={useColorModeValue("white", "gray.900")}
-        borderBottomWidth="1px"
-        borderBottomColor={useColorModeValue("gray.200", "gray.700")}
-        justifyContent="flex-start"
-        position="sticky"
-        top={0}
-        zIndex={10}
-        gap={6}
-      >
-        <IconButton
-          variant="outline"
-          onClick={onOpen}
-          aria-label="open menu"
-          icon={<FiMenu />}
-        />
-        <Image
-          src="./pai-telecom-logo.png"
-          alt="PAI Telecom logo"
-          boxSize="60px"
-          objectFit="contain"
-        />
-      </Flex>
+    <Box minH="100%" bg="white" maxW="100%" overflowX="clip">
+      <SidebarContent />
 
       {/* Main Content */}
-      <Box
-        ml={{ base: 0, md: "250px" }}
-        p={{ base: 3, md: 6 }}
-        maxW="100%"
-        minW={0}
-        overflowX="clip"
-      >
+      <Box ml="250px" p={4} maxW="100%" minW={0} overflowX="clip">
         {children}
       </Box>
     </Box>

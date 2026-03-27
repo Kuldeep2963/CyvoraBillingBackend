@@ -6,26 +6,26 @@ const theme = extendTheme({
       /* Firefox */
       "*": {
         scrollbarWidth: "thin",
-        scrollbarColor: "#3182ce #f1f1f1",
+        scrollbarColor: "#d3d3d3 transparent",
       },
 
       /* Chrome, Edge, Safari */
       "*::-webkit-scrollbar": {
-        width: "6px",
-        height: "6px",
+        width: "8px",
+        height: "8px",
       },
 
       "*::-webkit-scrollbar-track": {
-        background: "#f1f1f1",
+        background: "transparent",
       },
 
       "*::-webkit-scrollbar-thumb": {
-        backgroundColor: "#3182ce",
-        borderRadius: "8px",
+        backgroundColor: "#d3d3d3",
+        borderRadius: "4px",
       },
 
       "*::-webkit-scrollbar-thumb:hover": {
-        backgroundColor: "#2b6cb0",
+        backgroundColor: "#a9a9a9",
       },
     },
   },

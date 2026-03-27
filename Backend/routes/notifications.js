@@ -6,7 +6,8 @@ router.get('/', async (req, res) => {
   try {
     const limit = req.query.limit;
     const unreadOnly = req.query.unreadOnly === 'true';
-    const result = await listNotifications({ limit, unreadOnly });
+    const viewerRole = String(req.user?.role || '').toLowerCase() || null;
+    const result = await listNotifications({ limit, unreadOnly, viewerRole });
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -44,6 +45,7 @@ router.post('/test', async (req, res) => {
       message: req.body?.message || 'This is a test event from Settings page.',
       type: req.body?.type || 'info',
       category: req.body?.category || 'test',
+      audienceRole: req.body?.audienceRole || null,
       metadata: { createdBy: req.user?.email || 'admin' },
     });
 

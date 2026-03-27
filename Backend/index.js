@@ -15,7 +15,6 @@ require('./models/PaymentAllocation');
 require('./models/Allocation');
 require('./models/Dispute');
 require('./models/CountryCode');
-require('./models/ProcessedFile');
 require('./models/Vendorinvoice');
 require('./models/SystemSetting');
 require('./models/Notification');
@@ -37,6 +36,7 @@ const BillingScheduler = require('./schedulers/BillingScheduler');
 const CDRRetentionService = require('./services/cdr-retention-service');
 const NotificationRetentionService = require('./services/notification-retention-service');
 const runMigrations = require('./utils/runMigrations');
+const { vendorInvoiceUploadDir, accountDocumentUploadDir, ensureDirSync } = require('./config/storage');
 
 const app = express();
 const PORT = process.env.PORT;
@@ -57,6 +57,10 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Ensure upload directories are available before handling requests.
+ensureDirSync(vendorInvoiceUploadDir);
+ensureDirSync(accountDocumentUploadDir);
 
 // Public Routes
 app.use('/api/auth', authRoutes);

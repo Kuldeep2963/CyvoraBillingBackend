@@ -10,8 +10,6 @@ import {
   CardBody,
   CardHeader,
   SimpleGrid,
-  Select,
-  Input,
   Table,
   Thead,
   Tbody,
@@ -82,6 +80,7 @@ import {
   AccordionPanel,
   AccordionIcon,
 } from "@chakra-ui/react";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
   DownloadIcon,
@@ -153,10 +152,11 @@ import {
   generateReport,
   exportReport,
 } from "../utils/api";
+import MissingGateways from "./missinggateways";
 
 const Reports = () => {
   const [dateRange, setDateRange] = useState({
-    startDate: new Date(new Date().setDate(new Date().getDate() - 30)),
+    startDate: new Date(new Date().setDate(new Date().getDate())),
     endDate: new Date(),
     startHour: 0,
     startMinute: 0,
@@ -2745,40 +2745,46 @@ onChange={(index) => {
   if (index !== 4 && index !== 5) setIsVendorReport(false); // reset others to default
 }}
       >
-        <TabList gap={3}>
+        <TabList gap={2}>
           <Tab>
             <HStack spacing={2}>
-              <TimeIcon />
-              <Text fontWeight={"bold"}>Hourly Reports</Text>   </HStack>
+              {/* <TimeIcon /> */}
+              <Text >Hourly Reports</Text>   </HStack>
           </Tab>
           <Tab>
             <HStack spacing={2}>
-              <FiBarChart2 />
-              <Text fontWeight={"bold"}>Margin Reports</Text>
+              {/* <FiBarChart2 /> */}
+              <Text >Margin Reports</Text>
             </HStack>
           </Tab>
           <Tab>
             <HStack spacing={2}>
-              <FiTrendingDown />
-              <Text fontWeight={"bold"}>Negative Margin</Text>
+              {/* <FiTrendingDown /> */}
+              <Text >Negative Margin</Text>
             </HStack>
           </Tab>
           <Tab>
             <HStack spacing={2}>
-              <FiList />
-              <Text fontWeight={"bold"}>Customer to Vendor Traffic</Text>
+              {/* <FiList /> */}
+              <Text >Customer - Vendor Traffic</Text>
             </HStack>
           </Tab>
           <Tab>
             <HStack spacing={2}>
-              <FiList />
-              <Text fontWeight={"bold"}>Customer Traffic</Text>
+              {/* <FiUser /> */}
+              <Text >Customer Traffic</Text>
             </HStack>
           </Tab>
           <Tab>
             <HStack spacing={2}>
-              <FiList />
-              <Text fontWeight={"bold"}>Vendor Traffic</Text>
+              {/* <FiUser/> */}
+              <Text >Vendor Traffic</Text>
+            </HStack>
+          </Tab>
+          <Tab>
+            <HStack spacing={2}>
+              {/* <WarningIcon /> */}
+              <Text >Missing Gateways</Text>
             </HStack>
           </Tab>
         </TabList>
@@ -2796,6 +2802,7 @@ onChange={(index) => {
                     <SearchIcon color="gray.400" />
                   </InputLeftElement>
                   <Input
+                   pl={9}
                     placeholder="Search in report..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -2837,6 +2844,10 @@ onChange={(index) => {
               <ChartVisualization />
             </TabPanel>
           ))}
+
+          <TabPanel px={0}>
+            <MissingGateways />
+          </TabPanel>
         </TabPanels>
       </Tabs>
     </Box>

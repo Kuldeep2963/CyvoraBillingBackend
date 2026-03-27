@@ -7,7 +7,6 @@ import {
   Center,
   FormControl,
   FormLabel,
-  Input,
   VStack,
   Text,
   Link,
@@ -20,6 +19,7 @@ import {
   useToast,
   FormErrorMessage,
 } from "@chakra-ui/react";
+import { MemoizedInput as Input } from "../components/memoizedinput/memoizedinput";
 import { keyframes } from "@emotion/react";
 import {
   FaEnvelope,

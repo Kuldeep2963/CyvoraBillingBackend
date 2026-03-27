@@ -39,7 +39,7 @@ const Unauthorized = () => {
 
   const handleLogout = async () => {
     await logout();
-    navigate('/login');
+    navigate('/', { replace: true });
   };
 
   return (
