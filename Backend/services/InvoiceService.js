@@ -62,6 +62,35 @@ const getTrunkName = (number) => {
   return 'Unknown';
 };
 
+const normalizeAuthValues = (value) => {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((v) => String(v || '').trim()).filter(Boolean))];
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return [...new Set(parsed.map((v) => String(v || '').trim()).filter(Boolean))];
+        }
+      } catch (_error) {
+        // Fall through to comma-delimited parsing.
+      }
+    }
+
+    return [...new Set(trimmed.split(',').map((v) => v.trim()).filter(Boolean))];
+  }
+
+  if (value == null) return [];
+
+  const single = String(value).trim();
+  return single ? [single] : [];
+};
+
 /* ===================== HELPER: BUILD ACCOUNT CONDITIONS ===================== */
 const buildAccountConditions = (account, vendorReport = false) => {
   const or = [];
@@ -76,25 +105,31 @@ const buildAccountConditions = (account, vendorReport = false) => {
     authValue = account.customerauthenticationValue;
   }
 
+  const authValues = normalizeAuthValues(authValue);
+
   // 1️⃣ IP authentication
-  if (authType === 'ip' && authValue) {
-    if (vendorReport) {
-      or.push({ calleeip: authValue });
-    } else {
-      or.push({ callerip: authValue });
-    }
+  if (authType === 'ip' && authValues.length > 0) {
+    authValues.forEach((value) => {
+      if (vendorReport) {
+        or.push({ calleeip: value });
+      } else {
+        or.push({ callerip: value });
+      }
+    });
   }
 
   // 2️⃣ Custom authentication → search in account fields
-  if (authType === 'custom' && authValue) {
-    const v = `${authValue}`;
-    if (vendorReport) {
-      or.push({ agentaccount: { [Op.like]: v } });
-      or.push({ agentname: { [Op.like]: v } });
-    } else {
-      or.push({ customeraccount: { [Op.like]: v } });
-      or.push({ customername: { [Op.like]: v } });
-    }
+  if (authType === 'custom' && authValues.length > 0) {
+    authValues.forEach((value) => {
+      const v = `${value}`;
+      if (vendorReport) {
+        or.push({ agentaccount: { [Op.like]: v } });
+        or.push({ agentname: { [Op.like]: v } });
+      } else {
+        or.push({ customeraccount: { [Op.like]: v } });
+        or.push({ customername: { [Op.like]: v } });
+      }
+    });
   }
 
   // 3️⃣ Fallback to vendorCode/customerCode or gatewayId if nothing else matched

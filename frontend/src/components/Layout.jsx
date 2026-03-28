@@ -422,8 +422,8 @@ const SidebarContent = () => {
           boxSize="70px"
           objectFit="contain"
         />
-        <Text fontSize="xs" color="gray.400" textAlign="center">
-          CDR Billing System
+        <Text fontSize="xs" color="gray.500" textAlign="center">
+         Billing System
         </Text>
       </Flex>
 
@@ -719,11 +719,12 @@ const SidebarContent = () => {
 
 const Layout = ({ children }) => {
   return (
-    <Box minH="100%" bg="white" maxW="100%" overflowX="clip">
+    <Box minH="100%" bg="white" maxW="100%" overflowX="clip"
+    >
       <SidebarContent />
 
       {/* Main Content */}
-      <Box ml="250px" p={4} maxW="100%" minW={0} overflowX="clip">
+      <Box ml="250px" p={4} pt={2} maxW="100%" minW={0} overflowX="clip">
         {children}
       </Box>
     </Box>

@@ -14,9 +14,33 @@ const normalizeAuthType = (value) => {
   return v === 'ip' || v === 'custom' ? v : null;
 };
 
-const normalizeAuthValue = (value) => {
-  const v = String(value || '').trim();
-  return v || null;
+const normalizeAuthValues = (value) => {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((v) => String(v || '').trim()).filter(Boolean))];
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return [...new Set(parsed.map((v) => String(v || '').trim()).filter(Boolean))];
+        }
+      } catch (_error) {
+        // Fall through to comma-delimited parsing.
+      }
+    }
+
+    return [...new Set(trimmed.split(',').map((v) => v.trim()).filter(Boolean))];
+  }
+
+  if (value == null) return [];
+
+  const single = String(value).trim();
+  return single ? [single] : [];
 };
 
 const buildConditionsFromAuth = (account, vendorSide = false) => {
@@ -25,17 +49,20 @@ const buildConditionsFromAuth = (account, vendorSide = false) => {
   const authType = normalizeAuthType(
     vendorSide ? account.vendorauthenticationType : account.customerauthenticationType
   );
-  const authValue = normalizeAuthValue(
+  const authValues = normalizeAuthValues(
     vendorSide ? account.vendorauthenticationValue : account.customerauthenticationValue
   );
 
-  if (authType === 'ip' && authValue) {
-    or.push(trimmedEq(vendorSide ? 'calleeip' : 'callerip', authValue));
+  if (authType === 'ip' && authValues.length > 0) {
+    authValues.forEach((value) => {
+      or.push(trimmedEq(vendorSide ? 'calleeip' : 'callerip', value));
+    });
   }
 
-  if (authType === 'custom' && authValue) {
-    const v = String(authValue).trim();
-    if (v) {
+  if (authType === 'custom' && authValues.length > 0) {
+    authValues.forEach((value) => {
+      const v = String(value).trim();
+      if (!v) return;
       if (vendorSide) {
         or.push(trimmedEq('agentaccount', v));
         or.push(trimmedEq('agentname', v));
@@ -43,7 +70,7 @@ const buildConditionsFromAuth = (account, vendorSide = false) => {
         or.push(trimmedEq('customeraccount', v));
         or.push(trimmedEq('customername', v));
       }
-    }
+    });
   }
 
   // Legacy fallback when auth is not configured.
@@ -85,16 +112,36 @@ const unknownCustomerConditionSql = (alias) => `
       AND (
         (
           a."customerauthenticationType" = 'ip'
-          AND NULLIF(TRIM(COALESCE(a."customerauthenticationValue", '')), '') IS NOT NULL
-          AND TRIM(COALESCE(${alias}."callerip", '')) = TRIM(a."customerauthenticationValue")
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(
+              CASE
+                WHEN jsonb_typeof(a."customerauthenticationValue") = 'array' THEN a."customerauthenticationValue"
+                WHEN a."customerauthenticationValue" IS NULL THEN '[]'::jsonb
+                ELSE jsonb_build_array(a."customerauthenticationValue")
+              END
+            ) AS auth(v)
+            WHERE NULLIF(TRIM(auth.v), '') IS NOT NULL
+              AND TRIM(COALESCE(${alias}."callerip", '')) = TRIM(auth.v)
+          )
         )
         OR
         (
           a."customerauthenticationType" = 'custom'
-          AND NULLIF(TRIM(COALESCE(a."customerauthenticationValue", '')), '') IS NOT NULL
-          AND (
-            TRIM(COALESCE(${alias}."customeraccount", '')) = TRIM(a."customerauthenticationValue")
-            OR TRIM(COALESCE(${alias}."customername", '')) = TRIM(a."customerauthenticationValue")
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(
+              CASE
+                WHEN jsonb_typeof(a."customerauthenticationValue") = 'array' THEN a."customerauthenticationValue"
+                WHEN a."customerauthenticationValue" IS NULL THEN '[]'::jsonb
+                ELSE jsonb_build_array(a."customerauthenticationValue")
+              END
+            ) AS auth(v)
+            WHERE NULLIF(TRIM(auth.v), '') IS NOT NULL
+              AND (
+                TRIM(COALESCE(${alias}."customeraccount", '')) = TRIM(auth.v)
+                OR TRIM(COALESCE(${alias}."customername", '')) = TRIM(auth.v)
+              )
           )
         )
         OR

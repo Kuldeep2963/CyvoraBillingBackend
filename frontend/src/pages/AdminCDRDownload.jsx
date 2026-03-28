@@ -266,7 +266,7 @@ const AdminCDRDownload = () => {
             {/* ── Quick Stats Cards ─────────────────────────────────────── */}
             <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
               {/* Duration */}
-              <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="sm">
+              <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="sm" borderRadius={"12px"}>
                 <CardBody px={4} py={2}>
                   <HStack spacing={4}>
                     <Icon as={FiClock} boxSize={6} color="blue.500" />
@@ -286,7 +286,7 @@ const AdminCDRDownload = () => {
               </Card>
 
               {/* Account Filter */}
-              <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="sm">
+              <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="sm" borderRadius={"12px"}>
                 <CardBody px={4} py={2}>
                   <HStack spacing={4}>
                     <Icon as={FiUsers} boxSize={6} color="green.500" />
@@ -307,7 +307,7 @@ const AdminCDRDownload = () => {
               </Card>
 
               {/* CDR Type */}
-              <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="sm">
+              <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="sm" borderRadius={"12px"}>
                 <CardBody px={4} py={2}>
                   <HStack spacing={4}>
                     <Icon as={FiDatabase} boxSize={6} color="purple.500" />
@@ -336,34 +336,31 @@ const AdminCDRDownload = () => {
               transition="all 0.2s"
               _hover={{ shadow: "lg" }}
             >
-              <CardHeader borderBottomWidth="1px" borderColor={borderColor} pb={4}>
+              <CardHeader py={3} borderBottomWidth="1px" borderColor={borderColor}>
                 <Flex align="center" justify="space-between" wrap="wrap" gap={3}>
                   <HStack spacing={3}>
-                    {/* <Icon as={FiFilter} boxSize={5} color="blue.500" />
-                    <Heading size="md" fontWeight="semibold">
-                      Export Configuration
-                    </Heading> */}
-                    <Badge colorScheme="red" fontSize="xs" px={2} py={1} borderRadius="full">
+                    
+                    <Badge colorScheme="blue" fontSize="xs" px={2} py={1} borderRadius="full">
                       Admin Only
                     </Badge>
                   </HStack>
-                  <Text fontSize="sm" color="gray.500">
+                  {/* <Text fontSize="sm" color="gray.500">
                     Configure your export parameters below
-                  </Text>
+                  </Text> */}
                 </Flex>
               </CardHeader>
 
               <CardBody>
                 <VStack spacing={6} align="stretch">
                   <Grid
-                    templateColumns={{ base: "1fr", md: "repeat(2, 1fr)" }}
+                    templateColumns={{ base: "1fr", md: "repeat(4, 1fr)" }}
                     gap={6}
                   >
                     {/* CDR Type selector */}
                     <GridItem>
                       <FormControl>
                         <FormLabel
-                          fontWeight="bold"
+                          color={"gray.600"}                          
                           display="flex"
                           alignItems="center"
                           gap={2}
@@ -382,7 +379,7 @@ const AdminCDRDownload = () => {
                             boxShadow: "0 0 0 1px #3182ce",
                           }}
                         >
-                          <option value="all">All CDRs (Bilateral)</option>
+                          <option value="all">All CDRs (Both Sides)</option>
                           <option value="customer">Customer CDRs Only</option>
                           <option value="vendor">Vendor CDRs Only</option>
                         </Select>
@@ -398,7 +395,8 @@ const AdminCDRDownload = () => {
                     <GridItem>
                       <FormControl>
                         <FormLabel
-                          fontWeight="bold"
+                                                    color={"gray.600"}                          
+
                           display="flex"
                           alignItems="center"
                           gap={2}
@@ -449,7 +447,8 @@ const AdminCDRDownload = () => {
                     <GridItem>
                       <FormControl isRequired>
                         <FormLabel
-                          fontWeight="bold"
+                                                   color={"gray.600"}                          
+
                           display="flex"
                           alignItems="center"
                           gap={2}
@@ -472,7 +471,8 @@ const AdminCDRDownload = () => {
                     <GridItem>
                       <FormControl isRequired>
                         <FormLabel
-                          fontWeight="bold"
+                                                    color={"gray.600"}                          
+
                           display="flex"
                           alignItems="center"
                           gap={2}
@@ -492,7 +492,6 @@ const AdminCDRDownload = () => {
                     </GridItem>
                   </Grid>
 
-                  <Divider />
 
                   
                   {/* Action */}

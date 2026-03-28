@@ -158,8 +158,21 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
     return String(value).split(",").map((e) => e.trim()).filter(Boolean);
   };
   const normalizeAuthValues = (value) => {
-    if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
-    if (typeof value === "string" && value.trim()) return [value.trim()];
+    if (Array.isArray(value)) return [...new Set(value.map((item) => String(item).trim()).filter(Boolean))];
+    if (typeof value === "string" && value.trim()) {
+      const trimmed = value.trim();
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            return [...new Set(parsed.map((item) => String(item).trim()).filter(Boolean))];
+          }
+        } catch (_error) {
+          // Fall through to comma-delimited parsing.
+        }
+      }
+      return [...new Set(trimmed.split(",").map((item) => item.trim()).filter(Boolean))];
+    }
     return [];
   };
   const firstEmailFromList = (value = "") => splitEmailList(value)[0] || "";

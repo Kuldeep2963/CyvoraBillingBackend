@@ -1,5 +1,34 @@
 const { literal } = require('sequelize');
 
+const normalizeAuthValues = (value) => {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((v) => String(v || '').trim()).filter(Boolean))];
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return [...new Set(parsed.map((v) => String(v || '').trim()).filter(Boolean))];
+        }
+      } catch (_error) {
+        // Fall through to comma-delimited parsing.
+      }
+    }
+
+    return [...new Set(trimmed.split(',').map((v) => v.trim()).filter(Boolean))];
+  }
+
+  if (value == null) return [];
+
+  const single = String(value).trim();
+  return single ? [single] : [];
+};
+
 module.exports = {
   completedCall: literal(`
     CASE
@@ -108,8 +137,9 @@ module.exports = {
     const authValue = isVendor
       ? (account.vendorauthenticationValue || account.customerauthenticationValue)
       : account.customerauthenticationValue;
+    const authValues = normalizeAuthValues(authValue);
 
-    if (!authType || !authValue) {
+    if (!authType || authValues.length === 0) {
       // Fallback to code matching
       const code = isVendor ? account.vendorCode : account.customerCode;
       const cdrField = isVendor ? cdr.agentaccount : cdr.customeraccount;
@@ -119,20 +149,21 @@ module.exports = {
     // 1️⃣ IP authentication
     if (authType === 'ip') {
       const cdrIp = isVendor ? cdr.calleeip : cdr.callerip;
-      return String(cdrIp).trim() === String(authValue).trim();
+      const normalizedIp = String(cdrIp || '').trim();
+      return authValues.some((value) => normalizedIp === String(value).trim());
     }
 
     // 2️⃣ Custom field authentication
     if (authType === 'custom') {
-      const normValue = String(authValue).toLowerCase().trim();
+      const normValues = authValues.map((value) => String(value).toLowerCase().trim());
       if (isVendor) {
         const agent = String(cdr.agentaccount || '').toLowerCase().trim();
         const agentName = String(cdr.agentname || '').toLowerCase().trim();
-        return agent.includes(normValue) || agentName.includes(normValue);
+        return normValues.some((value) => agent.includes(value) || agentName.includes(value));
       } else {
         const cust = String(cdr.customeraccount || '').toLowerCase().trim();
         const custName = String(cdr.customername || '').toLowerCase().trim();
-        return cust.includes(normValue) || custName.includes(normValue);
+        return normValues.some((value) => cust.includes(value) || custName.includes(value));
       }
     }
 

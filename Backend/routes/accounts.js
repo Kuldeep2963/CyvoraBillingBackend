@@ -104,6 +104,44 @@ const normalizeContactChannels = (payload) => {
   return data;
 };
 
+const normalizeAuthValues = (value) => {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((v) => String(v || '').trim()).filter(Boolean))];
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return [...new Set(parsed.map((v) => String(v || '').trim()).filter(Boolean))];
+        }
+      } catch (_error) {
+        // Fall through to comma-delimited parsing.
+      }
+    }
+
+    return [...new Set(trimmed.split(',').map((v) => v.trim()).filter(Boolean))];
+  }
+
+  if (value == null) return [];
+
+  const single = String(value).trim();
+  return single ? [single] : [];
+};
+
+const normalizeAuthFields = (payload) => {
+  const data = { ...payload };
+
+  data.customerauthenticationValue = normalizeAuthValues(data.customerauthenticationValue);
+  data.vendorauthenticationValue = normalizeAuthValues(data.vendorauthenticationValue);
+
+  return data;
+};
+
 const normalizeDocuments = (input) => {
   let parsed = input;
 
@@ -573,7 +611,7 @@ router.post('/bulk', async (req, res) => {
   }
 
   const prepared = inputAccounts.map((raw) => {
-    const data = normalizeContactChannels({ ...(raw || {}) });
+    const data = normalizeAuthFields(normalizeContactChannels({ ...(raw || {}) }));
     if (Object.prototype.hasOwnProperty.call(data, 'documents')) {
       data.documents = normalizeDocuments(data.documents);
     }
@@ -672,7 +710,7 @@ router.post('/bulk', async (req, res) => {
 // Create new account
 router.post('/', async (req, res) => {
   try {
-    const data = normalizeContactChannels({ ...req.body });
+    const data = normalizeAuthFields(normalizeContactChannels({ ...req.body }));
     if (Object.prototype.hasOwnProperty.call(data, 'documents')) {
       data.documents = normalizeDocuments(data.documents);
     }
@@ -706,7 +744,7 @@ router.put('/:id', async (req, res) => {
     const account = await Customer.findByPk(parseInt(req.params.id));
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
-    const updates = normalizeContactChannels({ ...req.body });
+    const updates = normalizeAuthFields(normalizeContactChannels({ ...req.body }));
     if (Object.prototype.hasOwnProperty.call(updates, 'documents')) {
       updates.documents = normalizeDocuments(updates.documents);
     }

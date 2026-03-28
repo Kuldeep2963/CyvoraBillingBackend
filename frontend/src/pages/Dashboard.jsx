@@ -373,10 +373,10 @@ const Dashboard = () => {
                 w="full"
               >
                 <Box px={3} py={1} bg={"gray.200"} borderRadius={"md"}>
-                  <HStack spacing={3}>
+                  <HStack spacing={3} alignItems={"center"}>
                     <HStack spacing={2}>
                       <Icon as={FiCalendar} color="blue.400" />
-                      <Text fontSize="sm" fontWeight="bold" color="gray.600">
+                      <Text fontSize="13px" fontWeight="bold" color="gray.600">
                         {formatInTimeZone(currentTime, "UTC", "MMM dd, yyyy")}
                       </Text>
                     </HStack>
@@ -384,7 +384,7 @@ const Dashboard = () => {
                     <HStack spacing={2}>
                       <Icon as={FiClock} color="blue.400" />
                       <Text
-                        fontSize="sm"
+                        fontSize="13px"
                         fontWeight="bold"
                         color="gray.600"
                         minW="72px"

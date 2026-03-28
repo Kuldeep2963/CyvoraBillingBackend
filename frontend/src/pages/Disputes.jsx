@@ -307,8 +307,8 @@ const Disputes = () => {
       header: "Customer",
       cell: (d) => (
         <Box>
-          <Text fontWeight="600" fontSize="sm" color="gray.800">{d.customerName}</Text>
-          <Text fontSize="xs" color="gray.400">{d.customerCode}</Text>
+          <Text fontWeight="500" fontSize="sm" color="gray.700">{d.customerName}</Text>
+          <Text fontSize="xs" color="gray.500">{d.customerCode}</Text>
         </Box>
       ),
     },

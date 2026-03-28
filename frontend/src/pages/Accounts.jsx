@@ -848,97 +848,28 @@ const Accounts = () => {
 
         {/* Account Stats Summary */}
         <Grid
-          templateColumns={{
-            base: "1fr",
-            md: "repeat(2, 1fr)",
-            lg: "repeat(4, 1fr)",
-          }}
-          gap={4}
-        >
-          <Box
-            p={4}
-            px={6}
-            // bgGradient="linear(to-tr, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
-            bg={"white"}
-            borderRadius="md"
-            display={"flex"}
-            shadow={"md"}
-            flexDirection={"row"}
-            alignItems="center"
-            justifyContent="space-between"
-          >
-            <Text fontSize="sm" fontWeight="bold">
-              Total Accounts
-            </Text>
-            <Text fontSize="2xl" color="blue.600" fontWeight="bold">
-              {customers.length}
-            </Text>
-          </Box>
-          <Box
-            p={4}
-            px={6}
-            // bgGradient="linear(to-tr, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
-            bg={"white"}
-            borderRadius="md"
-            display={"flex"}
-            shadow={"md"}
-            flexDirection={"row"}
-            alignItems="center"
-            justifyContent="space-between"
-          >
-            <Text fontSize="sm" fontWeight="bold">
-              Active Accounts
-            </Text>
-            <Text fontSize="2xl" color="green.600" fontWeight="bold">
-              {customers.filter((c) => c.active === true).length}
-            </Text>
-          </Box>
-          <Box
-            p={4}
-            px={6}
-            bgGradient="linear(to-tr,rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
-            borderRadius="md"
-            display={"flex"}
-            shadow={"md"}
-            flexDirection={"row"}
-            alignItems="center"
-            justifyContent="space-between"
-          >
-            <Text fontSize="sm" fontWeight="bold">
-              Customers
-            </Text>
-            <Text fontSize="2xl" color="purple.600" fontWeight="bold">
-              {
-                customers.filter((c) =>
-                  ["customer", "both"].includes(c.accountRole),
-                ).length
-              }
-            </Text>
-          </Box>
-          <Box
-            p={4}
-            px={6}
-            bgGradient="linear(to-tr, rgba(255, 255, 255, 0.8), rgba(240, 245, 255, 0.5))"
-            borderRadius="md"
-            display={"flex"}
-            shadow={"md"}
-            flexDirection={"row"}
-            alignItems="center"
-            justifyContent="space-between"
-          >
-            <Text fontSize="sm" fontWeight="bold">
-              Vendors
-            </Text>
-            <Text fontSize="2xl" color="orange.600" fontWeight="bold">
-              {
-                customers.filter((c) =>
-                  ["vendor", "both"].includes(c.accountRole),
-                ).length
-              }
-            </Text>
-          </Box>
-        </Grid>
-
+  templateColumns={{ base: "1fr", md: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" }}
+  gap={4}
+>
+  {[
+    { label: "Total Accounts", value: customers.length },
+    { label: "Active Accounts", value: customers.filter((c) => c.active === true).length },
+    { label: "Customers", value: customers.filter((c) => ["customer", "both"].includes(c.accountRole)).length },
+    { label: "Vendors", value: customers.filter((c) => ["vendor", "both"].includes(c.accountRole)).length },
+  ].map(({ label, value }) => (
+    <Box key={label} p={4} px={5} bg="gray.50" borderRadius="lg" border={"1px solid"} borderColor="gray.200" shadow="sm">
+      <Text fontSize="xs" fontWeight="500" color="gray.600" letterSpacing="wider" textTransform="uppercase" mb={1}>
+        {label}
+      </Text>
+      <HStack spacing={2} align={"baseline"}>
+      <Text fontSize="2xl" fontWeight="500" color="gray.700" lineHeight="1">
+        {value}
+      </Text>
+      <Text fontSize="xs" color="gray.400">accounts</Text>
+      </HStack>
+    </Box>
+  ))}
+</Grid>
         {/* Data Table */}
         {loading ? (
           <Box textAlign="center" py={10}>

@@ -19,6 +19,35 @@ let countryCodesCache = null;
 let cacheTimestamp = null;
 const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
 
+const normalizeAuthValues = (value) => {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((v) => String(v || '').trim()).filter(Boolean))];
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return [...new Set(parsed.map((v) => String(v || '').trim()).filter(Boolean))];
+        }
+      } catch (_error) {
+        // Fall through to comma-delimited parsing.
+      }
+    }
+
+    return [...new Set(trimmed.split(',').map((v) => v.trim()).filter(Boolean))];
+  }
+
+  if (value == null) return [];
+
+  const single = String(value).trim();
+  return single ? [single] : [];
+};
+
 const getCountryCodes = async () => {
   if (!countryCodesCache || (Date.now() - cacheTimestamp > CACHE_DURATION)) {
     countryCodesCache = await CountryCode.findAll({ raw: true });
@@ -89,28 +118,33 @@ const buildAccountConditions = (account, vendorReport) => {
   const authValue = vendorReport 
     ? (account.vendorauthenticationValue || account.customerauthenticationValue) 
     : account.customerauthenticationValue;
+  const authValues = normalizeAuthValues(authValue);
 
   // 1️⃣ IP authentication
-  if (authType === 'ip' && authValue) {
-    if (vendorReport) {
-      // For vendor reports, we check calleeip (where we send calls)
-      or.push({ calleeip: authValue });
-    } else {
-      // For customer reports, we check callerip (where calls come from)
-      or.push({ callerip: authValue });
-    }
+  if (authType === 'ip' && authValues.length > 0) {
+    authValues.forEach((value) => {
+      if (vendorReport) {
+        // For vendor reports, we check calleeip (where we send calls)
+        or.push({ calleeip: value });
+      } else {
+        // For customer reports, we check callerip (where calls come from)
+        or.push({ callerip: value });
+      }
+    });
   }
 
   // 2️⃣ Custom authentication → search in account fields
-  if (authType === 'custom' && authValue) {
-    const v = `${authValue}`;
-    if (vendorReport) {
-      or.push({ agentaccount: { [Op.like]: v } });
-      or.push({ agentname: { [Op.like]: v } });
-    } else {
-      or.push({ customeraccount: { [Op.like]: v } });
-      or.push({ customername: { [Op.like]: v } });
-    }
+  if (authType === 'custom' && authValues.length > 0) {
+    authValues.forEach((value) => {
+      const v = `${value}`;
+      if (vendorReport) {
+        or.push({ agentaccount: { [Op.like]: v } });
+        or.push({ agentname: { [Op.like]: v } });
+      } else {
+        or.push({ customeraccount: { [Op.like]: v } });
+        or.push({ customername: { [Op.like]: v } });
+      }
+    });
   }
 
   // 3️⃣ Fallback to vendorCode/customerCode or gatewayId if nothing else matched
@@ -166,14 +200,19 @@ const getUnmatchedCDRs = async (startTs, endTs, vendorReport) => {
       const authValue = vendorReport
         ? (account.vendorauthenticationValue || account.customerauthenticationValue)
         : account.customerauthenticationValue;
+      const authValues = normalizeAuthValues(authValue);
 
-      if (authType === 'ip' && authValue) {
-        exclusionConditions.push(
-          vendorReport ? { calleeip: authValue } : { callerip: authValue }
-        );
-      } else if (authType === 'custom' && authValue) {
+      if (authType === 'ip' && authValues.length > 0) {
+        authValues.forEach((value) => {
+          exclusionConditions.push(
+            vendorReport ? { calleeip: value } : { callerip: value }
+          );
+        });
+      } else if (authType === 'custom' && authValues.length > 0) {
         const field = vendorReport ? 'agentaccount' : 'customeraccount';
-        exclusionConditions.push({ [field]: { [Op.like]: `%${authValue}%` } });
+        authValues.forEach((value) => {
+          exclusionConditions.push({ [field]: { [Op.like]: `%${value}%` } });
+        });
       }
 
       // Fallback codes
@@ -284,13 +323,17 @@ const buildAllAccountsWhereClause = async (timerangeLiteral, vendorReport) => {
       // 1️⃣ CUSTOMER AUTHENTICATION (for customer reports)
       if (shouldIncludeAsCustomer) {
         const custAuthType = account.customerauthenticationType;
-        const custAuthValue = account.customerauthenticationValue;
+        const custAuthValues = normalizeAuthValues(account.customerauthenticationValue);
 
-        if (custAuthType === 'ip' && custAuthValue) {
-          accountConditions.push({ callerip: custAuthValue });
-        } else if (custAuthType === 'custom' && custAuthValue) {
-          accountConditions.push({ customeraccount: { [Op.like]: custAuthValue } });
-          accountConditions.push({ customername: { [Op.like]: custAuthValue } });
+        if (custAuthType === 'ip' && custAuthValues.length > 0) {
+          custAuthValues.forEach((value) => {
+            accountConditions.push({ callerip: value });
+          });
+        } else if (custAuthType === 'custom' && custAuthValues.length > 0) {
+          custAuthValues.forEach((value) => {
+            accountConditions.push({ customeraccount: { [Op.like]: value } });
+            accountConditions.push({ customername: { [Op.like]: value } });
+          });
         }
 
         // Fallback to customerCode or gatewayId
@@ -303,13 +346,17 @@ const buildAllAccountsWhereClause = async (timerangeLiteral, vendorReport) => {
       // 2️⃣ VENDOR AUTHENTICATION (for vendor reports)
       if (shouldIncludeAsVendor) {
         const vendAuthType = account.vendorauthenticationType;
-        const vendAuthValue = account.vendorauthenticationValue;
+        const vendAuthValues = normalizeAuthValues(account.vendorauthenticationValue);
 
-        if (vendAuthType === 'ip' && vendAuthValue) {
-          accountConditions.push({ calleeip: vendAuthValue });
-        } else if (vendAuthType === 'custom' && vendAuthValue) {
-          accountConditions.push({ agentaccount: { [Op.like]: vendAuthValue } });
-          accountConditions.push({ agentname: { [Op.like]: vendAuthValue } });
+        if (vendAuthType === 'ip' && vendAuthValues.length > 0) {
+          vendAuthValues.forEach((value) => {
+            accountConditions.push({ calleeip: value });
+          });
+        } else if (vendAuthType === 'custom' && vendAuthValues.length > 0) {
+          vendAuthValues.forEach((value) => {
+            accountConditions.push({ agentaccount: { [Op.like]: value } });
+            accountConditions.push({ agentname: { [Op.like]: value } });
+          });
         }
 
         // Fallback to vendorCode or gatewayId
