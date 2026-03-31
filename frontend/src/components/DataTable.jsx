@@ -44,24 +44,41 @@ const DataTable = ({
   compact = false,
   striped = false,
   height = 'calc(100vh - 400px)',
+  serverPagination = false,
+  page,
+  pageSize: externalPageSize,
+  total,
+  onPageChange,
+  onPageSizeChange,
+  isPaginationDisabled = false,
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSizeLocal, setPageSizeLocal] = useState(10);
 
   const rowHoverBg = useColorModeValue('blue.50', 'gray.700');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
   const stripedBg = useColorModeValue('gray.50', 'gray.800');
+  const tableBg = useColorModeValue('white', 'gray.800');
+  const tdBorderColor = useColorModeValue('gray.100', 'gray.700');
+  const emptyStateIconBg = useColorModeValue('gray.50', 'gray.700');
+  const actionMenuHoverBg = useColorModeValue('gray.100', 'gray.600');
   const headerBg = "gray.200";
 
   // Pagination logic
-  const totalItems = data.length;
-  const totalPages = Math.ceil(totalItems / pageSize);
-  const startIndex = (currentPage - 1) * pageSize;
-  const paginatedData = data.slice(startIndex, startIndex + pageSize);
+  const activePage = serverPagination ? (Number(page) || 1) : currentPage;
+  const activePageSize = serverPagination ? (Number(externalPageSize) || 10) : pageSizeLocal;
+  const totalItems = serverPagination ? (Number(total) || 0) : data.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / activePageSize));
+  const startIndex = (activePage - 1) * activePageSize;
+  const paginatedData = serverPagination ? data : data.slice(startIndex, startIndex + activePageSize);
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= totalPages) {
-      setCurrentPage(newPage);
+      if (serverPagination) {
+        onPageChange?.(newPage);
+      } else {
+        setCurrentPage(newPage);
+      }
     }
   };
 
@@ -148,7 +165,7 @@ const DataTable = ({
       borderWidth="1px" 
       borderRadius="lg" 
       borderColor={borderColor}
-      bg={useColorModeValue('white', 'gray.800')}
+      bg={tableBg}
       width="100%"
       boxShadow="sm"
       overflow="hidden"
@@ -188,7 +205,7 @@ const DataTable = ({
               py: 3,
               px: 3,
               fontSize: 'sm',
-              borderColor: useColorModeValue('gray.100', 'gray.700'),
+              borderColor: tdBorderColor,
               // overflowWrap: 'break-word',
               // wordBreak: 'break-word',
             },
@@ -236,7 +253,7 @@ const DataTable = ({
                     <Box 
                       p={4} 
                       borderRadius="full" 
-                      bg={useColorModeValue('gray.50', 'gray.700')}
+                      bg={emptyStateIconBg}
                       color="gray.400"
                     >
                       <FiEye size={24} />
@@ -285,7 +302,7 @@ const DataTable = ({
                             size="sm"
                             borderRadius="full"
                             aria-label="Actions"
-                            _hover={{ bg: useColorModeValue('gray.100', 'gray.600') }}
+                            _hover={{ bg: actionMenuHoverBg }}
                           />
                           <MenuList minW="170px" boxShadow="lg" py={2}>
                             {onView && (
@@ -328,14 +345,19 @@ const DataTable = ({
       </Box>
 
       <TablePagination
-        page={currentPage}
-        pageSize={pageSize}
+        page={activePage}
+        pageSize={activePageSize}
         total={totalItems}
         onPageChange={handlePageChange}
         onPageSizeChange={(size) => {
-          setPageSize(size);
-          setCurrentPage(1);
+          if (serverPagination) {
+            onPageSizeChange?.(size);
+          } else {
+            setPageSizeLocal(size);
+            setCurrentPage(1);
+          }
         }}
+        isDisabled={isPaginationDisabled}
       />
     </Box>
   );

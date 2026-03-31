@@ -1,3 +1,4 @@
+const fs = require('fs');
 const { Op, fn, col } = require('sequelize');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const puppeteer = require('puppeteer');
@@ -14,6 +15,9 @@ const CountryCode = require('../models/CountryCode');
 const Dispute = require('../models/Dispute');
 const BillingAutomationService = require('../services/BillingAutomationService');
 const EmailService = require('../services/EmailService');
+const { createNotification } = require('../services/notification-service');
+
+let hasLoggedPuppeteerExecutablePath = false;
 
 /* ===================== HELPER: FORMAT TIME ===================== */
 const formatTime = (date, hour = 0, isEnd = false) => {
@@ -410,15 +414,13 @@ exports.generateInvoice = async (req, res) => {
     const taxAmount = (subtotal * (taxRate / 100));
     const totalAmount = subtotal + taxAmount - discountAmount;
 
-    // Create invoice
-    const customerGatewayId = (isVendor ? (account.vendorauthenticationType === 'gateway' && account.vendorauthenticationValue) : (account.customerauthenticationType === 'gateway' && account.customerauthenticationValue))
-      ? (isVendor ? account.vendorauthenticationValue : account.customerauthenticationValue)
-      : account.gatewayId;
+    // Platform linkage should use customer/vendor code, not gateway id.
+    const linkedCustomerCode = isVendor ? account.vendorCode : account.customerCode;
 
     const invoice = await Invoice.create({
       invoiceNumber,
       invoiceType,
-      customerGatewayId,
+      customerGatewayId: linkedCustomerCode,
       customerName: account.accountName,
       customerCode: isVendor ? account.vendorCode : account.customerCode,
       customerEmail: account.email,
@@ -449,18 +451,7 @@ exports.generateInvoice = async (req, res) => {
       }, { transaction });
     }
 
-    // Update account balance/credit limit
-    if (account.billingType === 'postpaid') {
-      // For postpaid, credit limit decreases as usage (invoice) increases.
-      // refuse to generate if the remaining limit isn't sufficient.
-      if (Number(account.creditLimit) < totalAmount) {
-        throw new Error('Credit limit exceeded – cannot generate invoice');
-      }
-      await account.decrement('creditLimit', { by: totalAmount, transaction });
-    } else {
-      // For prepaid, allow balance to move negative and keep invoice generation enabled.
-      await account.decrement('balance', { by: totalAmount, transaction });
-    }
+    // Invoice generation should not mutate account balance or credit limit.
 
     await transaction.commit();
 
@@ -475,6 +466,19 @@ exports.generateInvoice = async (req, res) => {
     // Send email notification (async - don't wait for response to speed up API)
     EmailService.sendInvoiceEmail(completeInvoice, account).catch(err => {
       console.error('Failed to send invoice email:', err);
+    });
+
+    createNotification({
+      title: 'Invoice generated',
+      message: `${completeInvoice.invoiceNumber} generated for ${completeInvoice.customerName}.`,
+      type: 'success',
+      category: 'invoice',
+      metadata: {
+        invoiceId: completeInvoice.id,
+        settingGate: 'notifyInvoiceGenerated',
+      },
+    }).catch((err) => {
+      console.error('Failed to create invoice notification:', err);
     });
 
     res.json({
@@ -571,6 +575,106 @@ exports.getAllInvoices = async (req, res) => {
 
   } catch (error) {
     console.error('Get All Invoices Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+/* ===================== SEARCH INVOICES BY ACCOUNT NAME ===================== */
+exports.searchInvoicesByAccountName = async (req, res) => {
+  try {
+    const {
+      accountName,
+      accountname,
+      search,
+      invoiceType,
+      status,
+      startDate,
+      endDate,
+      page = 1,
+      limit = 50
+    } = req.query;
+
+    const rawSearch = (accountName || accountname || search || '').trim();
+
+    if (!rawSearch) {
+      return res.status(400).json({
+        success: false,
+        error: 'accountName or search query is required'
+      });
+    }
+
+    const where = {};
+
+    if (invoiceType) {
+      where.invoiceType = invoiceType;
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (startDate && endDate) {
+      where.invoiceDate = {
+        [Op.between]: [formatTime(startDate), formatTime(endDate, 23, true)]
+      };
+    }
+
+    const matchedAccounts = await Account.findAll({
+      where: {
+        accountName: {
+          [Op.iLike]: `%${rawSearch}%`
+        }
+      },
+      attributes: ['customerCode', 'vendorCode', 'gatewayId'],
+      raw: true
+    });
+
+    const candidateCodes = new Set();
+    matchedAccounts.forEach((account) => {
+      if (account.customerCode) candidateCodes.add(account.customerCode);
+      if (account.vendorCode) candidateCodes.add(account.vendorCode);
+      if (account.gatewayId) candidateCodes.add(account.gatewayId);
+    });
+
+    const orConditions = [
+      { customerName: { [Op.iLike]: `%${rawSearch}%` } },
+      { invoiceNumber: { [Op.iLike]: `%${rawSearch}%` } }
+    ];
+
+    if (candidateCodes.size > 0) {
+      orConditions.push({
+        customerCode: {
+          [Op.in]: Array.from(candidateCodes)
+        }
+      });
+    }
+
+    where[Op.or] = orConditions;
+
+    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+    const { count, rows } = await Invoice.findAndCountAll({
+      where,
+      order: [['invoiceDate', 'DESC']],
+      limit: parseInt(limit, 10),
+      offset
+    });
+
+    res.json({
+      success: true,
+      data: rows,
+      pagination: {
+        total: count,
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
+        totalPages: Math.ceil(count / parseInt(limit, 10))
+      }
+    });
+  } catch (error) {
+    console.error('Search Invoices By Account Name Error:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -1025,25 +1129,83 @@ const generateInvoicePDFBuffer = async (invoice) => {
       </html>
     `;
 
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    });
-    const page = await browser.newPage();
-    await page.setContent(invoiceHtml, { waitUntil: 'networkidle0' });
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: {
-        top: '20px',
-        right: '20px',
-        bottom: '20px',
-        left: '20px'
-      }
-    });
+    const envChromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    const chromiumCandidates = [
+      envChromiumPath,
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/snap/bin/chromium'
+    ].filter(Boolean);
+    const executablePath = chromiumCandidates.find((candidate) => fs.existsSync(candidate));
 
-    await browser.close();
-    return pdf;
+    if (!executablePath) {
+      const checkedPaths = [envChromiumPath, '/usr/bin/chromium-browser', '/usr/bin/chromium', '/snap/bin/chromium'].filter(Boolean);
+      const errorMsg = `Chromium/Puppeteer executable not found. Checked paths: ${checkedPaths.join(', ')}. Set PUPPETEER_EXECUTABLE_PATH environment variable or install chromium.`;
+      console.error('[Puppeteer] ERROR:', errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    // Check if executable has execute permissions
+    try {
+      fs.accessSync(executablePath, fs.constants.X_OK);
+    } catch (permError) {
+      console.error('[Puppeteer] ERROR: File exists but not executable:', executablePath);
+      throw new Error(`Chromium executable found at "${executablePath}" but it's not executable. Try: chmod +x "${executablePath}"`);
+    }
+
+    if (!hasLoggedPuppeteerExecutablePath) {
+      console.log('[Puppeteer] Using executablePath:', executablePath);
+      hasLoggedPuppeteerExecutablePath = true;
+    }
+
+    try {
+      browser = await puppeteer.launch({
+        headless: true,
+        executablePath,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      });
+    } catch (launchError) {
+      const launchMsg = launchError.message || String(launchError);
+      console.error('[Puppeteer] ERROR launching browser:', launchMsg);
+      // Check if it's a common system dependency issue
+      const errorLower = launchMsg.toLowerCase();
+      let suggestion = 'See https://pptr.dev/troubleshooting for detailed troubleshooting.';
+      
+      if (errorLower.includes('libnss3') || errorLower.includes('libxss') || errorLower.includes('missing') || errorLower.includes('library')) {
+        suggestion = 'Missing system dependencies. Try: sudo apt-get install -y libnss3 libxss1 libasound2 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc1 libgconf-2-4 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libharfbuzz0b libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxinerama1 libxrandr2 libxrender1 libxss1 libxtst6';
+      } else if (errorLower.includes('permission') || errorLower.includes('denied')) {
+        suggestion = `Permission denied. Try: chmod +x "${executablePath}"`;
+      }
+      
+      throw new Error(`Failed to launch browser: ${launchMsg}. ${suggestion}`);
+    }
+
+    const page = await browser.newPage();
+    
+    try {
+      await page.setContent(invoiceHtml, { waitUntil: 'networkidle0', timeout: 30000 });
+    } catch (contentError) {
+      console.warn('[Puppeteer] Page content warning (will continue):', contentError.message);
+      // Continue anyway - networkidle0 might fail but HTML can still render
+    }
+    
+    try {
+      const pdf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: {
+          top: '20px',
+          right: '20px',
+          bottom: '20px',
+          left: '20px'
+        }
+      });
+      await browser.close();
+      return pdf;
+    } catch (pdfError) {
+      await browser.close();
+      throw new Error(`PDF rendering failed: ${pdfError.message}`);
+    }
   } catch (error) {
     if (browser) await browser.close();
     throw error;
@@ -1061,7 +1223,8 @@ exports.generatePdf = async (invoice, res) => {
     res.send(pdf);
   } catch (error) {
     console.error('PDF Generation Error:', error);
-    res.status(500).json({ success: false, error: 'Failed to generate PDF' });
+    const errorMessage = error.message || 'Failed to generate PDF';
+    res.status(500).json({ success: false, error: errorMessage });
   }
 };
 
@@ -1231,6 +1394,7 @@ exports.recordPayment = async (req, res) => {
       transactionId,
       referenceNumber,
       notes,
+      paymentSource = 'new_payment',
       invoiceId,
       invoiceAllocations = [] // Array of { invoiceId, amount }
     } = req.body;
@@ -1242,28 +1406,50 @@ exports.recordPayment = async (req, res) => {
     }
 
     // Validate
-    if (!customerId || !amount || !paymentDate || !paymentMethod) {
+    if (!customerId || !amount || !paymentDate) {
       return res.status(400).json({
         success: false,
-        error: 'customerId, amount, paymentDate, and paymentMethod are required'
+        error: 'customerId, amount, and paymentDate are required'
       });
     }
 
-    // Get customer by customerCode or other IDs
-    const isNumeric = /^\d+$/.test(customerId);
-    const customerWhere = {
-      [Op.or]: [
-        { customerCode: customerId },
-        { gatewayId: customerId }
-      ]
-    };
-    if (isNumeric) {
-      customerWhere[Op.or].push({ accountId: parseInt(customerId) });
+    if (!['new_payment', 'account_funds'].includes(paymentSource)) {
+      return res.status(400).json({
+        success: false,
+        error: 'paymentSource must be either new_payment or account_funds'
+      });
     }
-    
-    const customer = await Account.findOne({
-      where: customerWhere
-    });
+
+    if (paymentSource === 'new_payment' && !paymentMethod) {
+      return res.status(400).json({
+        success: false,
+        error: 'paymentMethod is required for new payments'
+      });
+    }
+
+    if (paymentSource === 'account_funds' && allocations.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invoice allocation is required when paying from account funds'
+      });
+    }
+
+    // Resolve customer with customerCode as primary identifier.
+    const isNumeric = /^\d+$/.test(customerId);
+    let customer = await Account.findOne({ where: { customerCode: customerId } });
+
+    if (!customer) {
+      const fallbackWhere = {
+        [Op.or]: [
+          { gatewayId: customerId }
+        ]
+      };
+      if (isNumeric) {
+        fallbackWhere[Op.or].push({ accountId: parseInt(customerId, 10) });
+      }
+
+      customer = await Account.findOne({ where: fallbackWhere });
+    }
 
     if (!customer) {
       return res.status(404).json({
@@ -1300,13 +1486,14 @@ exports.recordPayment = async (req, res) => {
       paymentDirection: 'inbound',
       amount: parseFloat(amount),
       paymentDate: formatTime(paymentDate),
-      paymentMethod,
+      paymentMethod: paymentSource === 'account_funds' ? 'other' : paymentMethod,
       transactionId,
       referenceNumber,
-      status: 'completed',
       allocatedAmount: parseFloat(totalAllocated),
       unappliedAmount: parseFloat(amount - totalAllocated),
-      notes,
+      notes: paymentSource === 'account_funds'
+        ? (notes ? `${notes} | Paid using account funds` : 'Paid using account funds')
+        : notes,
       recordedBy: req.user?.id || null,
       recordedDate: Date.now()
     }, { transaction });
@@ -1319,9 +1506,19 @@ exports.recordPayment = async (req, res) => {
         throw new Error(`Invoice ${allocation.invoiceId} not found`);
       }
 
-      // Verify invoice belongs to this customer using customerCode
-      if (invoice.customerCode !== customer.customerCode) {
-        throw new Error(`Invoice ${allocation.invoiceId} does not belong to customer ${customer.customerCode}`);
+      // Verify invoice belongs to this customer using customerCode only.
+      const invoiceCode = String(invoice.customerCode || '').trim();
+      const customerCode = String(customer.customerCode || '').trim();
+      const requestedCode = String(customerId || '').trim();
+
+      const codeMatches =
+        (invoiceCode && customerCode && invoiceCode === customerCode) ||
+        (invoiceCode && requestedCode && invoiceCode === requestedCode);
+
+      if (!codeMatches) {
+        throw new Error(
+          `Invoice ${allocation.invoiceId} does not belong to selected customer (${requestedCode || customerCode})`
+        );
       }
 
       // Create allocation
@@ -1351,21 +1548,29 @@ exports.recordPayment = async (req, res) => {
         paymentDate: newStatus === 'paid' ? formatTime(paymentDate) : invoice.paymentDate
       }, { transaction });
 
-      // Adjust credit limit for postpaid accounts when an invoice payment occurs
-      // instead of blindly resetting to a stored "originalCreditLimit" (which may
-      // be null/undefined for older records), simply restore the amount that was
-      // just paid.  This behaves correctly when multiple invoices are open and
-      // also handles legacy accounts where originalCreditLimit wasn’t populated.
-      if (customer.billingType === 'postpaid') {
-        // add back the allocated amount and clamp to originalCreditLimit
-        const orig = parseFloat(customer.originalCreditLimit) || 0;
-        let newLimit = parseFloat(customer.creditLimit) + parseFloat(allocation.amount);
-        if (orig && newLimit > orig) newLimit = orig;
-        await customer.update({ creditLimit: newLimit }, { transaction });
+      if (paymentSource === 'account_funds') {
+        const allocationAmount = parseFloat(allocation.amount);
+
+        if (customer.billingType === 'postpaid') {
+          const currentLimit = parseFloat(customer.creditLimit || 0);
+          if (currentLimit < allocationAmount) {
+            throw new Error(`Insufficient credit limit for invoice ${invoice.invoiceNumber}`);
+          }
+          await customer.update({
+            creditLimit: parseFloat((currentLimit - allocationAmount).toFixed(2))
+          }, { transaction });
+        } else {
+          const currentBalance = parseFloat(customer.balance || 0);
+          if (currentBalance < allocationAmount) {
+            throw new Error(`Insufficient balance for invoice ${invoice.invoiceNumber}`);
+          }
+          await customer.update({
+            balance: parseFloat((currentBalance - allocationAmount).toFixed(2))
+          }, { transaction });
+        }
+
+        await customer.reload({ transaction });
       }
-      // *Note: if the invoice is being partially paid over multiple allocations,
-      // the limit will be incremented incrementally with each allocation, but
-      // will never rise above the original limit saved on the account.
     }
 
     await transaction.commit();
@@ -1390,6 +1595,19 @@ exports.recordPayment = async (req, res) => {
       });
     }
 
+    createNotification({
+      title: 'Payment received',
+      message: `${completePayment.paymentNumber} received from ${completePayment.customerName}.`,
+      type: 'success',
+      category: 'payment_received',
+      metadata: {
+        paymentId: completePayment.id,
+        settingGate: 'notifyPaymentReceived',
+      },
+    }).catch((err) => {
+      console.error('Failed to create payment notification:', err);
+    });
+
     res.json({
       success: true,
       message: 'Payment recorded successfully',
@@ -1412,12 +1630,16 @@ exports.getAllPayments = async (req, res) => {
   try {
     const {
       customerId,
-      status,
+      search,
       startDate,
       endDate,
       page = 1,
       limit = 50
     } = req.query;
+
+    const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+    const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
+    const offset = (parsedPage - 1) * parsedLimit;
 
     const where = {};
 
@@ -1440,11 +1662,32 @@ exports.getAllPayments = async (req, res) => {
       });
       if (customer) {
         where.customerCode = customer.customerCode;
+      } else {
+        // Fallback to direct code/gateway search to avoid returning all rows for unknown customerId
+        where[Op.or] = [
+          { customerCode: customerId },
+          { customerGatewayId: customerId }
+        ];
       }
     }
 
-    if (status) {
-      where.status = status;
+    if (search && String(search).trim()) {
+      const searchTerm = `%${String(search).trim()}%`;
+      const searchConditions = [
+        { paymentNumber: { [Op.iLike]: searchTerm } },
+        { customerName: { [Op.iLike]: searchTerm } },
+        { customerCode: { [Op.iLike]: searchTerm } },
+        { customerGatewayId: { [Op.iLike]: searchTerm } },
+        { transactionId: { [Op.iLike]: searchTerm } },
+        { referenceNumber: { [Op.iLike]: searchTerm } }
+      ];
+
+      if (where[Op.or]) {
+        where[Op.and] = [{ [Op.or]: where[Op.or] }, { [Op.or]: searchConditions }];
+        delete where[Op.or];
+      } else {
+        where[Op.or] = searchConditions;
+      }
     }
 
     where.partyType = 'customer';
@@ -1455,8 +1698,6 @@ exports.getAllPayments = async (req, res) => {
         [Op.between]: [formatTime(startDate), formatTime(endDate, 23, true)]
       };
     }
-
-    const offset = (page - 1) * limit;
 
     const { count, rows } = await Payment.findAndCountAll({
       where,
@@ -1470,8 +1711,9 @@ exports.getAllPayments = async (req, res) => {
         }]
       }],
       order: [['paymentDate', 'DESC']],
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      distinct: true,
+      limit: parsedLimit,
+      offset
     });
 
     res.json({
@@ -1479,9 +1721,9 @@ exports.getAllPayments = async (req, res) => {
       data: rows,
       pagination: {
         total: count,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(count / limit)
+        page: parsedPage,
+        limit: parsedLimit,
+        totalPages: Math.ceil(count / parsedLimit)
       }
     });
 
@@ -1654,11 +1896,29 @@ exports.getLiteInvoices = async (req, res) => {
     }
 
     if (customerId) {
-      where.customerCode = customerId;
+      const isNumeric = /^\d+$/.test(customerId);
+      let account = await Account.findOne({ where: { customerCode: customerId } });
+
+      if (!account) {
+        const fallbackWhere = {
+          [Op.or]: [
+            { gatewayId: customerId }
+          ]
+        };
+        if (isNumeric) {
+          fallbackWhere[Op.or].push({ accountId: customerId });
+        }
+        account = await Account.findOne({ where: fallbackWhere });
+      }
+
+      where.customerCode = (account?.customerCode || customerId).toString().trim();
     }
 
+    // Default behavior for payment dropdown: show all invoices except paid.
     if (status) {
       where.status = status;
+    } else {
+      where.status = { [Op.ne]: 'paid' };
     }
 
     if (startDate && endDate) {
@@ -1880,6 +2140,19 @@ exports.raiseDispute = async (req, res) => {
       customerName: customer.accountName
     }, customer);
 
+    createNotification({
+      title: 'Dispute raised',
+      message: `${customer.accountName} raised a dispute on invoice(s): ${invoiceNumber.trim()}.`,
+      type: 'warning',
+      category: 'dispute',
+      metadata: {
+        disputeId: dispute.id,
+        settingGate: 'notifyDisputes',
+      },
+    }).catch((err) => {
+      console.error('Failed to create dispute notification:', err);
+    });
+
     res.json({
       success: true,
       message: 'Dispute raised and notification sent successfully',
@@ -2100,18 +2373,34 @@ exports.topupAccount = async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!customerId || !amount || !paymentMethod) {
+    if (!customerId || amount === undefined || amount === null || !paymentMethod) {
       return res.status(400).json({
         success: false,
         error: 'customerId, amount, and paymentMethod are required'
       });
     }
 
+    if (!paymentReference || !String(paymentReference).trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'paymentReference is required'
+      });
+    }
+
     // Validate amount is positive
-    if (parseInt(amount) <= 0) {
+    const normalizedAmount = Number(amount);
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
       return res.status(400).json({
         success: false,
         error: 'Amount must be greater than zero'
+      });
+    }
+
+    const normalizedTopupDate = topupDate ? Number(topupDate) : Date.now();
+    if (!Number.isFinite(normalizedTopupDate)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid topupDate'
       });
     }
 
@@ -2150,7 +2439,7 @@ exports.topupAccount = async (req, res) => {
     }
 
     // Update balance
-    const newBalance = Number(customer.balance) + Number(amount);
+    const newBalance = Number(customer.balance) + normalizedAmount;
     await customer.update({
       balance: parseFloat(newBalance.toFixed(2))
     }, { transaction });
@@ -2167,14 +2456,13 @@ exports.topupAccount = async (req, res) => {
       customerName: customer.accountName,
       partyType: 'customer',
       paymentDirection: 'inbound',
-      amount: parseFloat(amount),
-      paymentDate: formatTime(topupDate || Date.now()),
+      amount: parseFloat(normalizedAmount),
+      paymentDate: formatTime(normalizedTopupDate),
       paymentMethod,
-      transactionId: paymentReference,
-      referenceNumber: paymentReference,
-      status: 'completed',
+      transactionId: String(paymentReference).trim(),
+      referenceNumber: String(paymentReference).trim(),
       allocatedAmount: 0,
-      unappliedAmount: parseFloat(amount),
+      unappliedAmount: parseFloat(normalizedAmount),
       notes: `Prepaid Topup - ${notes || ''}`,
       recordedBy: req.user?.id || null,
       recordedDate: Date.now()

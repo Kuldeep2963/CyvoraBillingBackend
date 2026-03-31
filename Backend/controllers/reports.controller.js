@@ -1305,6 +1305,153 @@ exports.debugMapping = async (req, res) => {
     }
   };
 
+/* ===================== ACCOUNT EXPOSURE (CDR BASED) ===================== */
+exports.getAccountExposure = async (req, res) => {
+  try {
+    const { accountId, account, startDate, endDate } = req.body || {};
+
+    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+      return res.status(400).json({ success: false, error: 'Start date cannot be after end date' });
+    }
+
+    const startTs = startDate ? Number(formatTime(startDate, 0, 0)) : 0;
+    const endTs = endDate ? Number(formatTime(endDate, 23, 59, true)) : Date.now();
+
+    if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) {
+      return res.status(400).json({ success: false, error: 'Invalid date range' });
+    }
+
+    const timeRangeLiteral = sequelize.literal(
+      `CASE WHEN "CDR"."starttime"::text ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END BETWEEN ${startTs} AND ${endTs}`
+    );
+
+    const lookupCandidates = [
+      accountId,
+      account?.id,
+      account?.accountId,
+      account?.accountName,
+      account?.customerCode,
+      account?.vendorCode,
+    ].filter((value) => value !== undefined && value !== null && String(value).trim() !== '');
+
+    if (lookupCandidates.length === 0) {
+      return res.status(400).json({ success: false, error: 'Account identifier is required' });
+    }
+
+    const numericId = lookupCandidates.find((value) => /^\d+$/.test(String(value)));
+
+    let selectedAccount = null;
+    if (numericId) {
+      selectedAccount = await Account.findByPk(Number(numericId));
+    }
+
+    if (!selectedAccount) {
+      selectedAccount = await Account.findOne({
+        where: {
+          [Op.or]: lookupCandidates.map((value) => ({
+            [Op.or]: [
+              { accountId: String(value) },
+              { accountName: String(value) },
+              { customerCode: String(value) },
+              { vendorCode: String(value) },
+            ]
+          }))
+        }
+      });
+    }
+
+    if (!selectedAccount) {
+      return res.status(404).json({ success: false, error: 'Account not found' });
+    }
+
+    const accountJson = selectedAccount.toJSON();
+    const includeCustomer = ['customer', 'both'].includes(accountJson.accountRole);
+    const includeVendor = ['vendor', 'both'].includes(accountJson.accountRole);
+
+    const aggregateSide = async (conditions) => {
+      if (!conditions || conditions.length === 0) {
+        return {
+          attempts: 0,
+          completed: 0,
+          failed: 0,
+          duration: 0,
+          revenue: 0,
+          cost: 0,
+        };
+      }
+
+      const row = await CDR.findOne({
+        attributes: [
+          [fn('COUNT', col('*')), 'attempts'],
+          [fn('SUM', H.completedCall), 'completed'],
+          [fn('SUM', H.failedCall), 'failed'],
+          [fn('SUM', H.durationSec), 'duration'],
+          [fn('SUM', H.revenue), 'revenue'],
+          [fn('SUM', H.cost), 'cost'],
+        ],
+        where: {
+          [Op.and]: [
+            timeRangeLiteral,
+            { [Op.or]: conditions }
+          ]
+        },
+        raw: true,
+      });
+
+      return {
+        attempts: Number(row?.attempts || 0),
+        completed: Number(row?.completed || 0),
+        failed: Number(row?.failed || 0),
+        duration: Number(row?.duration || 0),
+        revenue: Number(row?.revenue || 0),
+        cost: Number(row?.cost || 0),
+      };
+    };
+
+    const customerConditions = includeCustomer ? buildAccountConditions(accountJson, false) : [];
+    const vendorConditions = includeVendor ? buildAccountConditions(accountJson, true) : [];
+
+    const [customerAgg, vendorAgg] = await Promise.all([
+      aggregateSide(customerConditions),
+      aggregateSide(vendorConditions),
+    ]);
+
+    const customerExpense = customerAgg.revenue;
+    const vendorExpense = vendorAgg.cost;
+    const netAmount = customerExpense - vendorExpense;
+
+    res.json({
+      success: true,
+      account: {
+        id: accountJson.id,
+        accountId: accountJson.accountId,
+        accountName: accountJson.accountName,
+        accountRole: accountJson.accountRole,
+        customerCode: accountJson.customerCode,
+        vendorCode: accountJson.vendorCode,
+      },
+      summary: {
+        customerExpense,
+        vendorExpense,
+        netAmount,
+        netPosition: netAmount > 0 ? 'receivable' : netAmount < 0 ? 'payable' : 'balanced',
+      },
+      customerMetrics: customerAgg,
+      vendorMetrics: vendorAgg,
+      dateRange: {
+        startDate: startDate || null,
+        endDate: endDate || null,
+        startTs,
+        endTs,
+      },
+      generatedAt: Date.now(),
+    });
+  } catch (error) {
+    console.error('Get Account Exposure Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 /* ===================== EXPORT REPORT ===================== */
 exports.exportReport = async (req, res) => {
   try {
@@ -1387,7 +1534,6 @@ exports.exportSOA = async (req, res) => {
         customerCode: customerCode,
         partyType: 'customer',
         paymentDirection: 'inbound',
-        status: 'completed',
         paymentDate: { [Op.between]: [start, end] }
       },
       order: [['paymentDate', 'ASC']],
@@ -1411,7 +1557,6 @@ exports.exportSOA = async (req, res) => {
         customerCode: vendorCode,
         partyType: 'vendor',
         paymentDirection: 'outbound',
-        status: 'completed',
         paymentDate: { [Op.between]: [start, end] }
       },
       order: [['paymentDate', 'ASC']],
@@ -1649,7 +1794,6 @@ exports.sendSOAEmail = async (req, res) => {
         customerCode: customerCode,
         partyType: 'customer',
         paymentDirection: 'inbound',
-        status: 'completed',
         paymentDate: { [Op.between]: [start, end] }
       },
       order: [['paymentDate', 'ASC']],
@@ -1673,7 +1817,6 @@ exports.sendSOAEmail = async (req, res) => {
         customerCode: vendorCode,
         partyType: 'vendor',
         paymentDirection: 'outbound',
-        status: 'completed',
         paymentDate: { [Op.between]: [start, end] }
       },
       order: [['paymentDate', 'ASC']],

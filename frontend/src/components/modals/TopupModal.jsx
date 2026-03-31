@@ -62,8 +62,15 @@ const TopupModal = ({
   };
 
   const handleSubmit = async () => {
+    if (!account) {
+      setError("No account selected for topup");
+      return;
+    }
+
+    const numericAmount = parseFloat(topupForm.amount);
+
     // Validate inputs
-    if (!topupForm.amount || parseInt(topupForm.amount) <= 0) {
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
       setError("Please enter a valid topup amount");
       return;
     }
@@ -73,8 +80,14 @@ const TopupModal = ({
       return;
     }
 
-    if (!topupForm.paymentReference) {
+    if (!topupForm.paymentReference || !topupForm.paymentReference.trim()) {
       setError("Please provide a payment reference or transaction ID");
+      return;
+    }
+
+    const topupTimestamp = new Date(topupForm.topupDate).getTime();
+    if (!Number.isFinite(topupTimestamp)) {
+      setError("Please select a valid topup date");
       return;
     }
 
@@ -82,12 +95,12 @@ const TopupModal = ({
     try {
       const payload = {
         customerId: account.customerCode || account.gatewayId || account.accountId,
-        amount: topupForm.amount,
+        amount: numericAmount,
         paymentMethod: topupForm.paymentMethod,
-        paymentReference: topupForm.paymentReference,
+        paymentReference: topupForm.paymentReference.trim(),
         paymentProof: topupForm.paymentProof,
-        notes: topupForm.notes,
-        topupDate: new Date(topupForm.topupDate).getTime(),
+        notes: topupForm.notes?.trim() || "",
+        topupDate: topupTimestamp,
       };
 
       const response = await topupAccount(payload);
@@ -100,7 +113,7 @@ const TopupModal = ({
           paymentReference: "",
           paymentProof: "",
           notes: "",
-          topupDate: format(new Date(), "yyyy-MM-dd"),
+          topupDate: toDateInput(new Date()),
         });
         setError("");
         onTopupSuccess(response.newBalance);
@@ -248,7 +261,7 @@ const TopupModal = ({
           <Button
             colorScheme="blue"
             onClick={handleSubmit}
-            isDisabled={!topupForm.amount || parseInt(topupForm.amount) <= 0}
+            isDisabled={!topupForm.amount || parseFloat(topupForm.amount) <= 0}
             isLoading={isLoading}
             loadingText="Processing..."
           >

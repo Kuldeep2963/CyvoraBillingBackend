@@ -131,7 +131,7 @@ exports.createVendorInvoice = async (req, res) => {
 
 exports.getVendorInvoices = async (req, res) => {
   try {
-    const { vendorCode, vendorId, startDate, endDate, search, status } = req.query;
+    const { vendorCode, vendorId, startDate, endDate, search, vendorName, status } = req.query;
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 10));
     const offset = (page - 1) * limit;
@@ -164,19 +164,14 @@ exports.getVendorInvoices = async (req, res) => {
       }
     ];
 
-    if (search && String(search).trim()) {
-      const q = `%${String(search).trim()}%`;
+    const searchTerm = String(search || vendorName || '').trim();
+    if (searchTerm) {
+      const q = `%${searchTerm}%`;
       whereClause[Op.or] = [
         { invoiceNumber: { [Op.iLike]: q } },
         { vendorCode: { [Op.iLike]: q } },
+        { '$vendor.accountName$': { [Op.iLike]: q } },
       ];
-      include[0].where = {
-        [Op.or]: [
-          { accountName: { [Op.iLike]: q } },
-          { vendorCode: { [Op.iLike]: q } },
-        ],
-      };
-      include[0].required = false;
     }
 
     const { rows, count } = await VendorInvoice.findAndCountAll({
@@ -186,6 +181,7 @@ exports.getVendorInvoices = async (req, res) => {
       limit,
       offset,
       distinct: true,
+      subQuery: false,
     });
 
     res.status(200).json({
@@ -235,8 +231,7 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
         where: {
           vendorInvoiceId: invoice.id,
           partyType: 'vendor',
-          paymentDirection: 'outbound',
-          status: 'completed'
+          paymentDirection: 'outbound'
         }
       });
 
@@ -257,7 +252,6 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
           paymentMethod: 'bank_transfer',
           transactionId: `VENDOR-PAY-${invoice.invoiceNumber}`,
           referenceNumber: invoice.invoiceNumber,
-          status: 'completed',
           allocatedAmount: parseFloat(invoice.grandTotal),
           unappliedAmount: 0,
           notes: `Auto-recorded vendor payment for invoice ${invoice.invoiceNumber}`,

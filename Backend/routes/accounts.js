@@ -3,7 +3,7 @@ const router = express.Router();
 const Customer = require('../models/Account');
 const User = require('../models/User');
 const sequelize = require('../models/db');
-const { Op } = require('sequelize');
+const { Op, Sequelize } = require('sequelize');
 const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
@@ -370,7 +370,9 @@ router.get('/vendor/:vendorCode', async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
-    const { role, status, search, page = 1, limit = 50 } = req.query;
+    const { role, status, owner, search, query, page = 1, limit = 50 } = req.query;
+    const parsedPage = Math.max(1, parseInt(page, 10) || 1);
+    const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
 
     const where = {};
 
@@ -390,24 +392,32 @@ router.get('/', async (req, res) => {
       else where.accountStatus = status;
     }
 
-    if (search) {
-      where[Op.or] = [
-        { accountName: { [Op.iLike]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
-        { phone: { [Op.iLike]: `%${search}%` } },
-        { accountId: { [Op.iLike]: `%${search}%` } },
-        { customerCode: { [Op.iLike]: `%${search}%` } },
-        { vendorCode: { [Op.iLike]: `%${search}%` } }
-      ];
+    if (owner && owner !== 'all') {
+      const parsedOwner = parseInt(owner, 10);
+      if (!Number.isNaN(parsedOwner)) {
+        // Compare as text to handle deployments where accountOwner is varchar.
+        where[Op.and] = [
+          ...(where[Op.and] || []),
+          Sequelize.where(
+            Sequelize.cast(Sequelize.col('accountOwner'), 'TEXT'),
+            String(parsedOwner)
+          )
+        ];
+      }
     }
 
-    const offset = (page - 1) * limit;
+    const searchTerm = String(query ?? search ?? '').trim();
+    if (searchTerm) {
+      where.accountName = { [Op.iLike]: `%${searchTerm}%` };
+    }
+
+    const offset = (parsedPage - 1) * parsedLimit;
 
     // Fetch accounts first, then manually fetch owners to avoid type mismatch in JOIN
     const { count, rows } = await Customer.findAndCountAll({
       where,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+      limit: parsedLimit,
+      offset,
       order: [['createdAt', 'DESC']]
     });
 
@@ -436,8 +446,9 @@ router.get('/', async (req, res) => {
         owner: r.owner
       })),
       total: count,
-      page: parseInt(page),
-      totalPages: Math.ceil(count / limit)
+      page: parsedPage,
+      limit: parsedLimit,
+      totalPages: Math.ceil(count / parsedLimit)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -114,15 +114,17 @@ const unknownCustomerConditionSql = (alias) => `
           a."customerauthenticationType" = 'ip'
           AND EXISTS (
             SELECT 1
-            FROM jsonb_array_elements_text(
-              CASE
-                WHEN jsonb_typeof(a."customerauthenticationValue") = 'array' THEN a."customerauthenticationValue"
-                WHEN a."customerauthenticationValue" IS NULL THEN '[]'::jsonb
-                ELSE jsonb_build_array(a."customerauthenticationValue")
-              END
+            FROM regexp_split_to_table(
+              regexp_replace(
+                COALESCE(a."customerauthenticationValue"::text, ''),
+                '(^\\s*\\[|\\]\\s*$)',
+                '',
+                'g'
+              ),
+              '\\s*,\\s*'
             ) AS auth(v)
-            WHERE NULLIF(TRIM(auth.v), '') IS NOT NULL
-              AND TRIM(COALESCE(${alias}."callerip", '')) = TRIM(auth.v)
+            WHERE NULLIF(BTRIM(auth.v, ' "'), '') IS NOT NULL
+              AND TRIM(COALESCE(${alias}."callerip", '')) = BTRIM(auth.v, ' "')
           )
         )
         OR
@@ -130,17 +132,19 @@ const unknownCustomerConditionSql = (alias) => `
           a."customerauthenticationType" = 'custom'
           AND EXISTS (
             SELECT 1
-            FROM jsonb_array_elements_text(
-              CASE
-                WHEN jsonb_typeof(a."customerauthenticationValue") = 'array' THEN a."customerauthenticationValue"
-                WHEN a."customerauthenticationValue" IS NULL THEN '[]'::jsonb
-                ELSE jsonb_build_array(a."customerauthenticationValue")
-              END
+            FROM regexp_split_to_table(
+              regexp_replace(
+                COALESCE(a."customerauthenticationValue"::text, ''),
+                '(^\\s*\\[|\\]\\s*$)',
+                '',
+                'g'
+              ),
+              '\\s*,\\s*'
             ) AS auth(v)
-            WHERE NULLIF(TRIM(auth.v), '') IS NOT NULL
+            WHERE NULLIF(BTRIM(auth.v, ' "'), '') IS NOT NULL
               AND (
-                TRIM(COALESCE(${alias}."customeraccount", '')) = TRIM(auth.v)
-                OR TRIM(COALESCE(${alias}."customername", '')) = TRIM(auth.v)
+                TRIM(COALESCE(${alias}."customeraccount", '')) = BTRIM(auth.v, ' "')
+                OR TRIM(COALESCE(${alias}."customername", '')) = BTRIM(auth.v, ' "')
               )
           )
         )
@@ -542,6 +546,7 @@ router.get('/missing-gateways', async (req, res) => {
       return {
         id: row.id,
         gateway,
+        callerip: row.callerip || '',
         customeraccount: row.customeraccount || '',
         customername: row.customername || '',
         cli: row.callere164 || '',

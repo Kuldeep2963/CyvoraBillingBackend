@@ -74,12 +74,6 @@ const Payment = sequelize.define('Payment', {
     comment: 'Bank reference or cheque number'
   },
   
-  // Status
-  status: {
-    type: DataTypes.ENUM('pending', 'completed', 'failed', 'refunded', 'cancelled'),
-    defaultValue: 'pending'
-  },
-  
   // Allocation to Invoices
   allocatedAmount: {
     type: DataTypes.DECIMAL(15, 4),
@@ -96,18 +90,11 @@ const Payment = sequelize.define('Payment', {
   notes: {
     type: DataTypes.TEXT
   },
-  customerNotes: {
-    type: DataTypes.TEXT
-  },
   
   // Receipt
   receiptNumber: {
     type: DataTypes.STRING(50),
     unique: true
-  },
-  receiptPath: {
-    type: DataTypes.STRING(500),
-    comment: 'Path to generated receipt PDF'
   },
   
   // Metadata
@@ -120,21 +107,10 @@ const Payment = sequelize.define('Payment', {
     comment: 'When payment was recorded in system'
   },
   
-  // Refund Details
-  refundedAmount: {
-    type: DataTypes.DECIMAL(15, 4),
-    defaultValue: 0
-  },
   vendorInvoiceId: {
     type: DataTypes.INTEGER,
     allowNull: true,
     comment: 'Reference to vendor_invoices.id for outbound vendor payments'
-  },
-  refundDate: {
-    type: DataTypes.BIGINT
-  },
-  refundReason: {
-    type: DataTypes.TEXT
   }
 }, {
   tableName: 'payments',
@@ -143,7 +119,6 @@ const Payment = sequelize.define('Payment', {
     { fields: ['customerGatewayId'] },
     { fields: ['paymentNumber'], unique: true },
     { fields: ['partyType', 'paymentDirection'] },
-    { fields: ['status'] },
     { fields: ['paymentDate'] },
     { fields: ['vendorInvoiceId'] },
     { fields: ['transactionId'] }

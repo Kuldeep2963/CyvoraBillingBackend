@@ -104,9 +104,10 @@ const MissingGateways = () => {
   }, [rows, statusFilter]);
 
   const exportCSV = () => {
-    const header = ["gateway", "customeraccount", "customername", "cli", "called", "duration", "status", "starttime"];
+    const header = ["gateway", "callerip", "customeraccount", "customername", "cli", "called", "duration", "status", "starttime"];
     const lines = filtered.map((r) => [
       r.gateway,
+      r.callerip,
       r.customeraccount,
       r.customername,
       r.cli,
@@ -288,6 +289,7 @@ const MissingGateways = () => {
                     <Tr>
                       {/* <Th fontWeight="bold">Gateway/IP</Th> */}
                       {/* <Th fontWeight="bold">Customer Account</Th> */}
+                      <Th fontWeight="bold">Caller IP</Th>
                       <Th fontWeight="bold">Customer Name</Th>
                       <Th fontWeight="bold">CLI (Caller)</Th>
                       <Th fontWeight="bold">Called</Th>
@@ -301,6 +303,7 @@ const MissingGateways = () => {
                       <Tr key={r.id || idx} _hover={{ bg: "gray.50" }}>
                         {/* <Td fontFamily="mono" fontSize="xs" fontWeight="bold">{r.gateway}</Td> */}
                         {/* <Td fontSize="sm">{r.customeraccount || <Text color="gray.400">—</Text>}</Td> */}
+                        <Td fontFamily="mono" fontSize="xs">{r.callerip || <Text color="gray.400">—</Text>}</Td>
                         <Td fontSize="sm">{r.customername || <Text color="gray.400">—</Text>}</Td>
                         <Td fontFamily="mono" fontSize="xs">{r.cli || <Text color="gray.400">—</Text>}</Td>
                         <Td fontFamily="mono" fontSize="xs">{r.called || <Text color="gray.400">—</Text>}</Td>

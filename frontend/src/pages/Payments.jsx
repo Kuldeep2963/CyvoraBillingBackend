@@ -1,41 +1,21 @@
 import React, { useState, useEffect } from "react";
 import {
   Box,
-  Heading,
   VStack,
   Text,
   Button,
   useToast,
-  HStack,
   Badge,
-  Card,
-  CardBody,
-  SimpleGrid,
-  Icon,
   Flex,
-  Stat,
-  StatLabel,
-  StatNumber,
-  StatHelpText,
-  useColorModeValue,
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
   InputGroup,
   InputLeftElement,
 } from "@chakra-ui/react";
-import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
+import { MemoizedInput as Input } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
   FiDollarSign,
-  FiCalendar,
   FiSearch,
-  FiFilter,
   FiDownload,
-  FiCheckCircle,
-  FiClock,
-  FiChevronRight,
-  FiRefreshCw,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
 import RecordPaymentModal from "../components/modals/RecordPaymentModal";
@@ -46,19 +26,25 @@ import {
   recordPayment,
   exportReport,
 } from "../utils/api";
-import { format, max } from "date-fns";
-import { color } from "framer-motion";
+import { format } from "date-fns";
 
 const Payments = () => {
   const [payments, setPayments] = useState([]);
-  const [filteredPayments, setFilteredPayments] = useState([]);
   const [customers, setCustomers] = useState([]);
-  const [invoices, setInvoices] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [pagination, setPagination] = useState({
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [paymentForm, setPaymentForm] = useState({
     customerId: "",
@@ -70,40 +56,52 @@ const Payments = () => {
     notes: "",
     invoiceId: "",
   });
-  const [stats, setStats] = useState({
-    totalCollected: 0,
-    paymentCount: 0,
-    unappliedAmount: 0,
-    recentCount: 0,
-    successRate: 100,
-  });
-
   const toast = useToast();
-  const bgColor = useColorModeValue("white", "gray.800");
 
   useEffect(() => {
-    loadData();
+    loadCustomers();
   }, []);
 
   useEffect(() => {
-    filterPayments();
-  }, [payments, searchTerm, statusFilter]);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
-  const loadData = async () => {
+  useEffect(() => {
+    loadPayments();
+  }, [debouncedSearch, page, pageSize]);
+
+  const loadCustomers = async () => {
+    try {
+      const customersData = await fetchReportAccounts();
+      setCustomers(customersData.success ? customersData.customers : []);
+    } catch (error) {
+      console.error("Error loading customers:", error);
+    }
+  };
+
+  const loadPayments = async () => {
     setIsLoading(true);
     try {
-      const [paymentsRes, customersData] = await Promise.all([
-        fetchPayments(),
-        fetchReportAccounts(),
-      ]);
+      const paymentsRes = await fetchPayments({
+        page,
+        limit: pageSize,
+        search: debouncedSearch,
+      });
 
       const paymentsData = paymentsRes.success ? paymentsRes.data : [];
       setPayments(paymentsData);
-      setFilteredPayments(paymentsData);
-      setCustomers(customersData.success ? customersData.customers : []);
-      // setInvoices(invoicesRes.success ? invoicesRes.data : []);
-
-      calculateStats(paymentsData);
+      setPagination(
+        paymentsRes.pagination || {
+          total: paymentsData.length,
+          page,
+          limit: pageSize,
+          totalPages: 1,
+        },
+      );
     } catch (error) {
       console.error("Error loading payments:", error);
       toast({
@@ -118,57 +116,9 @@ const Payments = () => {
     }
   };
 
-  const calculateStats = (data) => {
-    const totalCollected = data.reduce(
-      (sum, p) => sum + parseFloat(p.amount || 0),
-      0,
-    );
-    const unappliedAmount = data.reduce(
-      (sum, p) => sum + parseFloat(p.unappliedAmount || 0),
-      0,
-    );
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.setDate(now.getDate() - 7));
-    const recentCount = data.filter(
-      (p) => new Date(parseInt(p.paymentDate)) >= sevenDaysAgo,
-    ).length;
-
-    const completed = data.filter((p) => p.status === "completed").length;
-    const failed = data.filter((p) => p.status === "failed").length;
-    const successRate =
-      data.length > 0 ? (completed / (completed + failed)) * 100 : 100;
-
-    setStats({
-      totalCollected,
-      paymentCount: data.length,
-      unappliedAmount,
-      recentCount,
-      successRate: isNaN(successRate) ? 100 : successRate,
-    });
-  };
-
-  const filterPayments = () => {
-    let filtered = [...payments];
-
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(
-        (p) =>
-          p.paymentNumber?.toLowerCase().includes(term) ||
-          p.customerName?.toLowerCase().includes(term) ||
-          p.transactionId?.toLowerCase().includes(term) ||
-          p.referenceNumber?.toLowerCase().includes(term),
-      );
-    }
-
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((p) => p.status === statusFilter);
-    }
-
-    setFilteredPayments(filtered);
-  };
-
   const handleRecordPayment = async () => {
+    if (isRecordingPayment) return;
+    setIsRecordingPayment(true);
     try {
       const response = await recordPayment(paymentForm);
       if (response.success) {
@@ -190,7 +140,7 @@ const Payments = () => {
           notes: "",
           invoiceId: "",
         });
-        loadData();
+        loadPayments();
       }
     } catch (error) {
       toast({
@@ -200,12 +150,14 @@ const Payments = () => {
         duration: 3000,
         isClosable: true,
       });
+    } finally {
+      setIsRecordingPayment(false);
     }
   };
 
   const handleExport = async () => {
     try {
-      const exportData = filteredPayments.map((p) => ({
+      const exportData = payments.map((p) => ({
         "Payment #": p.paymentNumber,
         Customer: p.customerName,
         Date: format(
@@ -218,7 +170,6 @@ const Payments = () => {
         Method: p.paymentMethod,
         Allocated: parseFloat(p.allocatedAmount).toFixed(2),
         Unapplied: parseFloat(p.unappliedAmount).toFixed(2),
-        Status: p.status,
         "Transaction ID": p.transactionId || "",
         "Reference #": p.referenceNumber || "",
       }));
@@ -257,9 +208,9 @@ const Payments = () => {
           <Text fontWeight="bold" color="blue.600">
             {value}
           </Text>
-          <Text fontSize="xs" color="gray.500">
+          {/* <Text fontSize="xs" color="gray.500">
             Receipt: {row.receiptNumber}
-          </Text>
+          </Text> */}
         </VStack>
       ),
     },
@@ -269,7 +220,7 @@ const Payments = () => {
       key: "customerName",
       render: (value, row) => (
         <VStack align="start" spacing={0}>
-          <Text noOfLines={1} maxWidth="250px" fontWeight="medium">{value}</Text>
+          <Text noOfLines={2} maxWidth="250px" fontWeight="medium">{value}</Text>
           
         </VStack>
       ),
@@ -350,17 +301,17 @@ const Payments = () => {
         </VStack>
       ),
     },
-    {
-      header: "Status",
-      key: "status",
-      type: "badge",
-      colorMap: {
-        completed: "green",
-        pending: "yellow",
-        failed: "red",
-        refunded: "blue",
-      },
-    },
+    // {
+    //   header: "Status",
+    //   key: "status",
+    //   type: "badge",
+    //   colorMap: {
+    //     completed: "green",
+    //     pending: "yellow",
+    //     failed: "red",
+    //     refunded: "blue",
+    //   },
+    // },
   ];
 
   const handleViewDetails = (payment) => {
@@ -370,8 +321,9 @@ const Payments = () => {
 
   return (
     <Box>
-      <VStack spacing={6} align="stretch">
+      <VStack spacing={4} align="stretch">
         <PageNavBar
+        mb={2}
           title="Payment Records"
           description="Manage and track all customer payments"
           rightContent={
@@ -382,7 +334,7 @@ const Payments = () => {
                 size="sm"
                 colorScheme="green"
                 onClick={handleExport}
-                isDisabled={filteredPayments.length === 0}
+                isDisabled={payments.length === 0}
               >
                 Export
               </Button>
@@ -399,7 +351,7 @@ const Payments = () => {
         />
 
         {/* Stats Section */}
-        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+        {/* <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
           <Box
             display="flex"
             justifyContent="center"
@@ -477,31 +429,7 @@ const Payments = () => {
               </StatHelpText>
             </Stat>
           </Box>
-          <Box
-            display="flex"
-            justifyContent="center"
-            alignItems="center"
-            textAlign="left"
-            bg={bgColor}
-            p={2}
-            pl={4}
-            boxShadow={"md"}
-            borderRadius={"md"}
-          >
-            <Stat>
-              <StatLabel color="gray.500" fontWeight="medium">
-                Success Rate
-              </StatLabel>
-              <StatNumber fontSize="2xl">
-                {stats.successRate.toFixed(1)}%
-              </StatNumber>
-              <StatHelpText>
-                <Icon as={FiTrendingUp} color="green.500" mr={1} />
-                Based on payment status
-              </StatHelpText>
-            </Stat>
-          </Box>
-        </SimpleGrid>
+        </SimpleGrid> */}
 
         {/* Filter Section */}
         <Flex gap={4} alignItems={"center"}>
@@ -516,29 +444,26 @@ const Payments = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </InputGroup>
-          <Select
-            size={"sm"}
-            leftIcon={<FiFilter />}
-            maxW="250px"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="all">All Statuses</option>
-            <option value="completed">Completed</option>
-            <option value="pending">Pending</option>
-            <option value="failed">Failed</option>
-            <option value="refunded">Refunded</option>
-          </Select>
-          
         </Flex>
 
         {/* Data Table */}
         <DataTable
           m = {2}
+          mt = {0}
           columns={columns}
-          data={filteredPayments}
+          data={payments}
           onView={handleViewDetails}
-          height="calc(100vh - 400px)"
+          height="calc(100vh - 250px)"
+          serverPagination
+          page={pagination.page || page}
+          pageSize={pagination.limit || pageSize}
+          total={pagination.total || 0}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          isPaginationDisabled={isLoading}
         />
 
         <RecordPaymentModal
@@ -548,6 +473,7 @@ const Payments = () => {
           setPaymentForm={setPaymentForm}
           customers={customers}
           onRecordPayment={handleRecordPayment}
+          isSubmitting={isRecordingPayment}
         />
 
         <ViewPaymentModal
@@ -576,21 +502,6 @@ const FiRefresh = (props) => (
     <polyline points="23 4 23 10 17 10"></polyline>
     <polyline points="1 20 1 14 7 14"></polyline>
     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-  </Icon>
-);
-
-const FiTrendingUp = (props) => (
-  <Icon
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    {...props}
-  >
-    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
-    <polyline points="17 6 23 6 23 12"></polyline>
   </Icon>
 );
 

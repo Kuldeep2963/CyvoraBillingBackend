@@ -20,11 +20,11 @@ router.post('/vendor-traffic', reportController.vendorTrafficReport);
 // Negative margin report
 router.post('/negative-margin-report', reportController.negativeMarginReport);
 
-// Debug mapping endpoint
-// router.post('/debug-mapping', reportController.debugMapping);
-
 // Get accounts for report filters
 router.get('/accounts', reportController.getReportAccounts);
+
+// Account exposure summary from CDRs (non-invoice based)
+router.post('/account-exposure', reportController.getAccountExposure);
 
 // Export report
 router.post('/export-report', reportController.exportReport);

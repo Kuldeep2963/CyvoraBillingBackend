@@ -53,6 +53,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from "../utils/api";
+import { formatNotificationTime } from "../utils/notificationTime";
 
 const SidebarContent = () => {
   const location = useLocation();
@@ -80,54 +81,6 @@ const SidebarContent = () => {
     const seconds = Number(notificationPollingSeconds);
     return Math.max(5, Math.min(3600, seconds)) * 1000;
   }, [notificationPollingSeconds]);
-
-  const formatNotificationTime = useCallback((value) => {
-    if (!value) {
-      return "Just now";
-    }
-
-    let date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      const numeric = Number(value);
-      if (!Number.isNaN(numeric)) {
-        date = new Date(numeric < 1e12 ? numeric * 1000 : numeric);
-      }
-    }
-
-    if (Number.isNaN(date.getTime())) {
-      return "Just now";
-    }
-
-    const now = Date.now();
-    const diffMs = now - date.getTime();
-    const minute = 60 * 1000;
-    const hour = 60 * minute;
-    const day = 24 * hour;
-    const clockTime = date.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-    if (diffMs < minute) {
-      return `Just now • ${clockTime}`;
-    }
-    if (diffMs < hour) {
-      return `${Math.floor(diffMs / minute)}m ago • ${clockTime}`;
-    }
-    if (diffMs < day) {
-      return `${Math.floor(diffMs / hour)}h ago • ${clockTime}`;
-    }
-    if (diffMs < 7 * day) {
-      return `${Math.floor(diffMs / day)}d ago • ${clockTime}`;
-    }
-
-    return date.toLocaleString([], {
-      day: "2-digit",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }, []);
 
   const loadNotifications = useCallback(async () => {
     setLoadingNotifications(true);
@@ -167,10 +120,19 @@ const SidebarContent = () => {
       const nextPoll = Number(event?.detail?.notificationPollingSeconds) || 10;
       setNotificationPollingSeconds(nextPoll);
     };
+
+    const onNotificationsRefreshRequested = () => {
+      loadNotifications();
+    };
+
     window.addEventListener("settings-updated", onSettingsUpdated);
-    return () =>
+    window.addEventListener("notifications-refresh-requested", onNotificationsRefreshRequested);
+
+    return () => {
       window.removeEventListener("settings-updated", onSettingsUpdated);
-  }, []);
+      window.removeEventListener("notifications-refresh-requested", onNotificationsRefreshRequested);
+    };
+  }, [loadNotifications]);
 
   const navItems = [
     {
@@ -263,7 +225,7 @@ const SidebarContent = () => {
     },
     {
       path: "/adduser",
-      label: "Add User",
+      label: "Users",
       icon: FiUser,
       roles: ["admin"],
     },
@@ -299,8 +261,8 @@ const SidebarContent = () => {
     });
   }, [location.pathname]);
 
-  const onLogoutConfirm = () => {
-    logout();
+  const onLogoutConfirm = async () => {
+    await logout();
     navigate("/");
     onLogoutClose();
   };

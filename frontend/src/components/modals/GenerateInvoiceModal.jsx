@@ -32,6 +32,7 @@ const GenerateInvoiceModal = ({
   setGenerateForm,
   customers,
   onGenerate,
+  isSubmitting = false,
 }) => {
   const getAccountSelectionValue = (account, invoiceType) => {
     return (
@@ -78,7 +79,7 @@ const GenerateInvoiceModal = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside">
+    <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside" closeOnOverlayClick={!isSubmitting}>
       <ModalOverlay />
       <ModalContent>
         <ModalHeader
@@ -103,6 +104,7 @@ const GenerateInvoiceModal = ({
               <RadioGroup
                 value={generateForm.invoiceType}
                 onChange={handleInvoiceTypeChange}
+                isDisabled={isSubmitting}
               >
                 <HStack spacing={6}>
                   <Radio value="customer">Customer Invoice</Radio>
@@ -120,6 +122,7 @@ const GenerateInvoiceModal = ({
                 value={generateForm.customerId}
                 onChange={(e) => handleAccountChange(e.target.value)}
                 size="md"
+                isDisabled={isSubmitting}
               >
                 {customers
                   .filter((c) => {
@@ -160,6 +163,7 @@ const GenerateInvoiceModal = ({
                       })
                     }
                     size="md"
+                    isDisabled={isSubmitting}
                   />
                 </FormControl>
                 <Text>to</Text>
@@ -174,6 +178,7 @@ const GenerateInvoiceModal = ({
                       })
                     }
                     size="md"
+                    isDisabled={isSubmitting}
                   />
                 </FormControl>
               </HStack>
@@ -234,13 +239,15 @@ const GenerateInvoiceModal = ({
           </VStack>
         </ModalBody>
         <ModalFooter borderTopWidth="1px">
-          <Button variant="outline" mr={3} onClick={onClose}>
+          <Button variant="outline" mr={3} onClick={onClose} isDisabled={isSubmitting}>
             Cancel
           </Button>
           <Button
             colorScheme="blue"
             onClick={onGenerate}
-            isDisabled={!generateForm.customerId}
+            isLoading={isSubmitting}
+            loadingText="Generating..."
+            isDisabled={!generateForm.customerId || isSubmitting}
             leftIcon={<FiFileText />}
             size="md"
           >

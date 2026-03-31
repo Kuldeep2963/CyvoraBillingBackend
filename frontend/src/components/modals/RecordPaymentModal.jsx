@@ -29,6 +29,7 @@ const RecordPaymentModal = ({
   setPaymentForm,
   customers,
   onRecordPayment,
+  isSubmitting = false,
 }) => {
   const [customerInvoices, setCustomerInvoices] = useState([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
@@ -51,10 +52,8 @@ const RecordPaymentModal = ({
       });
       
       if (response.success) {
-        // Filter for invoices with balance > 0
-        const unpaid = response.data.filter(inv => 
-          parseFloat(inv.balanceAmount) > 0 || inv.status !== 'paid'
-        );
+        // Keep only invoices that are not fully paid.
+        const unpaid = response.data.filter((inv) => inv.status !== 'paid');
         setCustomerInvoices(unpaid);
       }
     } catch (error) {
@@ -87,7 +86,7 @@ const RecordPaymentModal = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside">
+    <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside" closeOnOverlayClick={!isSubmitting}>
       <ModalOverlay />
       <ModalContent>
         <ModalHeader bg="blue.500" color="white" borderTopRadius="md">
@@ -105,15 +104,17 @@ const RecordPaymentModal = ({
                   setPaymentForm({ 
                     ...paymentForm, 
                     customerId: e.target.value,
+                    paymentSource: "new_payment",
                     invoiceId: "", // Reset invoice when customer changes
                     amount: ""
                   })
                 }
+                isDisabled={isSubmitting}
               >
                 {customers.map((c) => (
                   <option
                     key={c.accountId}
-                    value={c.gatewayId || c.customerCode || c.accountId}
+                    value={c.customerCode || c.gatewayId || c.accountId}
                   >
                     {c.accountName}
                   </option>
@@ -122,16 +123,35 @@ const RecordPaymentModal = ({
             </FormControl>
 
             {paymentForm.customerId && (
-              <FormControl>
+              <FormControl isRequired>
+                <FormLabel>Pay Using</FormLabel>
+                <Select
+                  value={paymentForm.paymentSource || "new_payment"}
+                  onChange={(e) =>
+                    setPaymentForm({
+                      ...paymentForm,
+                      paymentSource: e.target.value,
+                    })
+                  }
+                  isDisabled={isSubmitting}
+                >
+                  <option value="new_payment">Record New Payment</option>
+                  <option value="account_funds">Use Account Balance / Credit Limit</option>
+                </Select>
+              </FormControl>
+            )}
+
+            {paymentForm.customerId && (
+              <FormControl isRequired>
                 <FormLabel>
-                  Select Invoice (Optional)
+                  Select Invoice 
                   {isLoadingInvoices && <Spinner size="xs" ml={2} />}
                 </FormLabel>
                 <Select
                   placeholder={isLoadingInvoices ? "Loading invoices..." : "Select an unpaid invoice"}
                   value={paymentForm.invoiceId}
                   onChange={(e) => handleInvoiceChange(e.target.value)}
-                  isDisabled={isLoadingInvoices}
+                  isDisabled={isLoadingInvoices || isSubmitting}
                 >
                   {customerInvoices.map((inv) => (
                     <option key={inv.id} value={inv.id}>
@@ -147,7 +167,7 @@ const RecordPaymentModal = ({
               </FormControl>
             )}
 
-            {paymentForm.invoiceId && (
+            {/* {paymentForm.invoiceId && (
               <Alert status="info" size="sm">
                 <AlertIcon />
                 <Box>
@@ -158,7 +178,7 @@ const RecordPaymentModal = ({
                   </Text>
                 </Box>
               </Alert>
-            )}
+            )} */}
 
             <SimpleGrid columns={2} spacing={4}>
               <FormControl isRequired>
@@ -169,6 +189,7 @@ const RecordPaymentModal = ({
                   onChange={(e) =>
                     setPaymentForm({ ...paymentForm, amount: e.target.value })
                   }
+                  isDisabled={isSubmitting}
                 />
               </FormControl>
               <FormControl isRequired>
@@ -182,56 +203,64 @@ const RecordPaymentModal = ({
                       paymentDate: e.target.value,
                     })
                   }
+                  isDisabled={isSubmitting}
                 />
               </FormControl>
             </SimpleGrid>
 
-            <FormControl isRequired>
-              <FormLabel>Payment Method</FormLabel>
-              <Select
-                value={paymentForm.paymentMethod}
-                onChange={(e) =>
-                  setPaymentForm({
-                    ...paymentForm,
-                    paymentMethod: e.target.value,
-                  })
-                }
-              >
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="usdt">USDT</option>
-                <option value="cash">Cash</option>
-                <option value="cheque">Cheque</option>
-                <option value="credit_card">Credit Card</option>
-                <option value="other">Other</option>
-              </Select>
-            </FormControl>
+            {paymentForm.paymentSource !== "account_funds" && (
+              <>
+                <FormControl isRequired>
+                  <FormLabel>Payment Method</FormLabel>
+                  <Select
+                    value={paymentForm.paymentMethod}
+                    onChange={(e) =>
+                      setPaymentForm({
+                        ...paymentForm,
+                        paymentMethod: e.target.value,
+                      })
+                    }
+                    isDisabled={isSubmitting}
+                  >
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="usdt">USDT</option>
+                    <option value="cash">Cash</option>
+                    <option value="cheque">Cheque</option>
+                    <option value="credit_card">Credit Card</option>
+                    <option value="other">Other</option>
+                  </Select>
+                </FormControl>
 
-            <SimpleGrid columns={2} spacing={4}>
-              <FormControl>
-                <FormLabel>Transaction ID</FormLabel>
-                <Input
-                  value={paymentForm.transactionId}
-                  onChange={(e) =>
-                    setPaymentForm({
-                      ...paymentForm,
-                      transactionId: e.target.value,
-                    })
-                  }
-                />
-              </FormControl>
-              <FormControl>
-                <FormLabel>Ref Number</FormLabel>
-                <Input
-                  value={paymentForm.referenceNumber}
-                  onChange={(e) =>
-                    setPaymentForm({
-                      ...paymentForm,
-                      referenceNumber: e.target.value,
-                    })
-                  }
-                />
-              </FormControl>
-            </SimpleGrid>
+                <SimpleGrid columns={2} spacing={4}>
+                  <FormControl>
+                    <FormLabel>Transaction ID</FormLabel>
+                    <Input
+                      value={paymentForm.transactionId}
+                      onChange={(e) =>
+                        setPaymentForm({
+                          ...paymentForm,
+                          transactionId: e.target.value,
+                        })
+                      }
+                      isDisabled={isSubmitting}
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel>Ref Number</FormLabel>
+                    <Input
+                      value={paymentForm.referenceNumber}
+                      onChange={(e) =>
+                        setPaymentForm({
+                          ...paymentForm,
+                          referenceNumber: e.target.value,
+                        })
+                      }
+                      isDisabled={isSubmitting}
+                    />
+                  </FormControl>
+                </SimpleGrid>
+              </>
+            )}
 
             <FormControl>
               <FormLabel>Notes</FormLabel>
@@ -240,18 +269,21 @@ const RecordPaymentModal = ({
                 onChange={(e) =>
                   setPaymentForm({ ...paymentForm, notes: e.target.value })
                 }
+                isDisabled={isSubmitting}
               />
             </FormControl>
           </VStack>
         </ModalBody>
         <ModalFooter borderTopWidth="1px">
-          <Button variant="ghost" mr={3} onClick={onClose}>
+          <Button variant="ghost" mr={3} onClick={onClose} isDisabled={isSubmitting}>
             Cancel
           </Button>
           <Button
             colorScheme="blue"
             onClick={onRecordPayment}
-            isDisabled={!paymentForm.customerId || !paymentForm.amount}
+            isLoading={isSubmitting}
+            loadingText="Recording..."
+            isDisabled={!paymentForm.customerId || !paymentForm.amount || isSubmitting}
           >
             Record Payment
           </Button>

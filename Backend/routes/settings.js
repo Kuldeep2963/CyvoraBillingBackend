@@ -136,7 +136,7 @@ router.post('/retention/run', async (req, res) => {
     }
 
     const service = new CDRRetentionService();
-    const result = await service.runCleanup();
+    const result = await service.runCleanup({ trigger: 'manual', force: true });
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error.message });

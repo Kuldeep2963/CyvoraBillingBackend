@@ -30,16 +30,6 @@ import { format } from "date-fns";
 const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
   if (!payment) return null;
 
-  const getStatusColor = (status) => {
-    const colors = {
-      completed: "green",
-      pending: "yellow",
-      failed: "red",
-      refunded: "blue"
-    };
-    return colors[status?.toLowerCase()] || "gray";
-  };
-
   const formatDate = (dateValue) => {
     if (!dateValue) return "N/A";
     try {
@@ -60,9 +50,6 @@ const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
               <Text fontSize="sm" color="white" fontWeight="normal">Payment Receipt</Text>
               <Heading size="md" color={"white"}>{payment.paymentNumber}</Heading>
             </VStack>
-            <Badge colorScheme={getStatusColor(payment.status)} p={1} px={3} borderRadius="full" textTransform="uppercase">
-              {payment.status}
-            </Badge>
           </HStack>
         </ModalHeader>
         <ModalCloseButton  color={"white"}/>

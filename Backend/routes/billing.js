@@ -17,6 +17,9 @@ router.get('/invoices/lite', billingController.getLiteInvoices);
 // Get all invoices (with filters)
 router.get('/invoices', billingController.getAllInvoices);
 
+// Search invoices by account name
+router.get('/invoices/search', billingController.searchInvoicesByAccountName);
+
 // Get single invoice
 router.get('/invoices/:id', billingController.getInvoiceById);
 

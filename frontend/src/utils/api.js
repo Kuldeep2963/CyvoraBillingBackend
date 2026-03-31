@@ -1,4 +1,11 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const NOTIFICATIONS_REFRESH_EVENT = 'notifications-refresh-requested';
+
+const requestNotificationsRefresh = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(NOTIFICATIONS_REFRESH_EVENT));
+  }
+};
 
 let isRefreshing = false;
 let refreshPromise = null;
@@ -331,10 +338,18 @@ export const deleteCDR = async (id) => {
   }
 };
 
-export const fetchCustomers = async () => {
+export const fetchCustomers = async (params = {}) => {
   try {
-    const data = await fetchWithTokenRefresh(`${API_BASE_URL}/customers`);
-    return data.accounts || [];
+    const query = new URLSearchParams(params).toString();
+    const url = query ? `${API_BASE_URL}/customers?${query}` : `${API_BASE_URL}/customers`;
+    const data = await fetchWithTokenRefresh(url);
+    return {
+      accounts: data.accounts || [],
+      total: Number(data.total || 0),
+      page: Number(data.page || 1),
+      limit: Number(data.limit || params.limit || 50),
+      totalPages: Number(data.totalPages || 1),
+    };
   } catch (error) {
     console.error('Error fetching customers:', error);
     throw error;
@@ -588,6 +603,21 @@ export const sendSOAEmail = async (params) => {
   }
 };
 
+export const fetchAccountExposure = async (params = {}) => {
+  try {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/reports/account-exposure`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
+  } catch (error) {
+    console.error('Error fetching account exposure:', error);
+    throw error;
+  }
+};
+
 // Billing APIs
 export const fetchInvoices = async (params = {}) => {
   try {
@@ -604,6 +634,22 @@ export const fetchInvoices = async (params = {}) => {
     return await handleResponse(response);
   } catch (error) {
     console.error('Error fetching invoices:', error);
+    throw error;
+  }
+};
+
+export const searchInvoicesByAccountName = async (accountName, params = {}) => {
+  try {
+    const cleanParams = Object.fromEntries(
+      Object.entries({ accountName, ...params }).filter(([_, v]) => v != null && v !== '')
+    );
+    const query = new URLSearchParams(cleanParams).toString();
+    const url = `${API_BASE_URL}/billing/invoices/search?${query}`;
+
+    const response = await fetch(url, { headers: getAuthHeaders() });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error searching invoices by account name:', error);
     throw error;
   }
 };
@@ -659,7 +705,9 @@ export const generateInvoice = async (invoiceData) => {
       },
       body: JSON.stringify(invoiceData),
     });
-    return await handleResponse(response);
+    const data = await handleResponse(response);
+    requestNotificationsRefresh();
+    return data;
   } catch (error) {
     console.error('Error generating invoice:', error);
     throw error;
@@ -711,7 +759,25 @@ export const downloadInvoice = async (id, invoiceNumber) => {
       return;
     }
 
-    if (!response.ok) throw new Error('Download failed');
+    if (!response.ok) {
+      // Try to extract error message from response
+      let errorMsg = 'Download failed';
+      const contentType = response.headers.get('content-type');
+      
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          const errorData = await response.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch (e) {
+          // If JSON parsing fails, just use the status text
+          errorMsg = response.statusText || errorMsg;
+        }
+      } else {
+        errorMsg = response.statusText || errorMsg;
+      }
+      
+      throw new Error(errorMsg);
+    }
     
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
@@ -742,13 +808,15 @@ export const sendInvoiceEmail = async (id) => {
 
 export const recordPayment = async (paymentData) => {
   try {
-    return await fetchWithTokenRefresh(`${API_BASE_URL}/billing/payments`, {
+    const data = await fetchWithTokenRefresh(`${API_BASE_URL}/billing/payments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(paymentData),
     });
+    requestNotificationsRefresh();
+    return data;
   } catch (error) {
     console.error('Error recording payment:', error);
     throw error;
@@ -765,7 +833,9 @@ export const raiseDispute = async (disputeData) => {
       },
       body: JSON.stringify(disputeData),
     });
-    return await handleResponse(response);
+    const data = await handleResponse(response);
+    requestNotificationsRefresh();
+    return data;
   } catch (error) {
     console.error('Error raising dispute:', error);
     throw error;
@@ -1066,7 +1136,9 @@ export const updateGlobalSettings = async (settings) => {
       },
       body: JSON.stringify(settings),
     });
-    return await handleResponse(response);
+    const data = await handleResponse(response);
+    requestNotificationsRefresh();
+    return data;
   } catch (error) {
     console.error('Error updating global settings:', error);
     throw error;
@@ -1079,7 +1151,9 @@ export const runRetentionCleanup = async () => {
       method: 'POST',
       headers: getAuthHeaders()
     });
-    return await handleResponse(response);
+    const data = await handleResponse(response);
+    requestNotificationsRefresh();
+    return data;
   } catch (error) {
     console.error('Error running retention cleanup:', error);
     throw error;
@@ -1095,7 +1169,9 @@ export const uploadCountryCodes = async (formData) => {
       },
       body: formData,
     });
-    return await handleResponse(response);
+    const data = await handleResponse(response);
+    requestNotificationsRefresh();
+    return data;
   } catch (error) {
     console.error('Error uploading country codes:', error);
     throw error;
@@ -1124,7 +1200,9 @@ export const addCountryCode = async (payload) => {
       },
       body: JSON.stringify(payload),
     });
-    return await handleResponse(response);
+    const data = await handleResponse(response);
+    requestNotificationsRefresh();
+    return data;
   } catch (error) {
     console.error('Error adding country code:', error);
     throw error;
@@ -1137,7 +1215,9 @@ export const deleteCountryCode = async (code) => {
       method: 'DELETE',
       headers: getAuthHeaders()
     });
-    return await handleResponse(response);
+    const data = await handleResponse(response);
+    requestNotificationsRefresh();
+    return data;
   } catch (error) {
     console.error('Error deleting country code:', error);
     throw error;
@@ -1197,7 +1277,9 @@ export const createTestNotification = async (payload = {}) => {
       },
       body: JSON.stringify(payload),
     });
-    return await handleResponse(response);
+    const data = await handleResponse(response);
+    requestNotificationsRefresh();
+    return data;
   } catch (error) {
     console.error('Error creating test notification:', error);
     throw error;

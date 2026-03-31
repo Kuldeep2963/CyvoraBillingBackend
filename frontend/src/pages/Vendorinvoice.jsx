@@ -28,14 +28,6 @@ import {
   Circle,
   Tag,
   TagLabel,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  TableContainer,
-  Skeleton,
   SkeletonText,
   IconButton,
   Menu,
@@ -48,10 +40,10 @@ import {
 } from "@chakra-ui/react";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
+import DataTable from "../components/DataTable";
 import { useNavigate } from "react-router-dom";
 import { useState, useRef, useCallback, useEffect } from "react";
-import { fetchVendors, uploadVendorInvoice, fetchVendorInvoices, markInvoiceAsPaid } from "../utils/api";
-import TablePagination from "../components/TablePagination";
+import { fetchVendors, uploadVendorInvoice, fetchVendorInvoices, markInvoiceAsPaid, deletevendorinvoice } from "../utils/api";
 import {
   FiUploadCloud,
   FiFile,
@@ -115,6 +107,7 @@ const InvoicesTab = ({ onAddNew }) => {
   const cardBg = useColorModeValue("white", "gray.800");
   const toast  = useToast();
   const [search, setSearch]     = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [invoices, setInvoices] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError]       = useState(null);
@@ -129,7 +122,7 @@ const InvoicesTab = ({ onAddNew }) => {
       const response = await fetchVendorInvoices({
         page,
         limit: pageSize,
-        search: search || undefined,
+        search: debouncedSearch || undefined,
       });
       const rows = response?.data || response || [];
       setInvoices(Array.isArray(rows) ? rows : []);
@@ -146,7 +139,16 @@ const InvoicesTab = ({ onAddNew }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [toast, page, pageSize, search]);
+  }, [toast, page, pageSize, debouncedSearch]);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 800);
+
+    return () => clearTimeout(timeoutId);
+  }, [search]);
 
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
 
@@ -173,7 +175,7 @@ const InvoicesTab = ({ onAddNew }) => {
 
   const handleDeleteInvoice = async (id) => {
     try {
-      const response = await deletevendorinvoice(invoicetodelete(id));
+      await deletevendorinvoice(id);
       toast({
         title: "Invoice deleted",
         status: "success",
@@ -191,6 +193,90 @@ const InvoicesTab = ({ onAddNew }) => {
       });
     }
   };
+
+  const columns = [
+    {
+      key: "invoiceNumber",
+      header: "Invoice No.",
+      render: (_, row) => (
+        <Text fontSize="13px" fontWeight="600" color="blue.600">{row.invoiceNumber || "N/A"}</Text>
+      ),
+    },
+    {
+      key: "vendor",
+      header: "Vendor",
+      render: (_, row) => (
+        <VStack spacing={0} align="start">
+          <Text fontSize="13px" fontWeight="500" color="gray.700">{row.vendor?.accountName || "N/A"}</Text>
+          <Text fontSize="11px" color="gray.400">{row.vendor?.vendorCode || "N/A"}</Text>
+        </VStack>
+      ),
+    },
+    {
+      key: "issueDate",
+      header: "Issue Date",
+      render: (value) => (
+        <Text fontSize="13px" color="gray.600">
+          {value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "N/A"}
+        </Text>
+      ),
+    },
+    {
+      key: "billingPeriod",
+      header: "Billing Period",
+      render: (_, row) => (
+        <Text fontSize="13px" color="gray.600">
+          {row.startDate ? new Date(row.startDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "N/A"}
+          {" - "}
+          {row.endDate ? new Date(row.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "N/A"}
+        </Text>
+      ),
+    },
+    {
+      key: "grandTotal",
+      header: "Grand Total",
+      render: (value, row) => (
+        <Text fontSize="13px" fontWeight="700" color="gray.800">
+          {row.currency || "USD"} {Number(value || 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </Text>
+      ),
+    },
+    {
+      key: "totalSeconds",
+      header: "Duration",
+      render: (value) => (
+        <Text fontSize="13px" color="teal.600" fontWeight="500">{fmtSeconds(value)}</Text>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (value) => <StatusBadge status={value} />,
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      minWidth: "80px",
+      render: (_, row) => (
+        <Menu>
+          <MenuButton
+            as={IconButton}
+            icon={<FiMoreVertical />}
+            variant="ghost"
+            size="xs"
+            color="gray.600"
+            aria-label="Invoice actions"
+            _hover={{ color: "gray.700", bg: "gray.100" }}
+            borderRadius="6px"
+          />
+          <MenuList fontSize="sm" minW="140px" shadow="lg" borderColor={border}>
+            <MenuItem icon={<FiTrash2 />} onClick={() => handleDeleteInvoice(row.id)} fontSize="13px">Delete</MenuItem>
+            <MenuItem icon={<FiCheck />} onClick={() => handleMarkAsPaid(row.id)} fontSize="13px">Mark as paid</MenuItem>
+          </MenuList>
+        </Menu>
+      ),
+    },
+  ];
 
   return (
     <VStack spacing={4} align="stretch">
@@ -213,7 +299,6 @@ const InvoicesTab = ({ onAddNew }) => {
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value);
-                    setPage(1);
                   }}
                   borderRadius="8px"
                   borderColor={border}
@@ -244,120 +329,37 @@ const InvoicesTab = ({ onAddNew }) => {
           </Flex>
         </CardHeader>
 
-        <CardBody pt={1}>
-          <TableContainer>
-            <Table variant="simple" size="sm">
-              <Thead>
-                <Tr>
-                  {["Invoice No.", "Vendor", "Issue Date", "Billing Period", "Grand Total", "Duration", "Status", "Actions"].map(h => (
-                    <Th key={h} fontSize="11px" color="gray.800" bg={"gray.200"} fontWeight="700" letterSpacing="0.06em"
-                      textTransform="uppercase" borderColor={border} py={3}>{h}</Th>
-                  ))}
-                </Tr>
-              </Thead>
-              <Tbody>
-                {isLoading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <Tr key={i}>
-                      {Array.from({ length: 9 }).map((_, j) => (
-                        <Td key={j} borderColor={border} py={3}>
-                          <Skeleton height="14px" borderRadius="4px" />
-                        </Td>
-                      ))}
-                    </Tr>
-                  ))
-                ) : error ? (
-                  <Tr>
-                    <Td colSpan={9} borderColor={border}>
-                      <Flex direction="column" align="center" py={10} color="red.400">
-                        <FiAlertTriangle size={32} style={{ marginBottom: "8px", opacity: 0.6 }} />
-                        <Text fontSize="sm" fontWeight="600">Failed to load invoices</Text>
-                        <Text fontSize="xs" color="gray.400" mt={1} mb={4}>{error}</Text>
-                        <Button size="sm" leftIcon={<FiRefreshCw />} colorScheme="blue" variant="outline"
-                          borderRadius="8px" onClick={loadInvoices}>
-                          Try Again
-                        </Button>
-                      </Flex>
-                    </Td>
-                  </Tr>
-                ) : invoices.length === 0 ? (
-                  <Tr>
-                    <Td colSpan={9} borderColor={border}>
-                      <Flex direction="column" align="center" py={10} color="gray.400">
-                        <FiFileText size={32} style={{ marginBottom: "8px", opacity: 0.4 }} />
-                        <Text fontSize="sm">No invoices found</Text>
-                        <Text fontSize="xs" mt={1}>Try adjusting your search or add a new invoice</Text>
-                      </Flex>
-                    </Td>
-                  </Tr>
-                ) : (
-                  invoices.map((inv, idx) => (
-                    <Tr key={inv.id}
-                      _hover={{ bg: useColorModeValue("gray.50", "gray.750") }}
-                      transition="background 0.15s"
-                      bg={idx % 2 === 0 ? "transparent" : useColorModeValue("gray.50", "gray.850")}
-                    >
-                      <Td borderColor={border} py={3}>
-                        <Text fontSize="13px" fontWeight="600" color="blue.600">{inv.invoiceNumber}</Text>
-                      </Td>
-                      <Td borderColor={border} py={3}>
-                        <VStack spacing={0} align="start">
-                          <Text fontSize="13px" fontWeight="500" color="gray.700">{inv.vendor?.accountName || "N/A"}</Text>
-                          <Text fontSize="11px" color="gray.400">{inv.vendor?.vendorCode || "N/A"}</Text>
-                        </VStack>
-                      </Td>
-                      <Td borderColor={border} py={3}>
-                        <Text fontSize="13px" color="gray.600">
-                          {new Date(inv.issueDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-                        </Text>
-                      </Td>
-                      <Td borderColor={border} py={3}>
-                        <Text fontSize="13px" color="gray.600 ">
-                          {new Date(inv.startDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
-                          {" – "}
-                          {new Date(inv.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-                        </Text>
-                      </Td>
-                      <Td borderColor={border} py={3}>
-                        <Text fontSize="13px" fontWeight="700" color="gray.800">
-                          {inv.currency} {parseFloat(inv.grandTotal).toLocaleString("en", { minimumFractionDigits: 2 })}
-                        </Text>
-                      </Td>
-                      <Td borderColor={border} py={3}>
-                        <Text fontSize="13px" color="teal.600" fontWeight="500">{fmtSeconds(inv.totalSeconds)}</Text>
-                      </Td>
-                      
-                      <Td borderColor={border} py={3}>
-                        <StatusBadge status={inv.status} />
-                      </Td>
-                      <Td borderColor={border} py={3}>
-                        <Menu>
-                          <MenuButton as={IconButton} icon={<FiMoreVertical />} variant="ghost" size="xs" color="gray.600"
-                            _hover={{ color: "gray.700", bg: "gray.100" }} borderRadius="6px" />
-                          <MenuList fontSize="sm" minW="140px" shadow="lg" borderColor={border}>
-                            <MenuItem icon={<FiTrash2 />} onClick={() => handleDeleteInvoice(inv.id)} fontSize="13px">Delete</MenuItem>
-                            <MenuItem icon={<FiCheck />} onClick={() => handleMarkAsPaid(inv.id)} fontSize="13px">Mark as paid</MenuItem>
-                          </MenuList>
-                        </Menu>
-                      </Td>
-                    </Tr>
-                  ))
-                )}
-              </Tbody>
-            </Table>
-          </TableContainer>
+        <CardBody p={3}>
+          {error ? (
+            <Flex direction="column" align="center" py={10} color="red.400">
+              <FiAlertTriangle size={32} style={{ marginBottom: "8px", opacity: 0.6 }} />
+              <Text fontSize="sm" fontWeight="600">Failed to load invoices</Text>
+              <Text fontSize="xs" color="gray.400" mt={1} mb={4}>{error}</Text>
+              <Button size="sm" leftIcon={<FiRefreshCw />} colorScheme="blue" variant="outline" borderRadius="8px" onClick={loadInvoices}>
+                Try Again
+              </Button>
+            </Flex>
+          ) : (
+            <DataTable
+              columns={columns}
+              data={isLoading ? [] : invoices}
+              actions={false}
+              compact
+              striped
+              height="420px"
+              serverPagination
+              page={pagination.page || page}
+              pageSize={pagination.limit || pageSize}
+              total={pagination.total || 0}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+              isPaginationDisabled={isLoading}
+            />
+          )}
         </CardBody>
-        <TablePagination
-          page={pagination.page || page}
-          pageSize={pagination.limit || pageSize}
-          total={pagination.total || 0}
-          onPageChange={setPage}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(1);
-          }}
-          isDisabled={isLoading}
-        />
       </Card>
     </VStack>
    
@@ -574,7 +576,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
                       onChange={e => handleField("vendorCode", e.target.value)} borderColor={border} fontSize="sm"
                       disabled={isLoadingVendors}
                       _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }}>
-                      {vendors.map(v => (
+                      {vendors.map(v => (  
                         <option key={v.vendorCode || v.accountId} value={v.vendorCode || v.accountId}>
                           {v.accountName} ({v.vendorCode || v.accountId}) {v.accountRole === "both" ? "[Bilateral]" : ""}
                         </option>

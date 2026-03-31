@@ -1,436 +1,468 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Badge,
   Box,
-  Flex,
-  Text,
-  Input,
   Button,
-  VStack,
-  HStack,
+  Card,
+  CardBody,
+  CardHeader,
+  Flex,
+  Grid,
+  GridItem,
+  Heading,
+  Input,
+  Spinner,
+  Stat,
+  StatHelpText,
+  StatLabel,
+  StatNumber,
+  Text,
   useToast,
 } from "@chakra-ui/react";
-import { keyframes } from "@emotion/react";
+import { SearchIcon } from "@chakra-ui/icons";
+import { MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
+import PageNavBar from "../components/PageNavBar";
+import { fetchAccountExposure, fetchReportAccounts } from "../utils/api";
+import { toDateInput } from "../utils/dateInput";
 
-/* ── Keyframe animations ── */
-const gridDrift = keyframes`
-  from { transform: translate(0, 0); }
-  to   { transform: translate(80px, 80px); }
-`;
+const formatAmount = (amount) =>
+  Number(amount || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
-const scanLine = keyframes`
-  0%   { top: -2px; opacity: 0; }
-  5%   { opacity: 0.6; }
-  95%  { opacity: 0.6; }
-  100% { top: 100%; opacity: 0; }
-`;
+const formatDuration = (seconds) => {
+  const total = Number(seconds || 0);
+  if (!total) return "0m";
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h ${minutes}m`;
+};
 
-const fadeUp = keyframes`
-  from { opacity: 0; transform: translateY(24px); }
-  to   { opacity: 1; transform: translateY(0); }
-`;
-
-const flicker = keyframes`
-  0%, 100% { opacity: 1; }
-  92%       { opacity: 1; }
-  93%       { opacity: 0.4; }
-  94%       { opacity: 1; }
-  96%       { opacity: 0.6; }
-  97%       { opacity: 1; }
-`;
-
-const pulseRust = keyframes`
-  0%, 100% { box-shadow: 0 0 0 0 rgba(201,79,39,0); }
-  50%       { box-shadow: 0 0 24px 4px rgba(201,79,39,0.35); }
-`;
-
-const cursorBlink = keyframes`
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0; }
-`;
-
-/* ── Countdown unit block ── */
-const CountUnit = ({ value, label, delay }) => (
-  <Box
-    textAlign="center"
-    animation={`${fadeUp} 0.8s ease both`}
-    style={{ animationDelay: delay }}
-  >
-    <Box
-      position="relative"
-      w={{ base: "72px", md: "96px" }}
-      h={{ base: "72px", md: "96px" }}
-      border="1px solid"
-      borderColor="rgba(201,79,39,0.4)"
-      borderRadius="2px"
-      display="flex"
-      alignItems="center"
-      justifyContent="center"
-      bg="rgba(201,79,39,0.04)"
-      _before={{
-        content: '""',
-        position: "absolute",
-        inset: "3px",
-        border: "1px solid rgba(201,79,39,0.12)",
-        borderRadius: "1px",
-        pointerEvents: "none",
-      }}
-    >
-      <Text
-        fontFamily="'Bebas Neue', sans-serif"
-        fontSize={{ base: "3xl", md: "5xl" }}
-        color="#f2ede6"
-        lineHeight="1"
-        letterSpacing="wider"
-        animation={`${flicker} 8s ease infinite`}
-        style={{ animationDelay: delay }}
-      >
-        {String(value).padStart(2, "0")}
-      </Text>
-    </Box>
-    <Text
-      mt={2}
-      fontFamily="'DM Mono', monospace"
-      fontSize="9px"
-      letterSpacing="0.3em"
-      color="#7a7265"
-      textTransform="uppercase"
-    >
-      {label}
-    </Text>
-  </Box>
+const ExposureStatCard = ({ label, value, color = "gray.800", help }) => (
+  <Card borderWidth="1px" borderColor="gray.200" borderRadius="10px">
+    <CardBody>
+      <Stat>
+        <StatLabel color="gray.600" fontWeight="semibold" fontSize="12px" textTransform="uppercase" letterSpacing="0.04em">
+          {label}
+        </StatLabel>
+        <StatNumber color={color} fontSize={{ base: "xl", md: "2xl" }}>
+          ${formatAmount(value)}
+        </StatNumber>
+        {help ? <StatHelpText mb={0}>{help}</StatHelpText> : null}
+      </Stat>
+    </CardBody>
+  </Card>
 );
 
-/* ── Main page ── */
+const MetricsCard = ({ title, metrics, badgeText, badgeScheme }) => (
+  <Card borderWidth="1px" borderColor="gray.200" borderRadius="10px" h="100%">
+    <CardHeader pb={2}>
+      <Flex align="center" justify="space-between">
+        <Heading size="sm">{title}</Heading>
+        <Badge colorScheme={badgeScheme}>{badgeText}</Badge>
+      </Flex>
+    </CardHeader>
+    <CardBody pt={2}>
+      <Grid templateColumns="repeat(2, minmax(0,1fr))" gap={4}>
+        <Box>
+          <Text fontSize="xs" color="gray.600" textTransform="uppercase" letterSpacing="0.04em">Attempts</Text>
+          <Text fontSize="lg" fontWeight="bold">{Number(metrics?.attempts || 0).toLocaleString()}</Text>
+        </Box>
+        <Box>
+          <Text fontSize="xs" color="gray.600" textTransform="uppercase" letterSpacing="0.04em">Completed</Text>
+          <Text fontSize="lg" fontWeight="bold">{Number(metrics?.completed || 0).toLocaleString()}</Text>
+        </Box>
+        <Box>
+          <Text fontSize="xs" color="gray.600" textTransform="uppercase" letterSpacing="0.04em">Failed</Text>
+          <Text fontSize="lg" fontWeight="bold">{Number(metrics?.failed || 0).toLocaleString()}</Text>
+        </Box>
+        <Box>
+          <Text fontSize="xs" color="gray.600" textTransform="uppercase" letterSpacing="0.04em">Duration</Text>
+          <Text fontSize="lg" fontWeight="bold">{formatDuration(metrics?.duration || 0)}</Text>
+        </Box>
+      </Grid>
+    </CardBody>
+  </Card>
+);
+
 const AccountExposure = () => {
-  const LAUNCH_DATE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days from now
-
-  const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
-  const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [typedText, setTypedText] = useState("");
   const toast = useToast();
-  const fullText = "Something remarkable is being built.";
-  const typingRef = useRef(null);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
 
-  /* countdown */
-  useEffect(() => {
-    const tick = () => {
-      const diff = LAUNCH_DATE - Date.now();
-      if (diff <= 0) return;
-      setTimeLeft({
-        days:    Math.floor(diff / 86400000),
-        hours:   Math.floor((diff % 86400000) / 3600000),
-        minutes: Math.floor((diff % 3600000)  / 60000),
-        seconds: Math.floor((diff % 60000)    / 1000),
+  const [accounts, setAccounts] = useState([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(true);
+  const [selectedAccountKey, setSelectedAccountKey] = useState("");
+  const [selectedAccount, setSelectedAccount] = useState(null);
+  const [startDate, setStartDate] = useState(toDateInput(yesterday));
+  const [endDate, setEndDate] = useState(toDateInput(today));
+  const [loadingExposure, setLoadingExposure] = useState(false);
+  const [exposure, setExposure] = useState(null);
+
+  const loadAccounts = useCallback(async () => {
+    try {
+      setLoadingAccounts(true);
+      const response = await fetchReportAccounts();
+      if (!response?.success) {
+        throw new Error("Failed to load accounts");
+      }
+
+      const customers = Array.isArray(response.customers) ? response.customers : [];
+      const vendors = Array.isArray(response.vendors) ? response.vendors : [];
+
+      const byName = new Map();
+
+      customers.forEach((acc) => {
+        if (!byName.has(acc.accountName)) {
+          byName.set(acc.accountName, {
+            accountName: acc.accountName,
+            accountId: acc.accountId,
+            id: acc.id,
+            ownerName: acc.ownerName,
+            customerCode: acc.customerCode || null,
+            vendorCode: null,
+            customerRole: true,
+            vendorRole: false,
+          });
+        } else {
+          const existing = byName.get(acc.accountName);
+          existing.customerCode = acc.customerCode || existing.customerCode;
+          existing.customerRole = true;
+        }
       });
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, []);
 
-  /* typewriter */
-  useEffect(() => {
-    let i = 0;
-    typingRef.current = setInterval(() => {
-      setTypedText(fullText.slice(0, i + 1));
-      i++;
-      if (i >= fullText.length) clearInterval(typingRef.current);
-    }, 55);
-    return () => clearInterval(typingRef.current);
-  }, []);
+      vendors.forEach((acc) => {
+        if (!byName.has(acc.accountName)) {
+          byName.set(acc.accountName, {
+            accountName: acc.accountName,
+            accountId: acc.accountId,
+            id: acc.id,
+            ownerName: acc.ownerName,
+            customerCode: null,
+            vendorCode: acc.vendorCode || null,
+            customerRole: false,
+            vendorRole: true,
+          });
+        } else {
+          const existing = byName.get(acc.accountName);
+          existing.vendorCode = acc.vendorCode || existing.vendorCode;
+          existing.vendorRole = true;
+          if (!existing.id) existing.id = acc.id;
+          if (!existing.accountId) existing.accountId = acc.accountId;
+          if (!existing.ownerName) existing.ownerName = acc.ownerName;
+        }
+      });
 
-  const handleNotify = () => {
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      toast({ title: "Enter a valid email", status: "warning", duration: 2500, isClosable: true, position: "bottom" });
-      return;
+      const merged = Array.from(byName.values()).sort((a, b) =>
+        a.accountName.localeCompare(b.accountName),
+      );
+
+      setAccounts(merged);
+    } catch (error) {
+      toast({
+        title: "Error loading accounts",
+        description: error.message,
+        status: "error",
+        duration: 3500,
+        isClosable: true,
+      });
+    } finally {
+      setLoadingAccounts(false);
     }
-    setSubmitted(true);
-    toast({ title: "You're on the list.", description: "We'll reach out when we launch.", status: "success", duration: 3000, isClosable: true, position: "bottom" });
+  }, [toast]);
+
+  useEffect(() => {
+    loadAccounts();
+  }, [loadAccounts]);
+
+  const handleAccountChange = (event) => {
+    const key = event.target.value;
+    setSelectedAccountKey(key);
+    const account = accounts.find((a) => `${a.accountName}|${a.accountId || ""}` === key) || null;
+    setSelectedAccount(account);
+    setExposure(null);
   };
 
+  const handleSearch = async () => {
+    if (!selectedAccount) return;
+
+    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+      toast({
+        title: "Invalid date range",
+        description: "Start date cannot be after end date",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    try {
+      setLoadingExposure(true);
+      const result = await fetchAccountExposure({
+        accountId: selectedAccount.id || selectedAccount.accountId || selectedAccount.accountName,
+        account: selectedAccount,
+        startDate: startDate || null,
+        endDate: endDate || null,
+      });
+
+      if (!result?.success) {
+        throw new Error(result?.error || "Failed to fetch account exposure");
+      }
+
+      setExposure(result);
+    } catch (error) {
+      setExposure(null);
+      toast({
+        title: "Failed to load account exposure",
+        description: error.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setLoadingExposure(false);
+    }
+  };
+
+  const netBadge = useMemo(() => {
+    const netPosition = exposure?.summary?.netPosition;
+    if (netPosition === "receivable") return { text: "Net Receivable", scheme: "green" };
+    if (netPosition === "payable") return { text: "Net Payable", scheme: "red" };
+    return { text: "Balanced", scheme: "gray" };
+  }, [exposure]);
+
+  const exposureBreakdown = useMemo(() => {
+    const customerExpense = Number(exposure?.summary?.customerExpense || 0);
+    const vendorExpense = Number(exposure?.summary?.vendorExpense || 0);
+    const difference = Math.abs(customerExpense - vendorExpense);
+
+    return {
+      customerExpense,
+      vendorExpense,
+      totalReceivable: customerExpense > vendorExpense ? difference : 0,
+      totalPayable: vendorExpense > customerExpense ? difference : 0,
+      netAmount: customerExpense - vendorExpense,
+    };
+  }, [exposure]);
+
   return (
-    <>
-      {/* Google fonts */}
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,300;0,400;1,300&display=swap');
-        * { cursor: crosshair !important; }
-        ::selection { background: rgba(201,79,39,0.4); color: #f2ede6; }
-        input { cursor: text !important; }
-        button { cursor: crosshair !important; }
-      `}</style>
+    <Box>
+      <PageNavBar
+      
+        title="Account Exposure"
+        description="Account exposure from CDR totals (till now)"
+        mb={5}
+      />
 
-      <Box
-        position="relative"
-        minH="100vh"
-        bg="#0a0a08"
-        overflow="hidden"
-        fontFamily="'DM Mono', monospace"
-      >
-        {/* Animated grid */}
-        <Box
-          position="absolute" inset={0} zIndex={1}
-          backgroundImage="linear-gradient(rgba(242,237,230,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(242,237,230,0.03) 1px, transparent 1px)"
-          backgroundSize="80px 80px"
-          animation={`${gridDrift} 30s linear infinite`}
-          pointerEvents="none"
-        />
-
-        {/* Radial glow */}
-        <Box
-          position="absolute" inset={0} zIndex={2}
-          bgGradient="radial(ellipse 65% 55% at 50% 50%, rgba(201,79,39,0.09) 0%, transparent 70%)"
-          pointerEvents="none"
-        />
-
-        {/* Scan line */}
-        <Box
-          position="absolute" left={0} right={0} h="2px" zIndex={3}
-          bgGradient="linear(to-r, transparent, #c94f27, transparent)"
-          animation={`${scanLine} 9s ease-in-out infinite`}
-          pointerEvents="none"
-        />
-
-        {/* Grain overlay via SVG filter */}
-        <Box
-          position="absolute" inset={0} zIndex={4}
-          opacity={0.045}
-          mixBlendMode="overlay"
-          pointerEvents="none"
-          backgroundImage={`url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`}
-          backgroundSize="180px 180px"
-        />
-
-        {/* Corner marks */}
-        {[
-          { top: "20px", left: "20px",  borderTop: "1px solid", borderLeft:  "1px solid" },
-          { top: "20px", right: "20px", borderTop: "1px solid", borderRight: "1px solid" },
-          { bottom: "20px", left: "20px",  borderBottom: "1px solid", borderLeft:  "1px solid" },
-          { bottom: "20px", right: "20px", borderBottom: "1px solid", borderRight: "1px solid" },
-        ].map((styles, i) => (
-          <Box
-            key={i}
-            position="absolute" zIndex={5}
-            w="24px" h="24px"
-            borderColor="rgba(201,79,39,0.35)"
-            {...styles}
-          />
-        ))}
-
-        {/* Main content */}
-        <Flex
-          position="relative" zIndex={10}
-          minH="100vh"
-          direction="column"
-          align="center"
-          justify="center"
-          px={6}
-          py={16}
-        >
-          {/* Status pill */}
-          <Box
-            animation={`${fadeUp} 0.6s ease both`}
-            mb={10}
-          >
-            <HStack
-              spacing={2}
-              px={4} py={1.5}
-              border="1px solid rgba(201,79,39,0.3)"
-              borderRadius="2px"
-              bg="rgba(201,79,39,0.06)"
-            >
-              <Box
-                w="6px" h="6px" borderRadius="full"
-                bg="#c94f27"
-                animation={`${pulseRust} 2s ease infinite`}
-              />
-              <Text
-                fontFamily="'DM Mono', monospace"
-                fontSize="10px"
-                letterSpacing="0.25em"
-                color="#c94f27"
-                textTransform="uppercase"
-              >
-                Under Construction
-              </Text>
-            </HStack>
-          </Box>
-
-          {/* Headline */}
-          <VStack spacing={0} mb={8} textAlign="center">
-            <Text
-              fontFamily="'Bebas Neue', sans-serif"
-              fontSize={{ base: "15vw", sm: "100px", md: "130px", lg: "160px" }}
-              lineHeight="0.88"
-              color="#f2ede6"
-              letterSpacing="0.02em"
-              animation={`${fadeUp} 0.7s 0.1s ease both`}
-              userSelect="none"
-            >
-              COMING
-            </Text>
-            <Text
-              fontFamily="'Bebas Neue', sans-serif"
-              fontSize={{ base: "15vw", sm: "100px", md: "130px", lg: "160px" }}
-              lineHeight="0.88"
-              color="transparent"
-              letterSpacing="0.02em"
-              animation={`${fadeUp} 0.7s 0.2s ease both`}
-              style={{
-                WebkitTextStroke: "1.5px #c94f27",
-              }}
-              userSelect="none"
-            >
-              SOON
-            </Text>
-          </VStack>
-
-          {/* Typewriter subtitle */}
-          <Box
-            animation={`${fadeUp} 0.7s 0.3s ease both`}
-            mb={12}
-            minH="20px"
-          >
-            <Text
-              fontFamily="'DM Mono', monospace"
-              fontSize={{ base: "xs", md: "sm" }}
-              color="#7a7265"
-              letterSpacing="0.12em"
-              fontStyle="italic"
-            >
-              {typedText}
-              <Box
-                as="span"
-                display="inline-block"
-                w="2px" h="14px"
-                bg="#c94f27"
-                ml="2px"
-                verticalAlign="middle"
-                animation={`${cursorBlink} 1s step-end infinite`}
-              />
-            </Text>
-          </Box>
-
-          {/* Countdown */}
-          <HStack
-            spacing={{ base: 3, md: 6 }}
-            mb={14}
-            animation={`${fadeUp} 0.7s 0.4s ease both`}
-          >
-            <CountUnit value={timeLeft.days}    label="Days"    delay="0.5s" />
-            <Text fontFamily="'Bebas Neue', sans-serif" fontSize="3xl" color="rgba(201,79,39,0.5)" pb={6}>:</Text>
-            <CountUnit value={timeLeft.hours}   label="Hours"   delay="0.55s" />
-            <Text fontFamily="'Bebas Neue', sans-serif" fontSize="3xl" color="rgba(201,79,39,0.5)" pb={6}>:</Text>
-            <CountUnit value={timeLeft.minutes} label="Minutes" delay="0.6s" />
-            <Text fontFamily="'Bebas Neue', sans-serif" fontSize="3xl" color="rgba(201,79,39,0.5)" pb={6}>:</Text>
-            <CountUnit value={timeLeft.seconds} label="Seconds" delay="0.65s" />
-          </HStack>
-
-          {/* Divider */}
-          <Box
-            w={{ base: "80px", md: "120px" }}
-            h="1px"
-            bg="linear-gradient(90deg, transparent, rgba(201,79,39,0.5), transparent)"
-            mb={10}
-            animation={`${fadeUp} 0.7s 0.7s ease both`}
-          />
-
-          {/* Email capture */}
-          <Box
-            w="100%"
-            maxW="420px"
-            animation={`${fadeUp} 0.7s 0.8s ease both`}
-          >
-            {!submitted ? (
-              <VStack spacing={3}>
-                <Text
-                  fontFamily="'DM Mono', monospace"
-                  fontSize="10px"
-                  letterSpacing="0.25em"
-                  color="#7a7265"
-                  textTransform="uppercase"
-                  mb={1}
-                >
-                  Get notified at launch
-                </Text>
-                <HStack w="100%" spacing={0}>
-                  <Input
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleNotify()}
-                    placeholder="your@email.com"
-                    fontFamily="'DM Mono', monospace"
-                    fontSize="sm"
-                    color="#f2ede6"
-                    bg="rgba(242,237,230,0.04)"
-                    border="1px solid rgba(242,237,230,0.12)"
-                    borderRight="none"
-                    borderRadius="2px 0 0 2px"
-                    h="44px"
-                    px={4}
-                    _placeholder={{ color: "#4a4740", fontStyle: "italic" }}
-                    _focus={{
-                      outline: "none",
-                      boxShadow: "none",
-                      borderColor: "rgba(201,79,39,0.5)",
-                      bg: "rgba(201,79,39,0.04)",
-                    }}
-                    _hover={{ borderColor: "rgba(242,237,230,0.2)" }}
-                  />
-                  <Button
-                    onClick={handleNotify}
-                    h="44px"
-                    px={5}
-                    bg="#c94f27"
-                    color="#f2ede6"
-                    fontFamily="'DM Mono', monospace"
-                    fontSize="10px"
-                    letterSpacing="0.2em"
-                    textTransform="uppercase"
-                    borderRadius="0 2px 2px 0"
-                    border="1px solid #c94f27"
-                    _hover={{ bg: "#a8401e", borderColor: "#a8401e" }}
-                    _active={{ bg: "#8c3419" }}
-                    flexShrink={0}
-                  >
-                    Notify Me
-                  </Button>
-                </HStack>
-              </VStack>
-            ) : (
-              <VStack spacing={2}>
-                <HStack spacing={3}>
-                  <Box w="6px" h="6px" borderRadius="full" bg="#c94f27" animation={`${pulseRust} 2s ease infinite`} />
-                  <Text fontFamily="'DM Mono', monospace" fontSize="sm" color="#f2ede6" letterSpacing="0.08em">
-                    You're on the list.
-                  </Text>
-                </HStack>
-                <Text fontFamily="'DM Mono', monospace" fontSize="10px" color="#7a7265" letterSpacing="0.1em">
-                  We'll reach out when we're ready.
-                </Text>
-              </VStack>
-            )}
-          </Box>
-
-          {/* Bottom label */}
-          <Box
-            position="absolute"
-            bottom="28px"
-            animation={`${fadeUp} 0.7s 1s ease both`}
-          >
-            <Text
-              fontFamily="'DM Mono', monospace"
-              fontSize="9px"
-              letterSpacing="0.3em"
-              color="rgba(122,114,101,0.5)"
-              textTransform="uppercase"
-            >
-              © {new Date().getFullYear()} — All rights reserved
-            </Text>
-          </Box>
+      {loadingAccounts ? (
+        <Flex justify="center" mt={20}>
+          <Spinner size="xl" color="blue.400" />
         </Flex>
-      </Box>
-    </>
+      ) : (
+        <>
+          <Card
+            mb={4}
+            bg="white"
+            borderWidth="1px"
+            borderColor="gray.200"
+            borderRadius="12px"
+            borderLeft="3px solid"
+            borderLeftColor="blue.400"
+          >
+            <CardBody py={4} px={5}>
+              <Flex align="center" gap={3} flexWrap="wrap">
+                <Text fontWeight="700" color="gray.600" fontSize="13px" whiteSpace="nowrap">
+                  Account:
+                </Text>
+
+                <Select
+                  placeholder="Select an account..."
+                  border="1.5px solid"
+                  minW="260px"
+                  maxW="420px"
+                  flex="1"
+                  height="35px"
+                  onChange={handleAccountChange}
+                  value={selectedAccountKey}
+                >
+                  {accounts.map((acc) => {
+                    const roleLabel =
+                      acc.customerRole && acc.vendorRole
+                        ? "Bilateral"
+                        : acc.vendorRole
+                          ? "Vendor"
+                          : "Customer";
+                    const value = `${acc.accountName}|${acc.accountId || ""}`;
+                    return (
+                      <option key={value} value={value}>
+                        {acc.accountName} ({roleLabel})
+                      </option>
+                    );
+                  })}
+                </Select>
+
+                <Input
+                size={"sm"}
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    setExposure(null);
+                  }}
+                  minW="160px"
+                  maxW="180px"
+                />
+
+                <Input
+
+                  size="sm"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    setExposure(null);
+                  }}
+                  minW="160px"
+                  maxW="180px"
+                />
+
+                <Button
+                  size="sm"
+                  colorScheme="blue"
+                  leftIcon={<SearchIcon boxSize={3} />}
+                  onClick={handleSearch}
+                  isDisabled={!selectedAccount || loadingExposure}
+                  isLoading={loadingExposure}
+                  loadingText="Calculating"
+                  minW="120px"
+                  height="36px"
+                  borderRadius="8px"
+                  fontWeight="600"
+                  fontSize="13px"
+                >
+                  Calculate
+                </Button>
+              </Flex>
+
+              {!accounts.length ? (
+                <Text fontSize="xs" color="gray.500" mt={3}>
+                  No active accounts found.
+                </Text>
+              ) : null}
+            </CardBody>
+          </Card>
+
+          {exposure ? (
+            <>
+              <Card mb={4} borderWidth="1px" borderColor="gray.200" borderRadius="10px">
+                <CardBody py={3}>
+                  <Flex align={{ base: "start", md: "center" }} justify="space-between" gap={3} flexDirection={{ base: "column", md: "row" }}>
+                    <Box>
+                      <Heading size="sm">{exposure.account?.accountName}</Heading>
+                      <Text fontSize="xs" color="gray.600" mt={1}>
+                        {exposure?.dateRange?.startDate || exposure?.dateRange?.endDate
+                          ? `Snapshot from ${exposure?.dateRange?.startDate || "beginning"} to ${exposure?.dateRange?.endDate || "today"}`
+                          : "Snapshot up to current time from CDR traffic"}
+                      </Text>
+                    </Box>
+                    <Badge colorScheme={netBadge.scheme} fontSize="11px" px={2} py={1} borderRadius="6px">
+                      {netBadge.text}
+                    </Badge>
+                  </Flex>
+                </CardBody>
+              </Card>
+
+              <Grid templateColumns={{ base: "1fr", md: "1fr 1fr", xl: "repeat(4, 1fr)" }} gap={4} mb={4}>
+                <GridItem>
+                  <ExposureStatCard
+                    label="Customer Expense"
+                      value={exposureBreakdown.customerExpense}
+                    color="blue.600"
+                    help="Derived from customer-side CDR revenue"
+                  />
+                </GridItem>
+                <GridItem>
+                  <ExposureStatCard
+                    label="Vendor Expense"
+                      value={exposureBreakdown.vendorExpense}
+                    color="purple.600"
+                    help="Derived from vendor-side CDR cost"
+                  />
+                </GridItem>
+                <GridItem>
+                  <ExposureStatCard
+                    label="Total Receivable"
+                      value={exposureBreakdown.totalReceivable}
+                    color="green.600"
+                      help="Shown only when customer expense is higher than vendor expense"
+                  />
+                </GridItem>
+                <GridItem>
+                  <ExposureStatCard
+                    label="Total Payable"
+                      value={exposureBreakdown.totalPayable}
+                    color="red.600"
+                      help="Shown only when vendor expense is higher than customer expense"
+                  />
+                </GridItem>
+              </Grid>
+
+              <Card mb={4} borderWidth="1px" borderColor="gray.200" borderRadius="10px">
+                <CardBody>
+                  <Flex align="center" justify="space-between">
+                    <Text fontSize="sm" color="gray.600" textTransform="uppercase" letterSpacing="0.05em">
+                      Net Exposure
+                    </Text>
+                    <Text
+                      fontSize="2xl"
+                      fontWeight="extrabold"
+                      color={
+                        Number(exposureBreakdown.netAmount || 0) >= 0
+                          ? "green.600"
+                          : "red.600"
+                      }
+                    >
+                      ${formatAmount(Math.abs(exposureBreakdown.netAmount || 0))}
+                    </Text>
+                  </Flex>
+                </CardBody>
+              </Card>
+
+              <Grid templateColumns={{ base: "1fr", xl: "1fr 1fr" }} gap={4}>
+                <GridItem>
+                  <MetricsCard
+                    title="Customer Side Metrics"
+                    metrics={exposure.customerMetrics}
+                    badgeText="Receivable Side"
+                    badgeScheme="blue"
+                  />
+                </GridItem>
+                <GridItem>
+                  <MetricsCard
+                    title="Vendor Side Metrics"
+                    metrics={exposure.vendorMetrics}
+                    badgeText="Payable Side"
+                    badgeScheme="purple"
+                  />
+                </GridItem>
+              </Grid>
+            </>
+          ) : (
+            <Card borderWidth="1px" borderColor="gray.200" borderRadius="10px">
+              <CardBody>
+                <Text fontSize="sm" color="gray.500">
+                  Select an account and click Calculate to view vendor expense, customer expense, total payable, and total receivable from CDR data till now.
+                </Text>
+              </CardBody>
+            </Card>
+          )}
+        </>
+      )}
+    </Box>
   );
 };
 

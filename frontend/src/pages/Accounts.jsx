@@ -21,7 +21,10 @@ import {
   Tooltip,
   Flex,
 } from "@chakra-ui/react";
-import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
+import {
+  MemoizedInput as Input,
+  MemoizedSelect as Select,
+} from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
   FiPlus,
@@ -62,9 +65,17 @@ const Accounts = () => {
 
   const { user } = useAuth();
   const [customers, setCustomers] = useState([]);
-  const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [users, setUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [pagination, setPagination] = useState({
+    total: 0,
+    page: 1,
+    limit: 25,
+    totalPages: 1,
+  });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -144,6 +155,7 @@ const Accounts = () => {
   const [loading, setLoading] = useState(false);
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
   const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
   const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
   const [selectedAccountForTopup, setSelectedAccountForTopup] = useState(null);
@@ -195,12 +207,17 @@ const Accounts = () => {
   ];
 
   useEffect(() => {
-    loadCustomers();
-  }, []);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+      setPage(1);
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
-    filterCustomers();
-  }, [customers, searchTerm, roleFilter, statusFilter]);
+    loadCustomers();
+  }, [debouncedSearch, roleFilter, statusFilter, ownerFilter, page, pageSize]);
 
   useEffect(() => {
     if (selectedCustomer) {
@@ -218,7 +235,7 @@ const Accounts = () => {
           setUsers(response.data);
         }
       } catch (error) {
-        console.error('Error fetching users:', error);
+        console.error("Error fetching users:", error);
       }
     };
     loadUsers();
@@ -227,9 +244,21 @@ const Accounts = () => {
   const loadCustomers = async () => {
     setLoading(true);
     try {
-      const customersData = await fetchCustomers();
-      setCustomers(customersData);
-      setFilteredCustomers(customersData);
+      const customersData = await fetchCustomers({
+        role: roleFilter,
+        status: statusFilter,
+        owner: ownerFilter,
+        query: debouncedSearch,
+        page,
+        limit: pageSize,
+      });
+      setCustomers(customersData.accounts || []);
+      setPagination({
+        total: Number(customersData.total || 0),
+        page: Number(customersData.page || page),
+        limit: Number(customersData.limit || pageSize),
+        totalPages: Number(customersData.totalPages || 1),
+      });
     } catch (error) {
       toast({
         title: "Error loading accounts",
@@ -239,51 +268,10 @@ const Accounts = () => {
         isClosable: true,
       });
       setCustomers([]);
-      setFilteredCustomers([]);
+      setPagination({ total: 0, page: 1, limit: pageSize, totalPages: 1 });
     } finally {
       setLoading(false);
     }
-  };
-
-  const filterCustomers = () => {
-    if (!customers.length) return;
-
-    let filtered = [...customers];
-
-    // Filter by search term
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(
-        (customer) =>
-          customer.accountName?.toLowerCase().includes(term) ||
-          customer.email?.toLowerCase().includes(term) ||
-          customer.phone?.toLowerCase().includes(term) ||
-          customer.customerCode?.toLowerCase().includes(term) ||
-          customer.vendorCode?.toLowerCase().includes(term),
-      );
-    }
-
-    // Filter by role
-    if (roleFilter !== "all") {
-      filtered = filtered.filter(
-        (customer) => customer.accountRole === roleFilter,
-      );
-    }
-
-    // Filter by status
-    if (statusFilter !== "all") {
-      if (statusFilter === "active") {
-        filtered = filtered.filter((customer) => customer.active === true);
-      } else if (statusFilter === "inactive") {
-        filtered = filtered.filter((customer) => customer.active === false);
-      } else {
-        filtered = filtered.filter(
-          (customer) => customer.accountStatus === statusFilter,
-        );
-      }
-    }
-
-    setFilteredCustomers(filtered);
   };
 
   const calculateCustomerStats = async () => {
@@ -416,7 +404,7 @@ const Accounts = () => {
   };
 
   const handleTopup = (customer) => {
-    if (customer.billingType !== 'prepaid') {
+    if (customer.billingType !== "prepaid") {
       toast({
         title: "Not applicable",
         description: "Topup is only available for prepaid accounts",
@@ -431,9 +419,10 @@ const Accounts = () => {
   };
 
   const handleTopupSuccess = (newBalance) => {
+    const safeBalance = Number(newBalance);
     toast({
       title: "Topup successful",
-      description: `Account balance updated to $${newBalance.toFixed(2)}`,
+      description: `Account balance updated to $${(Number.isFinite(safeBalance) ? safeBalance : 0).toFixed(2)}`,
       status: "success",
       duration: 3000,
       isClosable: true,
@@ -585,7 +574,6 @@ const Accounts = () => {
   ];
 
   const columns = [
-    
     {
       key: "accountOwner",
       header: "Account Owner",
@@ -619,16 +607,18 @@ const Accounts = () => {
       // minWidth: "200px",
       render: (value, row) => (
         <Box>
-          <Text fontWeight="medium" fontSize="sm" noOfLines={1}>{value}</Text>
+          <Text fontWeight="medium" fontSize="sm" noOfLines={1}>
+            {value}
+          </Text>
           <HStack spacing={1} mt={1}>
             {row.customerCode && (
               <Badge fontSize="xs" colorScheme="black" variant="outline">
-                 {row.customerCode}
+                {row.customerCode}
               </Badge>
             )}
             {row.vendorCode && (
               <Badge fontSize="xs" colorScheme="black" variant="outline">
-                 {row.vendorCode}
+                {row.vendorCode}
               </Badge>
             )}
           </HStack>
@@ -653,8 +643,8 @@ const Accounts = () => {
         const status = statusOptions.find((s) => s.value === row.accountStatus);
         return (
           <Badge
-           borderRadius={"full"}
-           px={2}
+            borderRadius={"full"}
+            px={2}
             colorScheme={status?.color || (value ? "green" : "red")}
             variant="subtle"
           >
@@ -715,161 +705,215 @@ const Accounts = () => {
           title="Accounts Management"
           description="Manage customers, vendors, resellers and agents"
           rightContent={
-            <>
             <Flex
               align={{ base: "stretch", md: "center" }}
               direction={{ base: "column", md: "row" }}
               gap={2}
               w={{ base: "full", md: "auto" }}
-              gridColumn={{ base: 1, md: 2, lg: 4 }}
             >
-              
-              {/* Role Filter */}
-              <Select
-                borderRadius={"md"}
-                bg={"white"}
-                size="sm"
-                width={{ base: "100%", md: "150px" }}
-                value={roleFilter}
-                onChange={(e) => setRoleFilter(e.target.value)}
-              >
-                <option value="all">All Roles</option>
-                {accountRoleOptions.map((role) => (
-                  <option key={role.value} value={role.value}>
-                    {role.label}
-                  </option>
-                ))}
-              </Select>
-
-              {/* Status Filter */}
-              <Select
-                bg={"white"}
-                borderRadius={"md"}
-                size="sm"
-                width={{ base: "100%", md: "150px" }}
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">All Status</option>
-                {statusOptions.map((status) => (
-                  <option key={status.value} value={status.value}>
-                    {status.label}
-                  </option>
-                ))}
-              </Select>
-
-              {/* Search Bar */}
-              <InputGroup
-                size="sm"
-                bg="white"
-                w={{ base: "100%", md: "300px" }}
-                position="relative"
-                border="2px solid"
-                borderColor="gray.200"
-                borderRadius="md"
-                _hover={{
-                  borderColor: "blue.300",
-                  boxShadow: "0 0 0 3px rgba(66, 153, 225, 0.1)",
-                }}
-                _focusWithin={{
-                  borderColor: "blue.500",
-                  boxShadow: "0 0 0 3px rgba(66, 153, 225, 0.2)",
-                  transform: "translateY(-1px)",
-                }}
-                transition="all 0.2s ease"
-                overflow="hidden"
-              >
-                <InputLeftElement pointerEvents="none">
-                  <Icon as={FiSearch} color="blue.500" />
-                </InputLeftElement>
-
-                <Input
-                  w="100%"
-                  maxW="250px"
-                  placeholder="Search accounts..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  bg="white"
-                  border="none"
-                  pl={10}
-                  pr={searchTerm ? 10 : 4}
-                  fontSize="sm"
-                  _placeholder={{
-                    color: "gray.500",
-                    fontSize: "sm",
-                  }}
-                  _focus={{
-                    outline: "none",
-                    boxShadow: "none",
-                  }}
-                />
-
-                {searchTerm && (
-                  <InputRightElement>
-                    <IconButton
-                      aria-label="Clear search"
-                      icon={<FiX />}
-                      size="xs"
-                      variant="ghost"
-                      color="gray.500"
-                      _hover={{ color: "red.500", bg: "red.50" }}
-                      onClick={() => setSearchTerm("")}
-                    />
-                  </InputRightElement>
-                )}
-              </InputGroup>
-
               {user.role === "admin" && (
                 <Button
-                    borderRadius="6px"
-                    leftIcon={<FiUpload />}
-                    colorScheme="blue"
-                    variant="solid"
-                    onClick={handleBulkUploadClick}
-                    size="sm"
-                  >
-                    Bulk Upload
-                  </Button>)}
-                  <Button
                   borderRadius="6px"
-                  leftIcon={<FiPlus />}
-                  color="white"
-                  bgGradient="linear(to-r, blue.500, blue.600)"
-                  _hover={{ bgGradient: "linear(to-r, blue.600, blue.700)" }}
-                  onClick={handleAddNew}
+                  leftIcon={<FiUpload />}
+                  colorScheme="blue"
+                  variant="solid"
+                  onClick={handleBulkUploadClick}
                   size="sm"
                 >
-                  Add Account
+                  Bulk Upload
                 </Button>
-              </Flex>
-            </>
+              )}
+              <Button
+                borderRadius="6px"
+                leftIcon={<FiPlus />}
+                color="white"
+                bgGradient="linear(to-r, blue.500, blue.600)"
+                _hover={{ bgGradient: "linear(to-r, blue.600, blue.700)" }}
+                onClick={handleAddNew}
+                size="sm"
+              >
+                Add Account
+              </Button>
+            </Flex>
           }
         />
 
         {/* Account Stats Summary */}
         <Grid
-  templateColumns={{ base: "1fr", md: "repeat(2, 1fr)", lg: "repeat(4, 1fr)" }}
-  gap={4}
->
-  {[
-    { label: "Total Accounts", value: customers.length },
-    { label: "Active Accounts", value: customers.filter((c) => c.active === true).length },
-    { label: "Customers", value: customers.filter((c) => ["customer", "both"].includes(c.accountRole)).length },
-    { label: "Vendors", value: customers.filter((c) => ["vendor", "both"].includes(c.accountRole)).length },
-  ].map(({ label, value }) => (
-    <Box key={label} p={4} px={5} bg="gray.50" borderRadius="lg" border={"1px solid"} borderColor="gray.200" shadow="sm">
-      <Text fontSize="xs" fontWeight="500" color="gray.600" letterSpacing="wider" textTransform="uppercase" mb={1}>
-        {label}
-      </Text>
-      <HStack spacing={2} align={"baseline"}>
-      <Text fontSize="2xl" fontWeight="500" color="gray.700" lineHeight="1">
-        {value}
-      </Text>
-      <Text fontSize="xs" color="gray.400">accounts</Text>
-      </HStack>
-    </Box>
-  ))}
-</Grid>
+          templateColumns={{
+            base: "1fr",
+            md: "repeat(2, 1fr)",
+            lg: "repeat(4, 1fr)",
+          }}
+          gap={4}
+        >
+          {[
+            { label: "Total Accounts", value: pagination.total },
+            {
+              label: "Active Accounts",
+              value: customers.filter((c) => c.active === true).length,
+            },
+            {
+              label: "Customers",
+              value: customers.filter((c) =>
+                ["customer", "both"].includes(c.accountRole),
+              ).length,
+            },
+            {
+              label: "Vendors",
+              value: customers.filter((c) =>
+                ["vendor", "both"].includes(c.accountRole),
+              ).length,
+            },
+          ].map(({ label, value }) => (
+            <Box
+              key={label}
+              p={4}
+              px={5}
+              bg="gray.50"
+              borderRadius="lg"
+              border={"1px solid"}
+              borderColor="gray.200"
+              shadow="sm"
+            >
+              <Text
+                fontSize="xs"
+                fontWeight="500"
+                color="gray.600"
+                letterSpacing="wider"
+                textTransform="uppercase"
+                mb={1}
+              >
+                {label}
+              </Text>
+              <HStack spacing={2} align={"baseline"}>
+                <Text
+                  fontSize="2xl"
+                  fontWeight="500"
+                  color="gray.700"
+                  lineHeight="1"
+                >
+                  {value}
+                </Text>
+                <Text fontSize="xs" color="gray.400">
+                  accounts
+                </Text>
+              </HStack>
+            </Box>
+          ))}
+        </Grid>
+        <Flex
+          align={{ base: "stretch", md: "center" }}
+          direction={{ base: "column", md: "row" }}
+          gap={2}
+          w="full"
+        >
+          <Select
+            // borderRadius={"md"}
+            // bg={"white"}
+            size="sm"
+            width={{ base: "100%", md: "150px" }}
+            value={roleFilter}
+            onChange={(e) => {
+              setRoleFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All Roles</option>
+            {accountRoleOptions.map((role) => (
+              <option key={role.value} value={role.value}>
+                {role.label}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            // bg={"white"}
+            // borderRadius={"md"}
+            size="sm"
+            width={{ base: "100%", md: "150px" }}
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All Status</option>
+            {statusOptions.map((status) => (
+              <option key={status.value} value={status.value}>
+                {status.label}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            // bg={"white"}
+            // borderRadius={"md"}
+            size="sm"
+            width={{ base: "100%", md: "190px" }}
+            value={ownerFilter}
+            onChange={(e) => {
+              setOwnerFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All Owners</option>
+            {users.map((u) => (
+              <option key={u.id} value={String(u.id)}>
+                {`${u.first_name || u.firstName || ""} ${u.last_name || u.lastName || ""}`.trim() ||
+                  u.email ||
+                  `User ${u.id}`}
+              </option>
+            ))}
+          </Select>
+
+          <InputGroup
+            size="sm"
+            // bg="white"
+            w={{ base: "100%", md: "320px" }}
+            position="relative"
+            // borderRadius="md"
+
+            transition="all 0.2s ease"
+            overflow="hidden"
+          >
+            <InputLeftElement pointerEvents="none">
+              <Icon as={FiSearch} color="blue.500" />
+            </InputLeftElement>
+
+            <Input
+              w="100%"
+              placeholder="Search by account name..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              border="none"
+              pl={8}
+              pr={searchTerm ? 10 : 4}
+              _placeholder={{
+                color: "gray.600",
+                fontSize: "sm",
+              }}
+              _focus={{
+                outline: "none",
+                boxShadow: "none",
+              }}
+            />
+
+            {searchTerm && (
+              <InputRightElement>
+                <IconButton
+                  aria-label="Clear search"
+                  icon={<FiX />}
+                  size="xs"
+                  variant="ghost"
+                  color="gray.500"
+                  _hover={{ color: "red.500", bg: "red.50" }}
+                  onClick={() => setSearchTerm("")}
+                />
+              </InputRightElement>
+            )}
+          </InputGroup>
+        </Flex>
         {/* Data Table */}
         {loading ? (
           <Box textAlign="center" py={10}>
@@ -878,14 +922,24 @@ const Accounts = () => {
         ) : (
           <DataTable
             columns={columns}
-            data={filteredCustomers}
+            data={customers}
             onEdit={handleEdit}
             onDelete={handleDelete}
             onView={handleView}
+            serverPagination
+            page={pagination.page || page}
+            pageSize={pagination.limit || pageSize}
+            total={pagination.total || 0}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+            isPaginationDisabled={loading}
             // render a topup button beside the three‑dot menu when the account is
             // prepaid; this keeps both actions in the same column
             rowActions={(row) =>
-              row.billingType === 'prepaid' ? (
+              row.billingType === "prepaid" ? (
                 <Button
                   size="xs"
                   colorScheme="green"
@@ -899,7 +953,7 @@ const Accounts = () => {
               ) : null
             }
             striped={true}
-            height="calc(100vh - 337px)"
+            height="calc(100vh - 350px)"
           />
         )}
 

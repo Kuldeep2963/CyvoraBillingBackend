@@ -50,6 +50,7 @@ import {
   uploadCountryCodes,
   updateGlobalSettings,
 } from '../utils/api';
+import { formatNotificationTime } from '../utils/notificationTime';
 import PageNavBar from '../components/PageNavBar';
 
 const DEFAULT_SETTINGS = {
@@ -88,8 +89,8 @@ const normalizeSettingsShape = (raw = {}) => {
   }, {});
 };
 
-const RETENTION_MIN = 30;
-const RETENTION_MAX = 3650;
+const RETENTION_MIN = 2;
+const RETENTION_MAX = 90;
 const POLLING_MIN = 5;
 const POLLING_MAX = 3600;
 
@@ -630,7 +631,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
 // Owns its own fetch + polling so the top-level component no longer needs to
 // pre-fetch notifications on mount.
 // ─────────────────────────────────────────────────────────────────────────────
-const NotificationsTab = ({ settings, updateSetting, pollMsRef }) => {
+const NotificationsTab = ({ settings, updateSetting }) => {
   const toast = useToast();
   const isMounted = useRef(true);
 
@@ -662,17 +663,18 @@ const NotificationsTab = ({ settings, updateSetting, pollMsRef }) => {
     loadNotifications();
   }, [loadNotifications]);
 
-  // Polling — scoped to this tab so it only runs while the tab is mounted
+  const pollingMs = useMemo(() => {
+    const seconds = Number(settings.notificationPollingSeconds) || 10;
+    return Math.max(5, Math.min(3600, seconds)) * 1000;
+  }, [settings.notificationPollingSeconds]);
+
+  // Polling — scoped to this tab so it only runs while the tab is mounted.
   useEffect(() => {
-    let lastPoll = Date.now();
     const timer = setInterval(() => {
-      if (Date.now() - lastPoll >= pollMsRef.current) {
-        lastPoll = Date.now();
-        loadNotifications(true);
-      }
-    }, 5_000);
+      loadNotifications(true);
+    }, pollingMs);
     return () => clearInterval(timer);
-  }, [loadNotifications, pollMsRef]);
+  }, [loadNotifications, pollingMs]);
 
   const handleMarkRead = async (id) => {
     try {
@@ -795,7 +797,7 @@ const NotificationsTab = ({ settings, updateSetting, pollMsRef }) => {
                       <Text fontWeight="600" noOfLines={1}>{item.title}</Text>
                       <Text fontSize="sm" color="gray.700">{item.message}</Text>
                       <Text fontSize="xs" color="gray.500" mt={1}>
-                        {new Date(item.createdAt).toLocaleString()}
+                        {formatNotificationTime(item.createdAt)}
                       </Text>
                     </Box>
                     {!item.isRead && (
@@ -836,21 +838,12 @@ const Settings = () => {
   const [pollingError, setPollingError]         = useState('');
 
   const savedSettingsRef = useRef(DEFAULT_SETTINGS);
-  // pollMsRef is passed down to NotificationsTab so its internal timer can
-  // react to the setting change without a re-mount.
-  const pollMsRef = useRef(10_000);
   const isMounted = useRef(true);
 
   useEffect(() => {
     isMounted.current = true;
     return () => { isMounted.current = false; };
   }, []);
-
-  // Keep pollMsRef in sync whenever the setting changes
-  useEffect(() => {
-    const seconds = Number(settings.notificationPollingSeconds) || 10;
-    pollMsRef.current = Math.max(5, Math.min(3600, seconds)) * 1000;
-  }, [settings.notificationPollingSeconds]);
 
   const applySettings = useCallback((merged) => {
     setSettings(merged);
@@ -1124,7 +1117,6 @@ const Settings = () => {
             <NotificationsTab
               settings={settings}
               updateSetting={updateSetting}
-              pollMsRef={pollMsRef}
             />
           </TabPanel>
 

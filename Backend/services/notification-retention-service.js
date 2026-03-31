@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { Op } = require('sequelize');
 const Notification = require('../models/Notification');
+const NotificationRead = require('../models/NotificationRead');
 
 class NotificationRetentionService {
   constructor() {
@@ -29,6 +30,28 @@ class NotificationRetentionService {
   async runCleanup() {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - this.retentionDays);
+
+    const staleNotifications = await Notification.findAll({
+      where: {
+        createdAt: {
+          [Op.lt]: cutoff,
+        },
+      },
+      attributes: ['id'],
+      raw: true,
+    });
+
+    const staleIds = staleNotifications.map((row) => row.id);
+
+    if (staleIds.length > 0) {
+      await NotificationRead.destroy({
+        where: {
+          notificationId: {
+            [Op.in]: staleIds,
+          },
+        },
+      });
+    }
 
     const deletedCount = await Notification.destroy({
       where: {

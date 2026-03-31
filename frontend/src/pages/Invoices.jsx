@@ -3,6 +3,7 @@ import {
   Box,
   Container,
   Heading,
+  InputLeftElement, InputRightElement,
   VStack,
   Text,
   Button,
@@ -59,11 +60,6 @@ import {
   WrapItem,
   Tooltip,
   useColorModeValue,
-  Tabs,
-  TabList,
-  TabPanels,
-  Tab,
-  TabPanel,
   TableContainer,
   Link,
   Breadcrumb,
@@ -74,6 +70,7 @@ import {
   Accordion,
   Checkbox,
 } from "@chakra-ui/react";
+import { SearchIcon, CloseIcon } from "@chakra-ui/icons";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
@@ -112,6 +109,7 @@ import {
   FiChevronsLeft,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
+import TablePagination from "../components/TablePagination";
 import ExportButton from "../components/ExportButton";
 import ViewInvoiceModal from "../components/modals/ViewInvoiceModal";
 import GenerateInvoiceModal from "../components/modals/GenerateInvoiceModal";
@@ -120,6 +118,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import {
   fetchInvoiceItems,
   fetchInvoices,
+  searchInvoicesByAccountName,
   generateInvoice as apiGenerateInvoice,
   fetchReportAccounts,
   deleteInvoice as apiDeleteInvoice,
@@ -142,16 +141,25 @@ const CardFooter = ({ children, ...props }) => (
 
 const Invoices = () => {
   const [invoices, setInvoices] = useState([]);
-  const [filteredInvoices, setFilteredInvoices] = useState([]);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [disputes, setDisputes] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [invoiceTypeFilter, setInvoiceTypeFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [pagination, setPagination] = useState({
+    total: 0,
+    page: 1,
+    limit: 25,
+    totalPages: 1,
+  });
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const [generateForm, setGenerateForm] = useState({
     invoiceType: "customer",
     customerId: "",
@@ -160,8 +168,10 @@ const Invoices = () => {
     billingCycle: "monthly",
   });
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     customerId: "",
+    paymentSource: "new_payment",
     amount: "",
     paymentDate: format(new Date(), "yyyy-MM-dd"),
     paymentMethod: "bank_transfer",
@@ -197,25 +207,57 @@ const Invoices = () => {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+      setPage(1);
+    }, 800);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm]);
 
   useEffect(() => {
-    filterInvoices();
+    loadData();
+  }, [debouncedSearch, statusFilter, invoiceTypeFilter, page, pageSize]);
+
+  useEffect(() => {
     calculateDashboardStats();
-  }, [invoices, searchTerm, statusFilter, invoiceTypeFilter]);
+  }, [invoices]);
 
   const loadData = async () => {
     try {
+      const normalizedSearch = debouncedSearch;
+      const invoiceQueryParams = {
+        page,
+        limit: pageSize,
+      };
+      if (statusFilter !== "all") {
+        invoiceQueryParams.status = statusFilter;
+      }
+      if (invoiceTypeFilter !== "all") {
+        invoiceQueryParams.invoiceType = invoiceTypeFilter;
+      }
+
+      const invoicesRequest = normalizedSearch
+        ? searchInvoicesByAccountName(normalizedSearch, invoiceQueryParams)
+        : fetchInvoices(invoiceQueryParams);
+
       const [invoicesRes, customersData, disputesRes] = await Promise.all([
-        fetchInvoices(),
+        invoicesRequest,
         fetchReportAccounts(),
         getAllDisputes(),
       ]);
 
       const invoicesData = invoicesRes.success ? invoicesRes.data : [];
       setInvoices(invoicesData);
-      setFilteredInvoices(invoicesData);
+      setSelectedInvoiceIds([]);
+      setPagination(
+        invoicesRes.pagination || {
+          total: invoicesData.length,
+          page,
+          limit: pageSize,
+          totalPages: 1,
+        },
+      );
 
       const disputesData = disputesRes.success ? disputesRes.data : [];
       setDisputes(disputesData);
@@ -241,32 +283,6 @@ const Invoices = () => {
         isClosable: true,
       });
     }
-  };
-
-  const filterInvoices = () => {
-    let filtered = [...invoices];
-
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(
-        (invoice) =>
-          invoice.invoiceNumber?.toLowerCase().includes(term) ||
-          invoice.customerName?.toLowerCase().includes(term) ||
-          invoice.customerId?.toLowerCase().includes(term),
-      );
-    }
-
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((invoice) => invoice.status === statusFilter);
-    }
-
-    if (invoiceTypeFilter !== "all") {
-      filtered = filtered.filter(
-        (invoice) => invoice.invoiceType === invoiceTypeFilter,
-      );
-    }
-
-    setFilteredInvoices(filtered);
   };
 
   const calculateDashboardStats = () => {
@@ -330,6 +346,8 @@ const Invoices = () => {
   };
 
   const handleGenerateInvoice = async () => {
+    if (isGeneratingInvoice) return;
+    setIsGeneratingInvoice(true);
     try {
       const isVendor = generateForm.invoiceType === "vendor";
       const customer = customers.find(
@@ -397,6 +415,8 @@ const Invoices = () => {
         duration: 3000,
         isClosable: true,
       });
+    } finally {
+      setIsGeneratingInvoice(false);
     }
   };
 
@@ -408,7 +428,8 @@ const Invoices = () => {
   const onRecordPaymentClick = (invoice) => {
     setPaymentForm({
       ...paymentForm,
-      customerId: invoice.customerGatewayId || invoice.customerCode,
+      customerId: invoice.customerCode || invoice.customerGatewayId,
+      paymentSource: "new_payment",
       invoiceId: invoice.id,
       amount: invoice.balanceAmount,
     });
@@ -556,9 +577,12 @@ const Invoices = () => {
   };
 
   const handleRecordPayment = async () => {
+    if (isRecordingPayment) return;
+    setIsRecordingPayment(true);
     try {
       const paymentData = {
         customerId: paymentForm.customerId,
+        paymentSource: paymentForm.paymentSource,
         amount: parseFloat(paymentForm.amount),
         paymentDate: paymentForm.paymentDate,
         paymentMethod: paymentForm.paymentMethod,
@@ -588,6 +612,7 @@ const Invoices = () => {
         setIsPaymentModalOpen(false);
         setPaymentForm({
           customerId: "",
+          paymentSource: "new_payment",
           amount: "",
           paymentDate: format(new Date(), "yyyy-MM-dd"),
           paymentMethod: "bank_transfer",
@@ -606,6 +631,8 @@ const Invoices = () => {
         duration: 3000,
         isClosable: true,
       });
+    } finally {
+      setIsRecordingPayment(false);
     }
   };
 
@@ -844,6 +871,7 @@ const Invoices = () => {
     <Box>
       {/* ── Header ─────────────────────────────────────────────── */}
       <PageNavBar
+       mb={6}
         title="Invoice Management"
         description="Manage customer invoices, track payments, and generate reports"
         rightContent={
@@ -888,7 +916,7 @@ const Invoices = () => {
                   <MenuItem icon={<FiCheckCircle />} onClick={() => handleBulkStatusChange("paid")}>Mark as Paid</MenuItem>
                   <MenuItem icon={<FiClock />} onClick={() => handleBulkStatusChange("sent")}>Mark as Sent</MenuItem>
                   <MenuItem icon={<FiAlertTriangle />} onClick={() => handleBulkStatusChange("overdue")}>Mark as Overdue</MenuItem>
-                  <MenuItem icon={<FiXCircle />} onClick={() => handleBulkStatusChange("cancelled")}>Mark as Cancelled</MenuItem>
+                  {/* <MenuItem icon={<FiXCircle />} onClick={() => handleBulkStatusChange("cancelled")}>Mark as Cancelled</MenuItem> */}
                 </MenuGroup>
                 <MenuDivider />
                 <MenuItem icon={<FiEdit />} onClick={handleRegenerateSelected}>Regenerate Selected</MenuItem>
@@ -900,7 +928,7 @@ const Invoices = () => {
       />
 
       {/* ── Dashboard Stats ─────────────────────────────────────── */}
-      <Grid templateColumns={{ base: "1fr", md: "2fr 1fr" }} gap={4} mt={4} mb={4}>
+      {/* <Grid templateColumns={{ base: "1fr", md: "2fr 1fr" }} gap={4} mt={4} mb={4}>
         <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
           {[
             { label: "Total Revenue",        value: `$${dashboardStats.totalRevenue.toFixed(2)}`,   color: "green.600",  helper: <><StatArrow type="increase" />12.5% from last month</> },
@@ -933,35 +961,62 @@ const Invoices = () => {
             ))}
           </VStack>
         </Box>
-      </Grid>
+      </Grid> */}
 
-      {/* ── Tabs ───────────────────────────────────────────────── */}
-      <Tabs
-        variant="line"
-        colorScheme="blue"
-        mb={3}
-        onChange={(index) => {
-          const tabs = ["all", "pending", "sent", "paid", "overdue"];
-          setStatusFilter(tabs[index] || "all");
-        }}
-      >
-        <TabList gap={8}>
-          <Flex px={3} borderRadius="12px" alignItems="center" flex={2} gap={4} mb={2}>
-            <Text fontWeight="bold" color="gray.700">Invoice Type:</Text>
-            <Select bg="gray.200" maxW="250px" borderRadius="8px" value={invoiceTypeFilter}
-              size="sm" onChange={(e) => setInvoiceTypeFilter(e.target.value)}>
-              <option value="all">All Types</option>
-              <option value="customer">Customer</option>
-              <option value="vendor">Vendor</option>
-            </Select>
-          </Flex>
-          <Tab><FiFileText style={{ marginRight: "8px" }} /><HStack spacing={2}><Text>All Invoices</Text><Badge borderRadius="full" colorScheme="blue">{invoices.length}</Badge></HStack></Tab>
-          <Tab><FiClock style={{ marginRight: "8px" }} /><HStack><Text>Pending</Text><Badge borderRadius="full" colorScheme="yellow">{dashboardStats.pendingInvoices}</Badge></HStack></Tab>
-          <Tab><FiClock style={{ marginRight: "8px" }} /><HStack><Text>Sent</Text><Badge borderRadius="full" colorScheme="orange">{dashboardStats.sentInvoices}</Badge></HStack></Tab>
-          <Tab><FiCheckCircle style={{ marginRight: "8px" }} /><HStack><Text>Paid</Text><Badge borderRadius="full" colorScheme="green">{dashboardStats.paidInvoices}</Badge></HStack></Tab>
-          <Tab><FiAlertTriangle style={{ marginRight: "8px" }} /><HStack><Text>Overdue</Text><Badge borderRadius="full" colorScheme="red">{dashboardStats.overdueInvoices}</Badge></HStack></Tab>
-        </TabList>
-      </Tabs>
+      <Flex px={3} borderRadius="12px" alignItems="center" gap={8} mb={3} wrap="wrap">
+        <HStack spacing={2}>
+        <Text  color="gray.600">Invoice Type:</Text>
+        <Select
+          maxW="220px"
+          borderRadius="8px"
+          value={invoiceTypeFilter}
+          size="sm"
+          onChange={(e) => {
+            setInvoiceTypeFilter(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="all">All Types</option>
+          <option value="customer">Customer</option>
+          <option value="vendor">Vendor</option>
+        </Select>
+        </HStack>
+        <HStack spacing={2}>
+        <Text  color="gray.600">Status:</Text>
+        <Select
+          maxW="220px"
+          borderRadius="8px"
+          value={statusFilter}
+          size="sm"
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="all">All Statuses</option>
+          <option value="pending">Pending</option>
+          <option value="sent">Sent</option>
+          <option value="paid">Paid</option>
+          <option value="overdue">Overdue</option>
+        </Select>
+        </HStack>
+        <InputGroup maxW="360px" w="100%" ml={{ base: 0, md: "auto" }} size="sm">
+  <InputLeftElement pointerEvents="none">
+    <SearchIcon color="gray.400" />
+  </InputLeftElement>
+  <Input
+  pl={8}
+    placeholder="Search by account name or invoice number..."
+    value={searchTerm}
+    onChange={(e) => setSearchTerm(e.target.value)}
+  />
+  {searchTerm && (
+    <InputRightElement cursor="pointer" onClick={() => setSearchTerm("")}>
+      <CloseIcon color="gray.400" boxSize={3} />
+    </InputRightElement>
+  )}
+</InputGroup>
+      </Flex>
 
       {/* ── Table Card ─────────────────────────────────────────── */}
       <Card shadow="lg" borderWidth="1px" borderColor={borderColor}>
@@ -969,27 +1024,27 @@ const Invoices = () => {
             Empty state lives inside <Tbody> as a <Tr> so the card
             naturally shrinks to fit the content — no stacked boxes. */}
         <TableContainer
-          h={filteredInvoices.length > 0 ? "350px" : "auto"}
-          maxH={filteredInvoices.length > 0 ? "350px" : "auto"}
+          h={invoices.length > 0 ? "calc(100vh - 240px)" : "auto"}
+          maxH={invoices.length > 0 ? "calc(100vh - 240px)" : "auto"}
           overflowY="auto"
         >
           <Table variant="simple" size="md">
             <Thead bg="gray.200" position="sticky" top={0} zIndex={1}>
               <Tr>
                 <Th width="40px">
-                  <Checkbox
+                  <CheckboxDataTable
                     sx={checkboxSx}
                     isChecked={
-                      selectedInvoiceIds.length === filteredInvoices.length &&
-                      filteredInvoices.length > 0
+                      selectedInvoiceIds.length === invoices.length &&
+                      invoices.length > 0
                     }
                     isIndeterminate={
                       selectedInvoiceIds.length > 0 &&
-                      selectedInvoiceIds.length < filteredInvoices.length
+                      selectedInvoiceIds.length < invoices.length
                     }
                     onChange={(e) => {
                       setSelectedInvoiceIds(
-                        e.target.checked ? filteredInvoices.map((inv) => inv.id) : [],
+                        e.target.checked ? invoices.map((inv) => inv.id) : [],
                       );
                     }}
                   />
@@ -1006,7 +1061,7 @@ const Invoices = () => {
             </Thead>
             <Tbody>
               {/* FIX: empty state inside <Tbody> so card height is natural */}
-              {filteredInvoices.length === 0 ? (
+              {invoices.length === 0 ? (
                 <Tr>
                   <Td colSpan={9} border="none">
                     <Box
@@ -1028,7 +1083,7 @@ const Invoices = () => {
                   </Td>
                 </Tr>
               ) : (
-                filteredInvoices.map((invoice) => {
+                invoices.map((invoice) => {
                   const StatusIcon = getStatusIcon(invoice.status);
                   const isOverdue =
                     invoice.status === "overdue" ||
@@ -1147,7 +1202,7 @@ const Invoices = () => {
                             <MenuItem icon={<FiTrash2 />} fontSize="13px" color="red.500" onClick={() => handleDeleteInvoice(invoice)}>Delete Invoice</MenuItem>
                           </MenuList>
                         </Menu>
-                            <IconButton bg={"white"} icon={<FiEye />} fontSize="13px" onClick={() => handleViewInvoice(invoice)}/>
+                            <IconButton bg={"transparent"} icon={<FiEye />} fontSize="13px" onClick={() => handleViewInvoice(invoice)}/>
                         </HStack>
                       </Td>
                     </Tr>
@@ -1160,18 +1215,17 @@ const Invoices = () => {
 
         {/* FIX: Footer only renders when there are invoices — no extra
             height added when the table is empty */}
-        {filteredInvoices.length > 0 && (
-          <CardFooter borderTopWidth="1px" px={4} py={4}>
-            <Flex justify="space-between" align="center" w="100%">
-              <Text color="gray.600" fontSize="sm">
-                Showing {Math.min(filteredInvoices.length, 10)} of {filteredInvoices.length} invoices
-              </Text>
-              <HStack spacing={2}>
-                <Button size="sm" variant="outline" leftIcon={<FiChevronsLeft />} isDisabled>Previous</Button>
-                <Button size="sm" variant="outline" rightIcon={<FiChevronRight />}>Next</Button>
-              </HStack>
-            </Flex>
-          </CardFooter>
+        {invoices.length > 0 && (
+          <TablePagination
+            page={pagination.page || page}
+            pageSize={pagination.limit || pageSize}
+            total={pagination.total || 0}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         )}
       </Card>
 
@@ -1194,6 +1248,7 @@ const Invoices = () => {
         setGenerateForm={setGenerateForm}
         customers={customers}
         onGenerate={handleGenerateInvoice}
+        isSubmitting={isGeneratingInvoice}
       />
 
       <RecordPaymentModal
@@ -1203,6 +1258,7 @@ const Invoices = () => {
         setPaymentForm={setPaymentForm}
         customers={customers}
         onRecordPayment={handleRecordPayment}
+        isSubmitting={isRecordingPayment}
       />
 
       {/* delete confirmation */}
