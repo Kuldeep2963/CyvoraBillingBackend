@@ -1032,7 +1032,7 @@ const Invoices = () => {
             <Thead bg="gray.200" position="sticky" top={0} zIndex={1}>
               <Tr>
                 <Th width="40px">
-                  <CheckboxDataTable
+                  <Checkbox
                     sx={checkboxSx}
                     isChecked={
                       selectedInvoiceIds.length === invoices.length &&
