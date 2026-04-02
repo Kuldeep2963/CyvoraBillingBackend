@@ -398,7 +398,7 @@ const DestinationMap = ({ destinations = [], loading = false }) => {
             Destination Traffic Map
           </Text>
           <Text fontSize={"12px"} color="gray.500">
-            {Object.keys(mapData).length} active destinations · click a country for full breakdown
+            {Object.keys(mapData).length+1} active destinations · click a country for full breakdown
           </Text>
         </Box>
         <Select

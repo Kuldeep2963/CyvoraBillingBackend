@@ -128,6 +128,47 @@ const MissingGateways = () => {
     a.remove();
   };
 
+     const STAT_CARDS = [
+  {
+    label: "Total CDRs",
+    getValue: (s) => (s.total ?? 0).toLocaleString(),
+    subtext: "Unmatched records",
+    color: "blue.600",
+  },
+  {
+    label: "Unique Gateways",
+    getValue: (s) => (s.uniqueGateways ?? 0).toLocaleString(),
+    subtext: "Distinct sources",
+    color: "purple.600",
+  },
+  {
+    label: "Total Duration",
+    getValue: (s) => `${Math.round((s.totalDuration ?? 0) / 60).toLocaleString()} min`,
+    subtext: (s) => `${(s.totalDuration ?? 0).toLocaleString()} seconds`,
+    color: "green.600",
+  },
+  {
+    label: "New Gateways",
+    getValue: (s) => (s.newGateways ?? 0).toLocaleString(),
+    subtext: "First occurrence",
+    color: "red.600",
+  },
+];
+
+// ─── Reusable stat card ───────────────────────────────────────────────────────
+const SummaryStatCard = React.memo(({ label, value, subtext, color }) => (
+  <Card bg="white" shadow="lg" _hover={{ boxShadow: "md" }} transition="all 0.2s">
+    <CardBody px={4} py={2}>
+      <Stat>
+        <StatLabel fontSize="sm" fontWeight="bold" mb={2}>{label}</StatLabel>
+        <StatNumber fontSize="2xl" color={color}>{value}</StatNumber>
+        <Text fontSize="xs" color="gray.500" mt={1}>{subtext}</Text>
+      </Stat>
+    </CardBody>
+  </Card>
+));
+SummaryStatCard.displayName = "SummaryStatCard";
+
   return (
     <VStack spacing={4} align="stretch">
       <Card>
@@ -227,47 +268,23 @@ const MissingGateways = () => {
         </CardBody>
       </Card>
 
-      <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
-        <Card bg="white" shadow={"lg"} _hover={{ boxShadow: "md" }} transition="all 0.2s">
-          <CardBody>
-            <Stat>
-              <StatLabel fontSize="sm" fontWeight="bold" mb={2}>Total CDRs</StatLabel>
-              <StatNumber fontSize="2xl" color="blue.600">{(summary.total || 0).toLocaleString()}</StatNumber>
-              <Text fontSize="xs" color="gray.500" mt={1}>Unmatched records</Text>
-            </Stat>
-          </CardBody>
-        </Card>
-        <Card bg="white" shadow={"lg"} _hover={{ boxShadow: "md" }} transition="all 0.2s">
-          <CardBody>
-            <Stat>
-              <StatLabel fontSize="sm" fontWeight="bold" mb={2}>Unique Gateways</StatLabel>
-              <StatNumber fontSize="2xl" color="purple.600">{(summary.uniqueGateways || 0).toLocaleString()}</StatNumber>
-              <Text fontSize="xs" color="gray.500" mt={1}>Distinct sources</Text>
-            </Stat>
-          </CardBody>
-        </Card>
-        <Card bg="white" shadow={"lg"} _hover={{ boxShadow: "md" }} transition="all 0.2s">
-          <CardBody>
-            <Stat>
-              <StatLabel fontSize="sm" fontWeight="bold" mb={2}>Total Duration</StatLabel>
-              <StatNumber fontSize="2xl" color="green.600">{Math.round((summary.totalDuration || 0) / 60).toLocaleString()} min</StatNumber>
-              <Text fontSize="xs" color="gray.500" mt={1}>{(summary.totalDuration || 0).toLocaleString()} seconds</Text>
-            </Stat>
-          </CardBody>
-        </Card>
-        <Card bg="white" shadow={"lg"} _hover={{ boxShadow: "md" }} transition="all 0.2s">
-          <CardBody>
-            <Stat>
-              <StatLabel fontSize="sm" fontWeight="bold" mb={2}>New Gateways</StatLabel>
-              <StatNumber fontSize="2xl" color="red.600">{(summary.newGateways || 0).toLocaleString()}</StatNumber>
-              <Text fontSize="xs" color="gray.500" mt={1}>First occurrence</Text>
-            </Stat>
-          </CardBody>
-        </Card>
-      </SimpleGrid>
+   
 
-      <Card>
-        <CardBody>
+// ─── Usage ────────────────────────────────────────────────────────────────────
+<SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+  {STAT_CARDS.map(({ label, getValue, subtext, color }) => (
+    <SummaryStatCard
+      key={label}
+      label={label}
+      value={getValue(summary)}
+      subtext={typeof subtext === "function" ? subtext(summary) : subtext}
+      color={color}
+    />
+  ))}
+</SimpleGrid>
+
+
+      <Box>
           {loading ? (
             <HStack py={8} justify="center" spacing={3}>
               <Spinner color="blue.500" />
@@ -347,7 +364,6 @@ const MissingGateways = () => {
               </HStack>
             </>
           )}
-        </CardBody>
         {filtered.length > 0 && (
           <TablePagination
             page={pagination.page || page}
@@ -361,7 +377,7 @@ const MissingGateways = () => {
             isDisabled={loading}
           />
         )}
-      </Card>
+      </Box>
     </VStack>
   );
 };

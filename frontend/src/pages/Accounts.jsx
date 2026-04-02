@@ -18,6 +18,7 @@ import {
   InputLeftElement,
   InputRightElement,
   Stack,
+  Spinner,
   Tooltip,
   Flex,
 } from "@chakra-ui/react";
@@ -699,7 +700,7 @@ const Accounts = () => {
 
   return (
     <Box>
-      <VStack spacing={6} align="stretch">
+      <VStack spacing={4} align="stretch">
         {/* Header */}
         <PageNavBar
           title="Accounts Management"
@@ -917,6 +918,7 @@ const Accounts = () => {
         {/* Data Table */}
         {loading ? (
           <Box textAlign="center" py={10}>
+            <Spinner size="lg" color="gray.500" />
             <Text>Loading accounts...</Text>
           </Box>
         ) : (

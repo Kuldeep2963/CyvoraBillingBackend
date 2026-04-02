@@ -440,11 +440,11 @@ const Dashboard = () => {
           >
             <StatCard
               title="Completed Calls"
-              value={Number(stats?.totalCalls || 0).toLocaleString()}
-              change="Live"
+              value={Number(stats?.completedCalls || 0).toLocaleString()}
+              change={Number(stats?.totalCalls || 0).toLocaleString()}
               icon={FiPhoneCall}
               color="purple"
-              helpText="Successfully connected calls"
+              helpText="Total calls"
               trend="up"
               loading={dashLoading}
             />

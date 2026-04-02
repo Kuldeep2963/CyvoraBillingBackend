@@ -1,0 +1,3391 @@
+{
+  "generatedAt": "2026-03-30T07:46:00.100Z",
+  "apply": true,
+  "candidates": [
+    {
+      "table": "logout_audit_events",
+      "column": "logout_type",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "sessions_count",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "initiated_by",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "jti",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "ip_address",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "user_agent",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "issued_at",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "last_used_at",
+      "dataType": "timestamp with time zone",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "revoked",
+      "dataType": "boolean",
+      "nullable": "NO",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "revoked_at",
+      "dataType": "timestamp with time zone",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "revoked_reason",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "user_agent",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "ip_address",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "device_id",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    }
+  ],
+  "analysis": [
+    {
+      "table": "SequelizeMeta",
+      "column": "name",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "Users",
+      "column": "id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "Users",
+      "column": "email",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "Users",
+      "column": "hashedpassword",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "Users",
+      "column": "role",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "Users",
+      "column": "first_name",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "Users",
+      "column": "last_name",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "Users",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "Users",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "Users",
+      "column": "phone",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "accountId",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "accountRole",
+      "dataType": "USER-DEFINED",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "accountStatus",
+      "dataType": "USER-DEFINED",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "customerCode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "vendorCode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "gatewayId",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "customerauthenticationType",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "customerauthenticationValue",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "accountName",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "accountOwner",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "email",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "billingEmail",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "phone",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "vendorFax",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "active",
+      "dataType": "boolean",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "vatNumber",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "resellerAccount",
+      "dataType": "boolean",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "reseller",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "currency",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "creditLimit",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "balance",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "outstandingAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "nominalCode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "addressLine1",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "addressLine2",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "addressLine3",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "city",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "state",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "postalCode",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "country",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "countryCode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "billingClass",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "billingType",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "billingTimezone",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "billingStartDate",
+      "dataType": "date",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "billingCycle",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "sendInvoiceEmail",
+      "dataType": "boolean",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "timezone",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "languages",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "createdBy",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "updatedBy",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "lastbillingdate",
+      "dataType": "date",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "nextbillingdate",
+      "dataType": "date",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "vendorauthenticationType",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "vendorauthenticationValue",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "originalCreditLimit",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "contactPerson",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "contactPersonEmail",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "soaEmail",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "disputeEmail",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "nocEmail",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "carrierType",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "lateFeeEnabled",
+      "dataType": "boolean",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "contactPersonPhone",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "ratesEmails",
+      "dataType": "jsonb",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "ratesMobileNumber",
+      "dataType": "jsonb",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "billingEmails",
+      "dataType": "jsonb",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "billingPhoneNumbers",
+      "dataType": "jsonb",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "disputeEmails",
+      "dataType": "jsonb",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "disputePhoneNumber",
+      "dataType": "jsonb",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "nocEmails",
+      "dataType": "jsonb",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "nocPhoneNumbers",
+      "dataType": "jsonb",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "accounts",
+      "column": "documents",
+      "dataType": "jsonb",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "id",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "callere164",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleraccesse164",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleee164",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleeaccesse164",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "callerip",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "callercodec",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "callergatewayid",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "callerproductid",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "callertogatewaye164",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "callertype",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleeip",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleecodec",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleegatewayid",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleeproductid",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleetogatewaye164",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleetype",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "billingmode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calllevel",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "agentfeetime",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "callerpdd",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleepdd",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "holdtime",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "callerareacode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "feetime",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "fee",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "tax",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "suitefee",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "suitefeetime",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "incomefee",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "incometax",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "customeraccount",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "customername",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleeareacode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "agentfee",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "agenttax",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "agentsuitefee",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "agentsuitefeetime",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "agentaccount",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "agentname",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "flowno",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "softswitchname",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "softswitchcallid",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "callercallid",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "calleroriginalcallid",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "rtpforward",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "enddirection",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "endreason",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "billingtype",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "cdrlevel",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "agentcdr_id",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "source_file",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "starttime",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "cdrs",
+      "column": "stoptime",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "country_codes",
+      "column": "code",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "country_codes",
+      "column": "country_name",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "customerName",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "comment",
+      "dataType": "text",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "mismatchedCount",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "status",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "resolvedAt",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "resolvedBy",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "customerCode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "invoiceNumber",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "disputeAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "invoiceIds",
+      "dataType": "json",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "disputes",
+      "column": "comments",
+      "dataType": "json",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "invoiceId",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "itemType",
+      "dataType": "USER-DEFINED",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "description",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "destination",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "destinationCode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "quantity",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "duration",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "unitPrice",
+      "dataType": "numeric",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "amount",
+      "dataType": "numeric",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "totalCalls",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "completedCalls",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "failedCalls",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "asr",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "acd",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "taxable",
+      "dataType": "boolean",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "taxAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "periodStart",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "periodEnd",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "sortOrder",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "trunk",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "prefix",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "createdAt",
+      "dataType": "timestamp without time zone",
+      "nullable": "YES",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoice_items",
+      "column": "updatedAt",
+      "dataType": "timestamp without time zone",
+      "nullable": "YES",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "invoiceNumber",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "customerGatewayId",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "customerName",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "customerCode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "customerEmail",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "customerAddress",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "customerPhone",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "invoiceDate",
+      "dataType": "bigint",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "dueDate",
+      "dataType": "bigint",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "subtotal",
+      "dataType": "numeric",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "taxRate",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "taxAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "discountAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "adjustmentAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "totalAmount",
+      "dataType": "numeric",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "paidAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "balanceAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "currency",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "status",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "paymentMethod",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "paymentDate",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "paymentReference",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "notes",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "customerNotes",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "termsAndConditions",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "generatedBy",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "sentDate",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "viewedDate",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "isRecurring",
+      "dataType": "boolean",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "recurringPeriod",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "pdfPath",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "billingPeriodStart",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "billingPeriodEnd",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "totalCalls",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "invoices",
+      "column": "invoiceType",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "id",
+      "dataType": "bigint",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "user_id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "tenant_id",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "logout_type",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "sessions_count",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "initiated_by",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "jti",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "ip_address",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "user_agent",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "logout_audit_events",
+      "column": "created_at",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notification_reads",
+      "column": "id",
+      "dataType": "bigint",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notification_reads",
+      "column": "notification_id",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notification_reads",
+      "column": "user_id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notification_reads",
+      "column": "read_at",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notification_reads",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notification_reads",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notifications",
+      "column": "id",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notifications",
+      "column": "title",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notifications",
+      "column": "message",
+      "dataType": "text",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notifications",
+      "column": "type",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notifications",
+      "column": "category",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notifications",
+      "column": "isRead",
+      "dataType": "boolean",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notifications",
+      "column": "metadata",
+      "dataType": "json",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notifications",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notifications",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "notifications",
+      "column": "audience_role",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payment_allocations",
+      "column": "id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payment_allocations",
+      "column": "paymentId",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payment_allocations",
+      "column": "invoiceId",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payment_allocations",
+      "column": "allocatedAmount",
+      "dataType": "numeric",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payment_allocations",
+      "column": "allocationDate",
+      "dataType": "bigint",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payment_allocations",
+      "column": "notes",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payment_allocations",
+      "column": "allocatedBy",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payment_allocations",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payment_allocations",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "paymentNumber",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "customerGatewayId",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "customerName",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "amount",
+      "dataType": "numeric",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "currency",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "paymentDate",
+      "dataType": "bigint",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "paymentMethod",
+      "dataType": "USER-DEFINED",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "paymentGateway",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "transactionId",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "referenceNumber",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "status",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "allocatedAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "unappliedAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "notes",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "customerNotes",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "receiptNumber",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "receiptPath",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "recordedBy",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "recordedDate",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "refundedAmount",
+      "dataType": "numeric",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "refundDate",
+      "dataType": "bigint",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "refundReason",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "customerCode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "partyType",
+      "dataType": "USER-DEFINED",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "paymentDirection",
+      "dataType": "USER-DEFINED",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "payments",
+      "column": "vendorInvoiceId",
+      "dataType": "integer",
+      "nullable": "YES",
+      "reasons": [
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "id",
+      "dataType": "bigint",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "user_id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "foreign_key",
+        "indexed",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "tenant_id",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "indexed"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "token_hash",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "jti",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "issued_at",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "expires_at",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "indexed"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "last_used_at",
+      "dataType": "timestamp with time zone",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "revoked",
+      "dataType": "boolean",
+      "nullable": "NO",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "revoked_at",
+      "dataType": "timestamp with time zone",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "revoked_reason",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "user_agent",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "ip_address",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "device_id",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [],
+      "action": "drop"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "refresh_tokens",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "revoked_tokens",
+      "column": "id",
+      "dataType": "bigint",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "revoked_tokens",
+      "column": "token_hash",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "revoked_tokens",
+      "column": "expires_at",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "indexed"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "revoked_tokens",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "revoked_tokens",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "system_settings",
+      "column": "key",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "system_settings",
+      "column": "value",
+      "dataType": "json",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "system_settings",
+      "column": "updatedBy",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "system_settings",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "system_settings",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "id",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "primary_key",
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "vendorId",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "foreign_key",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "invoiceNumber",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "indexed",
+        "unique",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "issueDate",
+      "dataType": "date",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "startDate",
+      "dataType": "date",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "endDate",
+      "dataType": "date",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "grandTotal",
+      "dataType": "numeric",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "currency",
+      "dataType": "character varying",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "totalSeconds",
+      "dataType": "integer",
+      "nullable": "NO",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "filePaths",
+      "dataType": "text",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "status",
+      "dataType": "USER-DEFINED",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "createdAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "updatedAt",
+      "dataType": "timestamp with time zone",
+      "nullable": "NO",
+      "reasons": [
+        "always_protected",
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    },
+    {
+      "table": "vendor_invoices",
+      "column": "vendorCode",
+      "dataType": "character varying",
+      "nullable": "YES",
+      "reasons": [
+        "referenced_in_code"
+      ],
+      "action": "keep"
+    }
+  ]
+}

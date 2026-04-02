@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+        .header { background-color: #dc3545; color: white; padding: 10px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { padding: 20px; }
+        .footer { font-size: 12px; color: #777; margin-top: 20px; border-top: 1px solid #ddd; padding-top: 10px; }
+        .dispute-details { background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Dispute Raised</h1>
+        </div>
+        <div class="content">
+                <p><strong> Hi,<%= customer.accountName %></strong></p>
+            <p>A new dispute has been raised against your account<%= customer.accountName %> for the invoice <%= disputeData.invoiceNumber %>.</p>
+            
+            <div class="dispute-details">
+                <p><strong>Customer:</strong> <%= customer.accountName %></p>
+                <p><strong>Customer Code:</strong> <%= customer.customerCode %></p>
+                <p><strong>Invoice Number:</strong> <%= disputeData.invoiceNumber %></p>
+                <p><strong>Dispute Amount:</strong> <%= customer.currency %> <%= disputeData.disputeAmount %></p>
+                <p><strong>Mismatched Invoices Count:</strong> <%= disputeData.mismatchedCount %></p>
+                <p><strong>Reason/Comment:</strong> <%= disputeData.comment %></p>
+                <p><strong>Date Raised:</strong> <%= new Date().toLocaleString() %></p>
+            </div>
+            <div>
+                <p><strong> Best Regards,</strong></p>
+                <p><strong> Paitelecomm</strong></p>
+            </div>
+        </div>
+        <div class="footer">
+            <p>&copy; <%= new Date().getFullYear() %> CDR Billing System. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>

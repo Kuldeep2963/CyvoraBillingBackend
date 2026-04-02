@@ -51,6 +51,7 @@ const PageNavBar = ({
           <Flex
             w={{ base: "full", md: "auto" }}
             justify={{ base: "flex-start", md: "flex-end" }}
+            gap={4}
           >
             {rightContent}
           </Flex>

@@ -5,7 +5,10 @@
   "description": "CDR Billing Backend API",
   "main": "index.js",
   "scripts": {
+    "build": "node scripts/build-backend.js",
     "start": "node index.js",
+    "start:build": "node build/index.js",
+    "start:prod": "node scripts/start-production.js",
     "dev": "nodemon index.js",
     "seed": "node seedUser.js",
     "autosync": "node autoSyncDB.js"

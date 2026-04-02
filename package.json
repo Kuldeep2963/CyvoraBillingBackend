@@ -6,8 +6,10 @@
   "scripts": {
     "dev:frontend": "pnpm --filter cdrbilling-frontend dev",
     "dev:backend": "pnpm --filter cdrbilling-backend dev",
+    "build:backend": "pnpm --filter cdrbilling-backend build",
     "build:frontend": "pnpm --filter cdrbilling-frontend build",
     "start:backend": "pnpm --filter cdrbilling-backend start",
+    "start:backend:prod": "pnpm --filter cdrbilling-backend start:prod",
     "lint:frontend": "pnpm --filter cdrbilling-frontend lint"
   },
   "pnpm": {

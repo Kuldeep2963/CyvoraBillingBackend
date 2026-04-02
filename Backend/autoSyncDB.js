@@ -122,6 +122,7 @@ async function applyMissingColumnsAndIndexes() {
   console.log(`Additive sync summary: ${addedColumns} column(s), ${addedIndexes} index(es) added.`);
 }
 
+
 async function autoSyncDatabase() {
   try {
     console.log('Starting AUTO database sync...');

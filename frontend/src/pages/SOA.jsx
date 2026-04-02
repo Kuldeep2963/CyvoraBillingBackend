@@ -24,7 +24,9 @@ import {
   HStack,
   Tooltip,
   useDisclosure,
+  Spacer,
 } from "@chakra-ui/react";
+import { SearchIcon } from "@chakra-ui/icons";
 import { FiAlertCircle, FiDownload, FiRefreshCw, FiMail } from "react-icons/fi";
 import {
   fetchReportAccounts,
@@ -36,7 +38,8 @@ import {
   sendSOAEmail,
   getAllDisputes,
 } from "../utils/api";
-import FilterCard from "../components/formats/DateField";
+import { MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
+import DateRangePicker from "../components/formats/DateRangepicker";
 import RaiseDisputeModal from "../components/modals/RaiseDisputeModal";
 import PageNavBar from "../components/PageNavBar";
 
@@ -58,6 +61,20 @@ const formatAmount = (amount) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+const parseDateString = (value) => {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatDateToYMD = (date) => {
+  if (!date) return "";
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 const statusColor = (status) => {
   switch (status?.toLowerCase()) {
@@ -868,29 +885,113 @@ const SOAPage = () => {
       ) : (
         <>
           {/* ── Filter / Account Selector ──────────────────────────────────── */}
-          <FilterCard
-            selectedAccount={selectedAccount}
-            setSelectedAccount={setSelectedAccount}
-            dualAccounts={dualAccounts}
-            startDate={startDate}
-            setStartDate={setStartDate}
-            endDate={endDate}
-            setEndDate={setEndDate}
-            handleSearch={handleSearch}
-            isLoading={isLoading}
-            loadingAccounts={loadingAccounts}
-            toast={toast}
-            loadingCustomer={loadingCustomer}
-            loadingVendor={loadingVendor}
-            customerInvoices={customerInvoices}
-            setCustomerInvoices={setCustomerInvoices}
-            vendorInvoices={[
-              ...generatedVendorInvoices,
-              ...uploadedVendorInvoices,
-            ]}
-            setVendorInvoices={() => {}} // read-only from parent; refresh handled above
-            handleRefreshVendor={handleRefreshVendor}
-          />
+          <Card
+            mb={3}
+            bg="white"
+            borderWidth="1px"
+            borderColor="gray.200"
+            borderRadius="12px"
+            borderLeft="3px solid"
+            borderLeftColor="blue.400"
+            overflow="visible"
+          >
+            <CardBody py={4} px={5}>
+              <Flex align="center" gap={3} flexWrap="wrap">
+                <Text
+                  fontWeight="700"
+                  color="gray.600"
+                  fontSize="13px"
+                  whiteSpace="nowrap"
+                  letterSpacing="0.01em"
+                >
+                  Account:
+                </Text>
+
+                <Select
+                  size="sm"
+                  placeholder="Select a bilateral or vendor account..."
+                  bg="gray.50"
+                  border="1.5px solid"
+                  borderColor="gray.200"
+                  borderRadius="8px"
+                  fontSize="13px"
+                  fontWeight="500"
+                  color="gray.700"
+                  minW="220px"
+                  maxW="300px"
+                  flex="1"
+                  height="36px"
+                  _hover={{ borderColor: "gray.300" }}
+                  _focus={{
+                    borderColor: "blue.400",
+                    boxShadow: "0 0 0 3px rgba(66,153,225,0.15)",
+                    bg: "white",
+                  }}
+                  value={selectedAccount?.vendorCode || ""}
+                  onChange={(e) => {
+                    const found = dualAccounts.find(
+                      (a) => a.vendorCode === e.target.value,
+                    );
+                    setSelectedAccount(found || null);
+                    setCustomerInvoices([]);
+                    setGeneratedVendorInvoices([]);
+                    setUploadedVendorInvoices([]);
+                  }}
+                >
+                  {dualAccounts.map((acc) => (
+                    <option key={acc.vendorCode} value={acc.vendorCode}>
+                      {acc.accountName} {acc.customerCode ? "(Bilateral)" : "(Vendor)"}
+                    </option>
+                  ))}
+                </Select>
+
+                <DateRangePicker
+                  value={{
+                    startDate: parseDateString(startDate),
+                    endDate: parseDateString(endDate),
+                  }}
+                  onChange={(range) => {
+                    setStartDate(formatDateToYMD(range?.startDate));
+                    setEndDate(formatDateToYMD(range?.endDate));
+                  }}
+                  placeholder="Select date range"
+                  inputProps={{ minW: "260px", maxW: "320px", size: "sm" }}
+                />
+
+                <Button
+                  size="sm"
+                  colorScheme="blue"
+                  leftIcon={<SearchIcon boxSize={3} />}
+                  onClick={handleSearch}
+                  isDisabled={!selectedAccount || isLoading || !startDate || !endDate}
+                  isLoading={isLoading}
+                  loadingText="Loading..."
+                  minW="100px"
+                  height="36px"
+                  borderRadius="8px"
+                  fontWeight="600"
+                  fontSize="13px"
+                  boxShadow="0 2px 8px rgba(49,130,206,0.25)"
+                  _hover={{
+                    boxShadow: "0 4px 12px rgba(49,130,206,0.35)",
+                    transform: "translateY(-1px)",
+                  }}
+                  _active={{ transform: "translateY(0)" }}
+                  transition="all 0.2s"
+                >
+                  Search
+                </Button>
+
+                <Spacer />
+              </Flex>
+
+              {dualAccounts.length === 0 && (
+                <Text fontSize="xs" color="gray.400" mt={3}>
+                  No bilateral or vendor accounts found.
+                </Text>
+              )}
+            </CardBody>
+          </Card>
 
           {/* ── Comparison Summary bar ─────────────────────────────────────── */}
           <ComparisonSummary
