@@ -1,452 +1,572 @@
-// backend/services/cdr-auto-fetch.js
-require('dotenv').config();
-const cron       = require('node-cron');
-const { exec }   = require('child_process');
-const util       = require('util');
-const fs         = require('fs');
-const path       = require('path');
-const Papa       = require('papaparse');
-const CDR        = require('../models/CDR');
-const sequelize  = require('../models/db');
-const { getGlobalSettings, updateGlobalSettings } = require('./system-settings');
-const { createNotification }                       = require('./notification-service');
+'use strict';
 
-// ─── Structured logger ───────────────────────────────────────────────────────
-const log = {
-  info:  (msg, meta = {}) => console.log(JSON.stringify({ level: 'info',  msg, ...meta, ts: new Date().toISOString() })),
-  warn:  (msg, meta = {}) => console.warn(JSON.stringify({ level: 'warn',  msg, ...meta, ts: new Date().toISOString() })),
-  error: (msg, meta = {}) => console.error(JSON.stringify({ level: 'error', msg, ...meta, ts: new Date().toISOString() })),
-};
+const mysql     = require('mysql2/promise');
+const net       = require('net');
+const { spawn } = require('child_process');
+const CDR       = require('../models/CDR');
+const { createNotification } = require('./notification-service');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const CDR_COLUMNS = [
-  'callere164', 'calleraccesse164', 'calleee164', 'calleeaccesse164',
-  'callerip', 'callercodec', 'callergatewayid', 'callerproductid',
-  'callertogatewaye164', 'callertype', 'calleeip', 'calleecodec',
-  'calleegatewayid', 'calleeproductid', 'calleetogatewaye164',
-  'calleetype', 'billingmode', 'calllevel', 'agentfeetime',
-  'starttime', 'stoptime', 'callerpdd', 'calleepdd', 'holdtime',
-  'callerareacode', 'feetime', 'fee', 'tax', 'suitefee',
-  'suitefeetime', 'incomefee', 'incometax', 'customeraccount',
-  'customername', 'calleeareacode', 'agentfee', 'agenttax',
-  'agentsuitefee', 'agentsuitefeetime', 'agentaccount', 'agentname',
-  'flowno', 'softswitchname', 'softswitchcallid', 'callercallid',
-  'calleroriginalcallid', 'rtpforward', 'enddirection', 'endreason',
-  'billingtype', 'cdrlevel', 'agentcdr_id',
-];
 
-// Only allow safe CDR filenames — prevents shell injection via remote paths
-const SAFE_FILENAME_RE = /^cdr_\d{8}_\d{6}\.csv$/i;
+const POLL_INTERVAL_MS        = 60_000;       // poll every 60 seconds
+const BATCH_SIZE              = 500;          // insert in batches
+const STARTUP_DELAY_MS        = 20_000;       // wait for app to fully boot
+const MIN_POLL_GAP_MS         = 30_000;       // debounce guard
+const CHECKPOINT_KEY          = 'mysql_cdr_last_flowno';
 
-const execPromise = util.promisify(exec);
+function isEmptyEnv(value) {
+  if (value === undefined || value === null) return true;
+  return String(value).trim() === '';
+}
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+function firstNonEmptyValue(...values) {
+  for (const value of values) {
+    if (!isEmptyEnv(value)) return value;
+  }
+  return undefined;
+}
+
+// ─── Column mapping: source → your CDR model ─────────────────────────────────
 
 /**
- * Parse UTC timestamp from CDR filename: cdr_YYYYMMDD_HHMMSS.csv
- * Returns ISO string or null.
+ * Maps a raw row from e_cdr_YYYYMMDD to your CDR model fields.
+ * Returns null if the row should be skipped (active/incomplete call).
  */
-const parseCdrFilenameUtc = (filename = '') => {
-  const match = String(filename).match(/^cdr_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.csv$/i);
-  if (!match) return null;
-  const [, year, month, day, hour, minute, second] = match;
+function mapRowToCDR(row, sourceTag) {
+  // Skip calls still in progress (stoptime === starttime)
+  // Skip calls with no stop time
+  if (!row.stoptime || row.stoptime <= row.starttime) return null;
+
+  return {
+    // Identity
+    flowno:               row.flowno?.toString()        ?? null,
+    softswitchcallid:     row.softswitchcallid?.toString() ?? null,
+    callercallid:         row.callercallid               ?? null,
+    calleroriginalcallid: row.calleroriginalcallid       ?? null,
+
+    // Caller info
+    callere164:           row.callere164                 ?? null,
+    calleraccesse164:     row.calleraccesse164           ?? null,
+    callerip:             row.callerip                   ?? null,
+    callercodec:          row.callercodec                ?? null,
+    callergatewayid:      row.callergatewayid            ?? null,
+    callerproductid:      row.callerproductid            ?? null,
+    callertogatewaye164:  row.callertogatewaye164        ?? null,
+    callertype:           row.callertype                 ?? null,
+    callerareacode:       row.callerareacode             ?? null,
+
+    // Callee info
+    calleee164:           row.calleee164                 ?? null,
+    calleeaccesse164:     row.calleeaccesse164           ?? null,
+    calleeip:             row.calleeip                   ?? null,
+    calleecodec:          row.calleecodec                ?? null,
+    calleegatewayid:      row.calleegatewayid            ?? null,
+    calleeproductid:      row.calleeproductid            ?? null,
+    calleetogatewaye164:  row.calleetogatewaye164        ?? null,
+    calleetype:           row.calleetype                 ?? null,
+    calleeareacode:       row.calleeareacode             ?? null,
+
+    // Timing (already in ms — matches your existing CDR format)
+    starttime:            row.starttime?.toString()      ?? null,
+    stoptime:             row.stoptime?.toString()       ?? null,
+    feetime:              row.feetime                    ?? 0,
+    agentfeetime:         row.agentfeetime               ?? 0,
+    suitefeetime:         row.suitefeetime               ?? 0,
+    agentsuitefeetime:    row.agentsuitefeetime          ?? 0,
+    holdtime:             row.holdtime                   ?? 0,
+    callerpdd:            row.callerpdd                  ?? 0,
+    calleepdd:            row.calleepdd                  ?? 0,
+
+    // Billing
+    fee:                  row.fee                        ?? 0,
+    tax:                  row.tax                        ?? 0,
+    suitefee:             row.suitefee                   ?? 0,
+    incomefee:            row.incomefee                  ?? 0,
+    incometax:            row.incometax                  ?? 0,
+    agentfee:             row.agentfee                   ?? 0,
+    agenttax:             row.agenttax                   ?? 0,
+    agentsuitefee:        row.agentsuitefee              ?? 0,
+    billingmode:          row.billingmode                ?? 0,
+    billingtype:          row.billingtype                ?? 0,
+    calllevel:            row.calllevel                  ?? 0,
+    cdrlevel:             row.cdrlevel                   ?? 0,
+
+    // Customer
+    customeraccount:      row.customeraccount            ?? null,
+    customername:         row.customername               ?? null,
+    agentaccount:         row.agentaccount               ?? null,
+    agentname:            row.agentname                  ?? null,
+    agentcdr_id:          row.agentcdr_id                ?? null,
+
+    // Call result
+    enddirection:         row.enddirection               ?? null,
+    endreason:            row.endreason                  ?? null,
+    rtpforward:           row.rtpforward                 ?? 0,
+    softswitchname:       row.softswitchname             ?? null,
+
+    // Source tracking — tells you which server this CDR came from
+    source_file:          sourceTag,
+  };
+}
+
+// ─── Checkpoint helpers ───────────────────────────────────────────────────────
+
+function toBigIntCheckpoint(value) {
+  if (value === null || value === undefined) return 0n;
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number') return BigInt(Math.trunc(value));
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return 0n;
+    return BigInt(trimmed);
+  }
+
+  // SystemSetting.value is JSON; guard legacy/object forms safely.
+  if (typeof value === 'object') {
+    if (value.flowno !== undefined && value.flowno !== null) {
+      return toBigIntCheckpoint(value.flowno);
+    }
+    if (value.value !== undefined && value.value !== null) {
+      return toBigIntCheckpoint(value.value);
+    }
+  }
+
+  return 0n;
+}
+
+// Store last fetched flowno in your SystemSetting model
+async function getCheckpoint(sourceId, tableName) {
+  const SystemSetting = require('../models/SystemSetting');
+  const key = `${CHECKPOINT_KEY}_${sourceId}_${tableName}`;
+  const setting = await SystemSetting.findOne({ where: { key }, raw: true });
+  return setting ? toBigIntCheckpoint(setting.value) : 0n;
+}
+
+async function saveCheckpoint(sourceId, tableName, flowno) {
+  const SystemSetting = require('../models/SystemSetting');
+  const key = `${CHECKPOINT_KEY}_${sourceId}_${tableName}`;
+  await SystemSetting.upsert({ key, value: flowno.toString() });
+}
+
+// ─── Table name helper ────────────────────────────────────────────────────────
+
+function getUtcTableName(dayOffset = 0) {
+  const now = new Date();
   const utcDate = new Date(Date.UTC(
-    Number(year), Number(month) - 1, Number(day),
-    Number(hour), Number(minute), Number(second),
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + dayOffset,
+    0, 0, 0, 0
   ));
-  return Number.isNaN(utcDate.getTime()) ? null : utcDate.toISOString();
-};
 
-// ─── Main class ───────────────────────────────────────────────────────────────
+  const y = utcDate.getUTCFullYear();
+  const m = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(utcDate.getUTCDate()).padStart(2, '0');
+  return `e_cdr_${y}${m}${d}`;
+}
 
-class CDRAutoFetcher {
+function getTodayTableName() {
+  return getUtcTableName(0);
+}
+
+// ─── Service ──────────────────────────────────────────────────────────────────
+
+class MySQLCDRFetcher {
+  /**
+   * @param {object} config
+   * @param {string} config.host
+   * @param {number} config.port
+   * @param {string} config.user
+   * @param {string} config.password
+   * @param {string} config.database
+   * @param {string} config.sourceId   — unique identifier e.g. 'company_b'
+   */
   constructor(config = {}) {
-    const maxBufferMB = Number(process.env.CDR_MAX_BUFFER_MB) || 25;
+    const hasSshEnv = Boolean(
+      !isEmptyEnv(process.env.SERVER_IP) &&
+      !isEmptyEnv(process.env.SSH_USERNAME) &&
+      !isEmptyEnv(process.env.SSH_KEY_PATH)
+    );
+    const explicitTunnelFlag = process.env.MYSQL_CDR_USE_SSH_TUNNEL;
+    const useSshTunnel = explicitTunnelFlag === undefined
+      ? hasSshEnv
+      : String(explicitTunnelFlag).toLowerCase() === 'true';
 
-    this.config = {
-      serverIP:      process.env.SERVER_IP,
-      serverPath:    process.env.SERVER_PATH,
-      username:      process.env.SSH_USERNAME,
-      sshPort:       parseInt(process.env.SSH_PORT, 10),
-      sshKeyPath:    process.env.SSH_KEY_PATH,
-      filePattern:   'cdr_*.csv',
-      fetchInterval: '*/15 * * * *',
-      maxRetries:    3,
-      maxBufferBytes: maxBufferMB * 1024 * 1024,
-      // 1-hour cooldown between "no files found" notifications
-      missingFilesNotifyCooldownMs: 60 * 60 * 1000,
-      ...config,
+    const envConfig = {
+      host: firstNonEmptyValue(process.env.MYSQL_CDR_HOST, process.env.SERVER_IP),
+      port: Number(firstNonEmptyValue(process.env.MYSQL_CDR_PORT, process.env.SERVER_DB_PORT, 3306)),
+      user: firstNonEmptyValue(process.env.MYSQL_CDR_USER, process.env.SERVER_DB_USER, process.env.SSH_USERNAME),
+      password: firstNonEmptyValue(process.env.MYSQL_CDR_PASSWORD, process.env.SERVER_DB_PASSWORD),
+      database: firstNonEmptyValue(process.env.MYSQL_CDR_DATABASE, process.env.SERVER_DB_NAME, 'vos3000'),
+      sourceId: firstNonEmptyValue(process.env.MYSQL_CDR_SOURCE_ID, process.env.SERVER_IP, 'mysql-source'),
+      useSshTunnel,
+      tunnelLocalPort: Number(firstNonEmptyValue(process.env.MYSQL_CDR_TUNNEL_LOCAL_PORT, 13306)),
+      tunnelRemotePort: Number(firstNonEmptyValue(process.env.MYSQL_CDR_REMOTE_PORT, process.env.MYSQL_CDR_PORT, 3306)),
+      tunnelRemoteHost: firstNonEmptyValue(process.env.MYSQL_CDR_REMOTE_HOST, '127.0.0.1'),
+      sshHost: firstNonEmptyValue(process.env.SERVER_IP),
+      sshUser: firstNonEmptyValue(process.env.SSH_USERNAME),
+      sshPort: Number(firstNonEmptyValue(process.env.SSH_PORT, 22)),
+      sshKeyPath: firstNonEmptyValue(process.env.SSH_KEY_PATH),
     };
 
-    this.isRunning                      = false;
-    this.lastProcessedFilename          = '';
-    this.lastProcessedTimestampUtc      = '';
-    this.lastProcessedTimestampMs       = Number.NaN;
-    this.lastMissingFilesNotificationAt = 0;
-
-    this.init().catch((error) => {
-      log.error('Failed to initialize CDR Auto-Fetcher', { error: error.message });
-    });
-  }
-
-  // ── Initialization ──────────────────────────────────────────────────────────
-
-  async init() {
-    await sequelize.authenticate();
-    await this.loadProcessingCheckpoint();
-    this.startScheduler();
-    log.info('CDR Auto-Fetcher initialized');
-  }
-
-  async loadProcessingCheckpoint() {
-    try {
-      const settings      = await getGlobalSettings();
-      const filename      = settings?.lastProcessedCdrFilename     || '';
-      const timestampUtc  = settings?.lastProcessedCdrTimestampUtc || parseCdrFilenameUtc(filename) || '';
-      const timestampMs   = timestampUtc ? Date.parse(timestampUtc) : Number.NaN;
-
-      this.lastProcessedFilename     = filename;
-      this.lastProcessedTimestampUtc = timestampUtc;
-      this.lastProcessedTimestampMs  = Number.isFinite(timestampMs) ? timestampMs : Number.NaN;
-
-      log.info('Checkpoint loaded', { filename, timestampUtc });
-    } catch (error) {
-      log.error('Error loading CDR processing checkpoint', { error: error.message });
-    }
-  }
-
-  // ── Checkpoint helpers ──────────────────────────────────────────────────────
-
-  shouldSkipByCheckpoint(filename, parsedIso) {
-    const parsedMs = parsedIso ? Date.parse(parsedIso) : Number.NaN;
-    if (!Number.isFinite(this.lastProcessedTimestampMs) || !Number.isFinite(parsedMs)) return false;
-    if (parsedMs < this.lastProcessedTimestampMs) return true;
-    return (
-      parsedMs === this.lastProcessedTimestampMs &&
-      !!this.lastProcessedFilename &&
-      filename <= this.lastProcessedFilename
-    );
-  }
-
-  async advanceCheckpointIfNewer(nextMeta) {
-    if (!nextMeta || !Number.isFinite(nextMeta.timestampMs)) return;
-
-    const isNewer =
-      !Number.isFinite(this.lastProcessedTimestampMs) ||
-      nextMeta.timestampMs > this.lastProcessedTimestampMs ||
-      (
-        nextMeta.timestampMs === this.lastProcessedTimestampMs &&
-        nextMeta.filename > this.lastProcessedFilename
-      );
-
-    if (!isNewer) return;
-
-    await updateGlobalSettings({
-      lastProcessedCdrFilename:     nextMeta.filename,
-      lastProcessedCdrTimestampUtc: nextMeta.timestampUtc,
-    }, 'cdr-auto-fetcher');
-
-    this.lastProcessedFilename     = nextMeta.filename;
-    this.lastProcessedTimestampUtc = nextMeta.timestampUtc;
-    this.lastProcessedTimestampMs  = nextMeta.timestampMs;
-
-    log.info('Checkpoint advanced', { filename: nextMeta.filename, timestampUtc: nextMeta.timestampUtc });
-  }
-
-  // ── Scheduler ───────────────────────────────────────────────────────────────
-
-  startScheduler() {
-    cron.schedule(this.config.fetchInterval, () => {
-      this.fetchAndProcessCDRs();
-    });
-
-    // Run immediately on startup after a short delay
-    setTimeout(() => this.fetchAndProcessCDRs(), 5000);
-
-    log.info('Scheduler started', { interval: this.config.fetchInterval });
-  }
-
-  // ── SSH helpers ─────────────────────────────────────────────────────────────
-
-  buildSSHCommand(remoteCommand) {
-    const sshBase = (this.config.sshKeyPath && fs.existsSync(this.config.sshKeyPath))
-      ? `ssh -i "${this.config.sshKeyPath}" -p ${this.config.sshPort} -o BatchMode=yes -o StrictHostKeyChecking=no`
-      : `ssh -p ${this.config.sshPort} -o BatchMode=yes -o StrictHostKeyChecking=no`;
-
-    return `${sshBase} ${this.config.username}@${this.config.serverIP} "${remoteCommand}"`;
-  }
-
-  /**
-   * Retry wrapper with linear back-off.
-   * Retries up to this.config.maxRetries times.
-   */
-  async fetchWithRetry(fn, context = '') {
-    let lastError;
-    for (let attempt = 1; attempt <= this.config.maxRetries; attempt++) {
-      try {
-        return await fn();
-      } catch (err) {
-        lastError = err;
-        if (attempt < this.config.maxRetries) {
-          const delayMs = attempt * 2000; // 2s, 4s, 6s
-          log.warn(`Attempt ${attempt} failed, retrying`, { context, delayMs, error: err.message });
-          await new Promise((r) => setTimeout(r, delayMs));
-        }
+    this.config    = { ...envConfig, ...config };
+    this.sourceId  = this.config.sourceId;
+    this.pool      = null;
+    this.started   = false;
+    this.running   = false;
+    this.lastRunAt = 0;
+    this._interval = null;
+    this._sshTunnelProcess = null;
+    this._onProcessExit = () => {
+      if (this._sshTunnelProcess) {
+        this._sshTunnelProcess.kill('SIGTERM');
+        this._sshTunnelProcess = null;
       }
-    }
-    throw lastError;
+    };
+
+    process.on('exit', this._onProcessExit);
+    process.on('SIGINT', this._onProcessExit);
+    process.on('SIGTERM', this._onProcessExit);
+
+    // Preserve existing startup behavior from index.js (new CDRAutoFetcher()).
+    this.start().catch((err) => {
+      console.error(`[MySQLCDRFetcher:${this.sourceId}] Failed to start:`, err.message);
+    });
   }
 
-  // ── Core fetch loop ─────────────────────────────────────────────────────────
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
-  async fetchAndProcessCDRs() {
-    if (this.isRunning) {
-      log.warn('Fetch already in progress, skipping this run');
+  async start() {
+    if (this.started) return;
+
+    const required = ['user', 'database'];
+    if (!this.config.useSshTunnel) required.unshift('host');
+    const missing = required.filter((key) => !this.config[key]);
+    if (missing.length) {
+      console.warn(
+        `[MySQLCDRFetcher:${this.sourceId}] Disabled - missing config: ${missing.join(', ')}`
+      );
       return;
     }
 
-    this.isRunning = true;
-    let latestProcessedMeta = null;
-    const seenInRun         = new Set();
+    this.started = true;
 
-    try {
-      // Refresh checkpoint in case settings changed outside this process
-      await this.loadProcessingCheckpoint();
+    console.log(
+      `[MySQLCDRFetcher:${this.sourceId}] Connection mode=${this.config.useSshTunnel ? 'ssh-tunnel' : 'direct'} ` +
+      `db=${this.config.database} mysql=${this.config.useSshTunnel ? `127.0.0.1:${this.config.tunnelLocalPort}` : `${this.config.host}:${this.config.port}`}`
+    );
 
-      const files = await this.listRecentFiles();
-
-      if (files.length === 0) {
-        await this.notifyMissingFiles();
-        return;
-      }
-
-      log.info('Files found for processing', { count: files.length });
-
-      for (const remoteFile of files) {
-        const filename = path.basename(remoteFile);
-
-        // Skip duplicate within same run
-        if (seenInRun.has(filename)) continue;
-        seenInRun.add(filename);
-
-        // Validate filename to prevent shell injection
-        if (!SAFE_FILENAME_RE.test(filename)) {
-          log.warn('Unsafe filename rejected', { filename });
-          continue;
-        }
-
-        const parsedIso = parseCdrFilenameUtc(filename);
-
-        // Skip already-processed files via checkpoint
-        if (this.shouldSkipByCheckpoint(filename, parsedIso)) {
-          log.info('Skipping already-processed file', { filename });
-          continue;
-        }
-
-        try {
-          const csvContent = await this.fetchWithRetry(
-            () => this.fetchRemoteFileContent(remoteFile),
-            filename,
-          );
-
-          const processed = await this.processFile(filename, csvContent);
-
-          if (processed.success) {
-            await this.saveToDatabase(processed.cdrs, filename);
-
-            if (parsedIso) {
-              const parsedMs = Date.parse(parsedIso);
-              if (
-                !latestProcessedMeta ||
-                parsedMs > latestProcessedMeta.timestampMs ||
-                (parsedMs === latestProcessedMeta.timestampMs && filename > latestProcessedMeta.filename)
-              ) {
-                latestProcessedMeta = { filename, timestampUtc: parsedIso, timestampMs: parsedMs };
-              }
-            }
-          } else {
-            await this.notifyFileProcessingFailure(filename, processed.error || 'Unknown processing error');
-          }
-        } catch (fileError) {
-          log.error('Error processing file', { filename, error: fileError.message });
-          await this.notifyFileProcessingFailure(filename, fileError.message);
-        }
-
-        // Small delay between files to avoid hammering the SSH server
-        await new Promise((r) => setTimeout(r, 500));
-      }
-
-      if (latestProcessedMeta) {
-        await this.advanceCheckpointIfNewer(latestProcessedMeta).catch((err) => {
-          log.error('Error advancing checkpoint', { error: err.message });
-        });
-      }
-
-    } catch (error) {
-      log.error('Fatal error in CDR auto-fetch', { error: error.message });
-    } finally {
-      this.isRunning = false;
-    }
-  }
-
-  // ── File operations ─────────────────────────────────────────────────────────
-
-  async listRecentFiles() {
-    try {
-      // Use -mmin -20 (5-min overlap) to guard against delayed cron runs.
-      // Checkpoint deduplication prevents double-processing.
-      const listCommand = this.buildSSHCommand(
-        `find ${this.config.serverPath} -name '${this.config.filePattern}' -type f -mmin -20 2>/dev/null`,
-      );
-
-      const { stdout } = await execPromise(listCommand, { timeout: 30000 });
-
-      const files = stdout
-        .trim()
-        .split('\n')
-        .filter((f) => f.length > 0 && path.extname(f) === '.csv')
-        .sort((a, b) => a.localeCompare(b));
-
-      log.info('Remote file listing complete', { found: files.length });
-      return files;
-    } catch (error) {
-      log.error('Error listing remote files', { error: error.message });
-      return [];
-    }
-  }
-
-  async fetchRemoteFileContent(remoteFile) {
-    const filename = path.basename(remoteFile);
-
-    // Double-check filename safety before constructing shell command
-    if (!SAFE_FILENAME_RE.test(filename)) {
-      throw new Error(`Unsafe filename rejected: ${filename}`);
+    if (this.config.useSshTunnel) {
+      await this._startSshTunnel();
     }
 
-    // Safe to use in shell since filename is validated above
-    const safeRemotePath = `${this.config.serverPath}/${filename}`;
-    const readCommand    = this.buildSSHCommand(`cat '${safeRemotePath}'`);
-
-    const { stdout } = await execPromise(readCommand, {
-      timeout:   60000,
-      maxBuffer: this.config.maxBufferBytes,
+    // Create connection pool — not a single connection
+    // Pool handles reconnects automatically if the source server drops
+    this.pool = mysql.createPool({
+      host:               this.config.useSshTunnel ? '127.0.0.1' : this.config.host,
+      port:               this.config.useSshTunnel ? this.config.tunnelLocalPort : (this.config.port || 3306),
+      user:               this.config.user,
+      password:           this.config.password,
+      database:           this.config.database,
+      waitForConnections: true,
+      connectionLimit:    3,       // small pool — we only need a few connections
+      queueLimit:         10,
+      connectTimeout:     10_000,
+      // Important for MyISAM: disable transactions (MyISAM doesn't support them)
+      multipleStatements: false,
     });
 
-    return stdout;
-  }
-
-  async processFile(filename, csvContent) {
+    // Verify connectivity before starting the poll loop
     try {
-      const parsed = Papa.parse(csvContent, {
-        header:         false,
-        skipEmptyLines: true,
-        transform:      (value) => value.trim(),
-      });
-
-      if (parsed.errors.length > 0) {
-        log.warn('CSV parsing warnings', { filename, warnings: parsed.errors.length });
-      }
-
-      const validCdrs   = [];
-      const invalidRows = [];
-
-      parsed.data.forEach((row, index) => {
-        const cdr = {};
-        CDR_COLUMNS.forEach((col, i) => { cdr[col] = row[i]; });
-
-        if (cdr.callere164 && cdr.starttime) {
-          validCdrs.push({ ...cdr, source_file: filename });
-        } else {
-          invalidRows.push(index);
-        }
-      });
-
-      if (invalidRows.length > 0) {
-        log.warn('Skipped invalid rows', { filename, skipped: invalidRows.length, total: parsed.data.length });
-      }
-
-      log.info('File parsed', { filename, valid: validCdrs.length, invalid: invalidRows.length });
-      return { success: true, cdrs: validCdrs };
-    } catch (error) {
-      log.error('File parse error', { filename, error: error.message });
-      return { success: false, error: error.message, cdrs: [] };
+      const conn = await this.pool.getConnection();
+      await conn.ping();
+      conn.release();
+      console.log(`[MySQLCDRFetcher:${this.sourceId}] Connected to source DB`);
+    } catch (err) {
+      console.error(`[MySQLCDRFetcher:${this.sourceId}] Cannot connect to source DB:`, err.message);
+      // Don't crash the app — retry on next poll
     }
+
+    // Wait for app to fully boot then start polling
+    setTimeout(() => {
+      this._poll();
+      this._interval = setInterval(() => this._poll(), POLL_INTERVAL_MS);
+    }, STARTUP_DELAY_MS);
+
+    console.log(`[MySQLCDRFetcher:${this.sourceId}] Fetcher started — polling every ${POLL_INTERVAL_MS / 1000}s`);
   }
 
-  async saveToDatabase(cdrs, filename) {
-    if (cdrs.length === 0) return;
+  stop() {
+    if (this._interval) {
+      clearInterval(this._interval);
+      this._interval = null;
+    }
+    if (this.pool) {
+      this.pool.end().catch(err =>
+        console.error(`[MySQLCDRFetcher:${this.sourceId}] Error closing pool:`, err)
+      );
+      this.pool = null;
+    }
+    if (this._sshTunnelProcess) {
+      this._sshTunnelProcess.kill('SIGTERM');
+      this._sshTunnelProcess = null;
+    }
 
-    const chunkSize  = 100;
-    let   savedCount = 0;
+    process.off('exit', this._onProcessExit);
+    process.off('SIGINT', this._onProcessExit);
+    process.off('SIGTERM', this._onProcessExit);
 
-    for (let i = 0; i < cdrs.length; i += chunkSize) {
-      const chunk = cdrs.slice(i, i + chunkSize);
-      try {
-        await CDR.bulkCreate(chunk, { ignoreDuplicates: true });
-        savedCount += chunk.length;
-      } catch (err) {
-        log.error('Chunk insert failed', {
-          filename,
-          chunkStart: i,
-          chunkSize:  chunk.length,
-          error:      err.message,
+    this.started = false;
+    console.log(`[MySQLCDRFetcher:${this.sourceId}] Fetcher stopped`);
+  }
+
+  async _canConnectLocalPort(port) {
+    return new Promise((resolve) => {
+      const socket = net.createConnection({ host: '127.0.0.1', port });
+
+      socket.once('connect', () => {
+        socket.destroy();
+        resolve(true);
+      });
+
+      socket.once('error', () => {
+        socket.destroy();
+        resolve(false);
+      });
+    });
+  }
+
+  async _startSshTunnel() {
+    if (this._sshTunnelProcess) return;
+
+    const portInUse = await this._canConnectLocalPort(this.config.tunnelLocalPort);
+    if (portInUse) {
+      console.log(
+        `[MySQLCDRFetcher:${this.sourceId}] Reusing existing local tunnel on localhost:${this.config.tunnelLocalPort}`
+      );
+      return;
+    }
+
+    const required = ['sshHost', 'sshUser', 'sshPort', 'sshKeyPath'];
+    const missing = required.filter((key) => !this.config[key]);
+    if (missing.length) {
+      throw new Error(`SSH tunnel enabled but missing config: ${missing.join(', ')}`);
+    }
+
+    const args = [
+      '-N',
+      '-L', `${this.config.tunnelLocalPort}:${this.config.tunnelRemoteHost}:${this.config.tunnelRemotePort}`,
+      '-i', this.config.sshKeyPath,
+      '-p', String(this.config.sshPort),
+      '-o', 'BatchMode=yes',
+      '-o', 'ExitOnForwardFailure=yes',
+      '-o', 'StrictHostKeyChecking=no',
+      `${this.config.sshUser}@${this.config.sshHost}`,
+    ];
+
+    this._sshTunnelProcess = spawn('ssh', args, {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+
+    this._sshTunnelProcess.stderr.on('data', (chunk) => {
+      const msg = String(chunk || '').trim();
+      if (msg) {
+        console.error(`[MySQLCDRFetcher:${this.sourceId}] SSH tunnel: ${msg}`);
+      }
+    });
+
+    await new Promise((resolve, reject) => {
+      let finished = false;
+
+      const onExit = (code) => {
+        if (finished) return;
+        finished = true;
+        reject(new Error(`SSH tunnel exited early with code ${code}`));
+      };
+
+      this._sshTunnelProcess.once('exit', onExit);
+
+      const startedAt = Date.now();
+      const tryConnect = () => {
+        if (finished) return;
+
+        const socket = net.createConnection({ host: '127.0.0.1', port: this.config.tunnelLocalPort });
+
+        socket.once('connect', () => {
+          socket.destroy();
+          finished = true;
+          this._sshTunnelProcess?.off('exit', onExit);
+          resolve();
         });
-        // Continue remaining chunks instead of aborting the whole file
+
+        socket.once('error', () => {
+          socket.destroy();
+          if (Date.now() - startedAt > 25_000) {
+            finished = true;
+            this._sshTunnelProcess?.off('exit', onExit);
+            reject(new Error(`SSH tunnel did not open local forwarding port within 25s. Tunnel may not have connected. Check SSH_KEY_PATH, SERVER_IP, SSH_USERNAME, SSH_PORT, and firewall.`));
+            return;
+          }
+          setTimeout(tryConnect, 250);
+        });
+      };
+
+      tryConnect();
+    });
+
+    console.log(`[MySQLCDRFetcher:${this.sourceId}] SSH tunnel ready on localhost:${this.config.tunnelLocalPort}`);
+  }
+
+  // ── Poll ───────────────────────────────────────────────────────────────────
+
+  async _poll() {
+    const now = Date.now();
+
+    if (this.running) {
+      console.warn(`[MySQLCDRFetcher:${this.sourceId}] Skipped — previous poll still running`);
+      return;
+    }
+
+    if (this.lastRunAt && (now - this.lastRunAt) < MIN_POLL_GAP_MS) {
+      return;
+    }
+
+    this.running   = true;
+    this.lastRunAt = now;
+
+    try {
+      await this._fetchAndInsert();
+    } catch (err) {
+      console.error(`[MySQLCDRFetcher:${this.sourceId}] Poll error:`, err.message);
+    } finally {
+      this.running = false;
+    }
+  }
+
+  // ── Core fetch logic ───────────────────────────────────────────────────────
+
+  async _fetchAndInsert() {
+    const startedAt  = Date.now();
+
+    // Fetch only the UTC-today table so the poller never mixes in other days.
+    const tables = [getTodayTableName()];
+
+    let totalFetched  = 0;
+    let totalInserted = 0;
+
+    for (const tableName of tables) {
+      const tableCheckpoint = await getCheckpoint(this.sourceId, tableName);
+      const result = await this._fetchFromTable(tableName, tableCheckpoint);
+      if (!result) continue; // table doesn't exist yet — skip
+
+      totalFetched  += result.fetched;
+      totalInserted += result.inserted;
+      if (result.maxFlowno > tableCheckpoint) {
+        await saveCheckpoint(this.sourceId, tableName, result.maxFlowno);
       }
     }
 
-    log.info('Database save complete', { filename, total: cdrs.length, saved: savedCount });
-  }
+    if (totalFetched > 0) {
+      const durationMs = Date.now() - startedAt;
+      console.log(
+        `[MySQLCDRFetcher:${this.sourceId}] Fetched ${totalFetched} rows, ` +
+        `inserted ${totalInserted} in ${durationMs}ms`
+      );
 
-  // ── Notifications ───────────────────────────────────────────────────────────
-
-  async notifyMissingFiles() {
-    try {
-      const now = Date.now();
-      if ((now - this.lastMissingFilesNotificationAt) < this.config.missingFilesNotifyCooldownMs) {
-        log.info('Missing-files notification suppressed by cooldown');
-        return;
+      if (totalInserted > 0) {
+        await createNotification({
+          title:    'CDR sync complete',
+          message:  `${totalInserted} new CDR(s) imported from ${this.sourceId}`,
+          type:     'info',
+          category: 'cdr-sync',
+          metadata: { totalFetched, totalInserted, sourceId: this.sourceId, durationMs },
+        }).catch(err =>
+          console.error(`[MySQLCDRFetcher:${this.sourceId}] Notification error:`, err)
+        );
       }
-
-      this.lastMissingFilesNotificationAt = now;
-
-      await createNotification({
-        title:        'CDR auto-fetch: no files found',
-        message:      `No CDR files matching ${this.config.filePattern} were found in the last fetch window.`,
-        type:         'warning',
-        category:     'system',
-        audienceRole: 'admin',
-        metadata: {
-          source:        'cdr-auto-fetcher',
-          serverPath:    this.config.serverPath,
-          fetchInterval: this.config.fetchInterval,
-          checkedAtUtc:  new Date(now).toISOString(),
-        },
-      });
-    } catch (error) {
-      log.error('Error creating missing-files notification', { error: error.message });
+    } else {
+      console.log(
+        `[MySQLCDRFetcher:${this.sourceId}] No new rows in ${tables.join(', ')}`
+      );
     }
   }
 
-  async notifyFileProcessingFailure(filename, reason) {
+  async _fetchFromTable(tableName, lastFlowno) {
+    // Check if table exists first — new day's table won't exist until midnight
+    let tableExists;
     try {
-      await createNotification({
-        title:        'CDR auto-fetch: file processing failed',
-        message:      `Failed to process CDR file ${filename}. Reason: ${reason}`,
-        type:         'error',
-        category:     'system',
-        audienceRole: 'admin',
-        metadata: {
-          source:      'cdr-auto-fetcher',
-          filename,
-          reason,
-          failedAtUtc: new Date().toISOString(),
-        },
-      });
-    } catch (error) {
-      log.error('Error creating file-processing-failed notification', { error: error.message });
+      await this.pool.query(`SELECT 1 FROM \`${tableName}\` LIMIT 1`);
+      tableExists = true;
+    } catch {
+      tableExists = false;
     }
+
+    if (!tableExists) {
+      console.log(`[MySQLCDRFetcher:${this.sourceId}] Table ${tableName} not yet available — skipping`);
+      return null;
+    }
+
+    // Fetch completed calls only (stoptime > starttime) after our last checkpoint
+    const [rows] = await this.pool.query(
+      `SELECT * FROM \`${tableName}\`
+       WHERE flowno > ?
+         AND stoptime > starttime
+       ORDER BY flowno ASC
+       LIMIT ?`,
+      [lastFlowno.toString(), BATCH_SIZE]
+    );
+
+    if (!rows.length) return { fetched: 0, inserted: 0, maxFlowno: lastFlowno };
+
+    // Map rows to your CDR format, skip invalid ones
+    const sourceTag = `${this.sourceId}:${tableName}`;
+
+    const mapped = rows
+      .map(row => mapRowToCDR(row, sourceTag))
+      .filter(Boolean);
+
+    if (!mapped.length) return { fetched: rows.length, inserted: 0, maxFlowno: lastFlowno };
+
+    // DB schema has a unique index for flowno/source, so dedupe manually as a fast path.
+    const flownos = mapped
+      .map((cdr) => cdr.flowno)
+      .filter(Boolean);
+
+    let existingFlownos = new Set();
+    if (flownos.length) {
+      const existingRows = await CDR.findAll({
+        attributes: ['flowno'],
+        where: {
+          source_file: sourceTag,
+          flowno: flownos,
+        },
+        raw: true,
+      });
+      existingFlownos = new Set(existingRows.map((row) => String(row.flowno)));
+    }
+
+    const deduped = mapped.filter((cdr) => cdr.flowno && !existingFlownos.has(String(cdr.flowno)));
+
+    if (!deduped.length) {
+      const maxFlownoOnly = BigInt(rows[rows.length - 1].flowno);
+      return { fetched: rows.length, inserted: 0, maxFlowno: maxFlownoOnly };
+    }
+
+    // Bulk insert in batches — avoids single massive INSERT
+    let inserted = 0;
+    for (let i = 0; i < deduped.length; i += BATCH_SIZE) {
+      const batch = deduped.slice(i, i + BATCH_SIZE);
+      const result = await CDR.bulkCreate(batch, {
+        ignoreDuplicates: true,
+        validate:         false, // skip per-row validation for bulk perf
+      });
+      inserted += result.length;
+    }
+
+    const maxFlowno = BigInt(rows[rows.length - 1].flowno);
+    return { fetched: rows.length, inserted, maxFlowno };
   }
 }
 
-module.exports = CDRAutoFetcher;
+module.exports = MySQLCDRFetcher;

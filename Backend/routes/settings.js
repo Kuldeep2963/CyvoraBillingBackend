@@ -94,7 +94,14 @@ const toCountryCodeRows = (rawRows) => {
     throw new Error('No valid country code records found in uploaded CSV');
   }
 
-  return entries;
+  const uniqueByCode = new Map();
+
+  for (const entry of entries) {
+    // Keep the last occurrence from the CSV for deterministic overwrite behavior.
+    uniqueByCode.set(entry.code, entry);
+  }
+
+  return Array.from(uniqueByCode.values());
 };
 
 router.get('/', async (_req, res) => {
