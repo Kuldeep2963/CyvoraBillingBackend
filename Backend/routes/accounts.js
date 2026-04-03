@@ -726,11 +726,6 @@ router.post('/', async (req, res) => {
       data.documents = normalizeDocuments(data.documents);
     }
 
-    // require last billing date
-    if (!data.lastbillingdate) {
-      return res.status(400).json({ error: 'lastbillingdate is required' });
-    }
-
     applyBillingTypeAdjustments(data);
 
     let account = await Customer.create(data);
@@ -758,10 +753,6 @@ router.put('/:id', async (req, res) => {
     const updates = normalizeAuthFields(normalizeContactChannels({ ...req.body }));
     if (Object.prototype.hasOwnProperty.call(updates, 'documents')) {
       updates.documents = normalizeDocuments(updates.documents);
-    }
-
-    if (!updates.lastbillingdate) {
-      return res.status(400).json({ error: 'lastbillingdate is required' });
     }
 
     // if billing type is changing, clear/seed appropriate fields

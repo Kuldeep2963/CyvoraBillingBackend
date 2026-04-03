@@ -1113,11 +1113,13 @@ const generateInvoicePDFBuffer = async (invoice) => {
 
             <div class="bank-section">
               <div class="bank-title">Payment Information</div>
-              <strong>Bank Name:</strong> Bank Of China<br>
-              <strong>Account Name:</strong> Pai Telecommunications Limited<br>
-              <strong>Account Number:</strong> 012-687-2-011894-5 (USD)<br>
-              <strong>Swift Code:</strong> BKCHHKHHXXX<br>
-              <strong>Bank Address:</strong> Bank of China Tower, 1 Garden Road, Central, Hong Kong
+              <strong>Beneficiary Name:</strong> Cyvora LLC<br>
+              <strong>Bank Name:</strong> KAPITAL BANK<br>
+              <strong>SWIFT Code:</strong> KACHUZ22<br>
+              <strong>Account No:</strong> 20208840207358100001<br>
+              <strong>IBAN:</strong> 01158<br>
+              <strong>Bank Address:</strong> Sailgokh Street 7, 100047, Tashkent, Uzbekistan<br>
+              <strong>Account Currency:</strong> USD
             </div>
 
             <div class="footer">

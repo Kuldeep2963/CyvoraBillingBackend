@@ -188,14 +188,14 @@ const StatCard = ({
   </Card>
 );
 
-const MetricItem = ({ label, value, icon: IconComp, color }) => (
+const MetricItem = ({ label, value, icon: IconComp, color, valueColor }) => (
   <HStack align="start" spacing={3}>
     <Box as={IconComp} color={`${color}.500`} mt={1} />
     <Box minW={0}>
       <Text fontSize="sm" color="gray.600" fontWeight="medium">
         {label}
       </Text>
-      <Text fontSize="lg" color="gray.600" fontWeight="bold" isTruncated>
+      <Text fontSize="lg" color={valueColor || "gray.600"} fontWeight="bold" isTruncated>
         {value}
       </Text>
     </Box>
@@ -532,12 +532,13 @@ const Dashboard = () => {
                       color="green"
                     />
                     <Divider />
-                    <MetricItem
-                      label="Total Margin"
-                      value={`$${Number(financialData?.totalMargin || 0).toFixed(4)}`}
-                      icon={FiPercent}
-                      color="purple"
-                    />
+                   <MetricItem
+  label="Total Margin"
+  value={`$${Number(financialData?.totalMargin || 0).toFixed(4)}`}
+  icon={FiPercent}
+  color="purple"
+  valueColor={Number(financialData?.totalMargin || 0) < 0 ? "red.600" : "gray.600"}
+/>
                     <Divider />
                     <MetricItem
                       label="Failed Calls"

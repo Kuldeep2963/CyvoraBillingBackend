@@ -314,8 +314,8 @@ const Account = sequelize.define('Account', {
   
   // Billing Configuration (CRITICAL)
   billingClass: {
-    type: DataTypes.ENUM('paihk', 'paiusa'),
-    defaultValue: 'paiusa',
+    type: DataTypes.ENUM('cyvora'),
+    defaultValue: 'cyvora',
     allowNull: true
   },
   

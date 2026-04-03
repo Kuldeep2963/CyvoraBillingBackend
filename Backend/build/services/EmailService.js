@@ -99,9 +99,13 @@ class EmailService {
   }
 
   async sendWelcomeEmail(user, password) {
-    const portalUrl = process.env.BASE_API_URL    ? process.env.BASE_API_URL.replace(/\/+$/, '') // Remove trailing slash if present
-                      : 'http://localhost:3000'; // Fallback URL for development
-    console.log('Portal URL for welcome email:', portalUrl);
+    const portalUrl = (
+      process.env.PORTAL_URL ||
+      process.env.FRONTEND_URL ||
+      process.env.BASE_API_URL ||
+      'http://localhost:3000'
+    ).replace(/\/+$/, '');
+
     return this.sendEmail(
       user.email,
       'Welcome to CDR Billing System - Your Login Credentials',
