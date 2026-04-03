@@ -86,11 +86,28 @@ const ChangePasswordModal = ({ isOpen, onClose }) => {
     setSuccessMessage("");
 
     try {
+      const authToken =
+        sessionStorage.getItem("accessToken") ||
+        localStorage.getItem("accessToken") ||
+        sessionStorage.getItem("token") ||
+        localStorage.getItem("token");
+
+      if (!authToken) {
+        toast({
+          title: "Authentication Error",
+          description: "Your session has expired. Please login again.",
+          status: "error",
+          duration: 4000,
+          isClosable: true,
+        });
+        return;
+      }
+
       const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${ sessionStorage.getItem("token") ||localStorage.getItem("token")}`,
+          Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           currentPassword: formData.currentPassword,
