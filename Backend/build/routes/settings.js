@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const Papa = require('papaparse');
+const { Op } = require('sequelize');
 const { getGlobalSettings, updateGlobalSettings } = require('../services/system-settings');
 const { createNotification } = require('../services/notification-service');
 const CDRRetentionService = require('../services/cdr-retention-service');
@@ -205,14 +206,31 @@ router.post('/country-codes/upload', handleCountryCodeUpload, async (req, res) =
   }
 });
 
-router.get('/country-codes', async (_req, res) => {
+router.get('/country-codes', async (req, res) => {
   try {
+    const search = String(req.query?.search || '').trim();
+    const parsedLimit = Number(req.query?.limit);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, 100)
+      : 50;
+
+    const where = search
+      ? {
+          [Op.or]: [
+            { code: { [Op.iLike]: `%${search}%` } },
+            { country_name: { [Op.iLike]: `%${search}%` } },
+          ],
+        }
+      : undefined;
+
     const countryCodes = await CountryCode.findAll({
       attributes: ['code', 'country_name'],
+      where,
       order: [
         ['country_name', 'ASC'],
         ['code', 'ASC'],
       ],
+      limit,
       raw: true,
     });
 
