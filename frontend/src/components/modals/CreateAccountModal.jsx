@@ -45,8 +45,9 @@ import {
   deleteAccountDocument,
   downloadAccountDocument,
   viewAccountDocument,
+  fetchCountryCodes,
 } from "../../utils/api";
-import { MemoizedInput as Input, MemoizedSelect as Select } from "../memoizedinput/memoizedinput";
+import { MemoizedInput as Input, MemoizedSelect as Select, MemoizedSearchSelect as SearchSelect } from "../memoizedinput/memoizedinput";
 
 /* ─────────────────────────────────────────────────────────
    Helper: derive color + label from file extension
@@ -143,6 +144,9 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
   const [documentFile,  setDocumentFile]      = useState(null);
   const [pendingDocuments, setPendingDocuments] = useState([]);
   const [documentBusy, setDocumentBusy]       = useState(false);
+  const [countryCodeSearch, setCountryCodeSearch] = useState("");
+  const [countryCodeOptions, setCountryCodeOptions] = useState([]);
+  const [countryCodeLoading, setCountryCodeLoading] = useState(false);
 
   // KEY FIX: button only enabled when both fields are filled
   const canAddDocument = !isViewMode && documentTitle.trim().length > 0 && !!documentFile;
@@ -239,11 +243,43 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
           selectedCustomer.accountOwner ||
           (selectedCustomer.owner && selectedCustomer.owner.id) || "",
       });
+      setCountryCodeSearch(String(merged.country || merged.countryCode || "").trim());
     } else {
       setFormData({ ...initialFormData, accountId: `ACC${Math.floor(1000 + Math.random() * 9000)}`, customerCode: `C_${Math.floor(10000 + Math.random() * 90000)}` });
+      setCountryCodeSearch("");
     }
+    setCountryCodeOptions([]);
     setPendingDocuments([]); setDocumentTitle(""); setDocumentFile(null);
   }, [selectedCustomer, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let isCancelled = false;
+    const timer = setTimeout(async () => {
+      setCountryCodeLoading(true);
+      try {
+        const response = await fetchCountryCodes({ search: countryCodeSearch, limit: 50 });
+        const options = Array.isArray(response?.countryCodes) ? response.countryCodes : [];
+        if (!isCancelled) {
+          setCountryCodeOptions(options);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setCountryCodeOptions([]);
+        }
+      } finally {
+        if (!isCancelled) {
+          setCountryCodeLoading(false);
+        }
+      }
+    }, 500);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [countryCodeSearch, isOpen]);
 
   useEffect(() => {
     const { lastbillingdate, billingCycle } = formData;
@@ -454,6 +490,10 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
   };
 
   const stickyTabListBg = useColorModeValue("white", "gray.800");
+  const countryOptionLabels = countryCodeOptions.map((item) => `${item.country_name} (${item.code})`);
+  const selectedCountryLabel = formData.countryCode
+    ? `${formData.country || formData.countryCode} (${formData.countryCode})`
+    : "";
 
   return (
     <Modal isOpen={isOpen} onClose={() => !loading && onClose()} size={{ base: "sm", md: "4xl", lg: "6xl" }} closeOnOverlayClick={!loading}>
@@ -583,11 +623,31 @@ const CreateAccountModal = ({ isOpen, onClose, selectedCustomer, cdrStats, onSuc
                           <FormControl isRequired><FormLabel>Postal Code</FormLabel><Input value={formData.postalCode} onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })} placeholder="ZIP/Postal code" isDisabled={isViewMode} /></FormControl>
                           <FormControl isRequired>
                             <FormLabel>Country</FormLabel>
-                            <Select value={formData.country} onChange={(e) => setFormData({ ...formData, country: e.target.value, countryCode: e.target.value })} isDisabled={isViewMode}>
-                              <option value="US">United States</option><option value="IN">India</option><option value="GB">United Kingdom</option>
-                              <option value="CA">Canada</option><option value="AU">Australia</option><option value="DE">Germany</option>
-                              <option value="FR">France</option><option value="JP">Japan</option><option value="SG">Singapore</option><option value="AE">UAE</option>
-                            </Select>
+                            <SearchSelect
+                              data={selectedCountryLabel}
+                              options={countryOptionLabels}
+                              placeholder="Type country or code (e.g. indi)"
+                              disabled={isViewMode}
+                              onChange={(e) => setCountryCodeSearch(e.target.value)}
+                              onSelect={(e) => {
+                                const selectedLabel = String(e?.target?.value || "");
+                                const matched = countryCodeOptions.find(
+                                  (item) => `${item.country_name} (${item.code})` === selectedLabel
+                                );
+
+                                if (!matched) return;
+
+                                setFormData({
+                                  ...formData,
+                                  countryCode: matched.code,
+                                  country: matched.country_name,
+                                });
+                                setCountryCodeSearch(matched.country_name);
+                              }}
+                            />
+                            <FormHelperText>
+                              {countryCodeLoading ? "Searching..." : `${countryCodeOptions.length} matching result(s)`}
+                            </FormHelperText>
                           </FormControl>
                         </SimpleGrid>
                       </SimpleGrid>

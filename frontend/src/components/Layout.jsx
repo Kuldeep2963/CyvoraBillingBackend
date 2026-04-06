@@ -379,8 +379,8 @@ const SidebarContent = () => {
       {/* Header */}
       <Flex direction="column" align="center" mb={6} pt={4}>
         <Image
-          src="/pai-telecom-logo.png"
-          alt="PAI Telecom logo"
+          src="/Cyvora.png"
+          alt="Cyvora logo"
           boxSize="70px"
           objectFit="contain"
         />

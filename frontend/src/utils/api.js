@@ -1178,9 +1178,17 @@ export const uploadCountryCodes = async (formData) => {
   }
 };
 
-export const fetchCountryCodes = async () => {
+export const fetchCountryCodes = async ({ search = '', limit = 50 } = {}) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/settings/country-codes`, {
+    const params = new URLSearchParams();
+    if (String(search).trim()) {
+      params.set('search', String(search).trim());
+    }
+    if (Number.isFinite(Number(limit)) && Number(limit) > 0) {
+      params.set('limit', String(Math.min(Number(limit), 100)));
+    }
+
+    const response = await fetch(`${API_BASE_URL}/settings/country-codes?${params.toString()}`, {
       headers: getAuthHeaders()
     });
     return await handleResponse(response);
