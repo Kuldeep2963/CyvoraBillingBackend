@@ -134,14 +134,14 @@ const RaiseDisputeModal = ({
           </VStack>
         </ModalBody>
         <ModalFooter borderTopWidth="1px">
-          <Button variant="ghost" mr={3} onClick={onClose}>
+          <Button variant="ghost" mr={3} onClick={onClose} isDisabled={isSubmitting}>
             Cancel
           </Button>
           <Button
             colorScheme="blue"
             onClick={handleSubmit}
             isLoading={isSubmitting}
-            isDisabled={!comment.trim()}
+            isDisabled={!comment.trim() || isSubmitting}
           >
             Submit Dispute
           </Button>

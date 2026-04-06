@@ -75,6 +75,7 @@ const SidebarContent = () => {
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [notificationPollingSeconds, setNotificationPollingSeconds] =
     useState(10);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const userRole = user?.role?.trim().toLowerCase();
   const pollingMs = useMemo(() => {
@@ -262,9 +263,14 @@ const SidebarContent = () => {
   }, [location.pathname]);
 
   const onLogoutConfirm = async () => {
-    await logout();
-    navigate("/");
-    onLogoutClose();
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      navigate("/");
+    } finally {
+      setIsLoggingOut(false);
+      onLogoutClose();
+    }
   };
 
   const renderNavItem = (item) => {
@@ -369,6 +375,7 @@ const SidebarContent = () => {
         message="Are you sure you want to log out of your account?"
         confirmText="Logout"
         type="danger"
+        isLoading={isLoggingOut}
       />
 
       <ChangePasswordModal
@@ -379,7 +386,7 @@ const SidebarContent = () => {
       {/* Header */}
       <Flex direction="column" align="center" mb={6} pt={4}>
         <Image
-          src="/Cyvora.png"
+            src="/Cyvora.png"
           alt="Cyvora logo"
           boxSize="70px"
           objectFit="contain"

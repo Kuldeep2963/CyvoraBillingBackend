@@ -47,7 +47,7 @@ const CommentsModal = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="md" scrollBehavior="inside">
+    <Modal isOpen={isOpen} onClose={onClose} size="md" scrollBehavior="inside" closeOnOverlayClick={!isAdding}>
       <ModalOverlay backdropFilter="blur(3px)" />
       <ModalContent borderRadius="12px" overflow="hidden">
         <ModalHeader

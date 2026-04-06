@@ -472,7 +472,6 @@ const DestinationMap = ({ destinations = [], loading = false }) => {
               <ZoomableGroup
                 zoom={zoom}
                 center={center}
-                disablePanning={zoom <= MIN_ZOOM + ZOOM_EPSILON}
                 filterZoomEvent={filterZoomEvent}
                 onMove={({ zoom: z, coordinates }) => {
                   const boundedZoom = clamp(z, MIN_ZOOM, MAX_ZOOM);

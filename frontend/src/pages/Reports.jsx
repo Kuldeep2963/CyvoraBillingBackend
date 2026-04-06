@@ -201,6 +201,31 @@ const formatDuration = (seconds) => {
   const s = Math.floor(seconds % 60);
   return [h, m, s].map((v) => v.toString().padStart(2, "0")).join(":");
 };
+const pad2 = (value) => String(value).padStart(2, "0");
+
+const formatDateAsYmd = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+
+const utcSelectionToBackendPayload = (date, hour, minute) => {
+  if (!date) return { date: null, hour: 0, minute: 0 };
+
+  const utcMillis = Date.UTC(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    hour,
+    minute,
+    0,
+    0,
+  );
+
+  const localEquivalent = new Date(utcMillis - new Date(utcMillis).getTimezoneOffset() * 60000);
+
+  return {
+    date: formatDateAsYmd(localEquivalent),
+    hour: localEquivalent.getHours(),
+    minute: localEquivalent.getMinutes(),
+  };
+};
 
 const getMinimumStartDate = (endDate) => {
   const minDate = new Date(endDate);
@@ -471,13 +496,16 @@ const Reports = () => {
         5: "vendor-traffic",
       };
 
+      const startPayload = utcSelectionToBackendPayload(dateRange.startDate, dateRange.startHour, dateRange.startMinute);
+      const endPayload = utcSelectionToBackendPayload(dateRange.endDate, dateRange.endHour, dateRange.endMinute);
+
       const params = {
-        startDate: dateRange.startDate.toISOString().split("T")[0],
-        endDate: dateRange.endDate.toISOString().split("T")[0],
-        startHour: dateRange.startHour,
-        startMinute: dateRange.startMinute,
-        endHour: dateRange.endHour,
-        endMinute: dateRange.endMinute,
+        startDate: startPayload.date,
+        endDate: endPayload.date,
+        startHour: startPayload.hour,
+        startMinute: startPayload.minute,
+        endHour: endPayload.hour,
+        endMinute: endPayload.minute,
         accountId: selectedAccount,
         vendorReport: activeTab === 4 ? false : activeTab === 5 ? true : isVendorReport,
         ownerName: selectedAccountObj?.ownerName ?? "",
@@ -553,7 +581,7 @@ const Reports = () => {
       }
       setExporting(true);
       try {
-        const fileName = `report_${Date.now()}_${dateRange.startDate.toISOString().split("T")[0]}_to_${dateRange.endDate.toISOString().split("T")[0]}`;
+        const fileName = `report_${Date.now()}_${formatDateAsYmd(dateRange.startDate)}_to_${formatDateAsYmd(dateRange.endDate)}`;
         await exportReport(filteredData, format, fileName);
         toast({ title: "Export Complete", description: `Exported as ${format.toUpperCase()}`, status: "success", duration: 3000, isClosable: true });
       } catch (error) {
@@ -802,7 +830,7 @@ const Reports = () => {
               {activeTab !== 0 && (
                 <>
                   <TimePickerButton
-                    label="From Time"
+                    label="From Time (UTC)"
                     hour={dateRange.startHour}
                     minute={dateRange.startMinute}
                     onHourChange={setStartHour}
@@ -811,7 +839,7 @@ const Reports = () => {
                     activeMinute={dateRange.startMinute}
                   />
                   <TimePickerButton
-                    label="To Time"
+                    label="To Time (UTC)"
                     hour={dateRange.endHour}
                     minute={dateRange.endMinute}
                     onHourChange={setEndHour}
@@ -820,6 +848,11 @@ const Reports = () => {
                     activeMinute={dateRange.endMinute}
                   />
                 </>
+              )}
+              {activeTab !== 6 && activeTab !== 0 && (
+                <Text fontSize="xs" color={mutedColor} mt={2}>
+                  Time inputs are treated as UTC in the UI and converted only for the existing backend request format.
+                </Text>
               )}
             </Wrap>
           )}

@@ -183,15 +183,6 @@ const Accounts = () => {
     { value: "inactive", label: "Inactive", color: "gray" },
   ];
 
-  const carrierTypeOptions = [
-    { value: "tier1", label: "Tier 1 Carrier" },
-    { value: "tier2", label: "Tier 2 Carrier" },
-    { value: "tier3", label: "Tier 3 Carrier" },
-    { value: "mobile", label: "Mobile Operator" },
-    { value: "voip", label: "VoIP Provider" },
-    { value: "other", label: "Other" },
-  ];
-
   const billingCycles = [
     { value: "daily", label: "Daily" },
     { value: "weekly", label: "Weekly" },
@@ -995,6 +986,7 @@ const Accounts = () => {
           message={`Are you sure you want to delete account ${selectedCustomer?.accountName}? This will also remove all associated CDRs and invoices.`}
           confirmText="Delete Account"
           type="danger"
+          isLoading={loading}
         />
       </VStack>
     </Box>

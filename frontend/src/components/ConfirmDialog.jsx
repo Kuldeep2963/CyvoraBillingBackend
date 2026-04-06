@@ -73,6 +73,7 @@ const ConfirmDialog = ({
       isCentered
       size="md"
       aria-describedby={bodyId}
+      closeOnOverlayClick={!isLoading}
     >
       <ModalOverlay bg="blackAlpha.400" />
       <ModalContent borderRadius="xl" overflow="hidden" boxShadow="xl">
@@ -140,6 +141,7 @@ const ConfirmDialog = ({
               px={5}
               onClick={onConfirm}
               isLoading={isLoading}
+              isDisabled={isLoading}
               loadingText="Processing…"
             >
               {confirmText}

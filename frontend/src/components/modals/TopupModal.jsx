@@ -127,7 +127,7 @@ const TopupModal = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside">
+    <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside" closeOnOverlayClick={!isLoading}>
       <ModalOverlay />
       <ModalContent>
         <ModalHeader bg="blue.500" color="white" borderTopRadius="md">

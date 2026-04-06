@@ -248,6 +248,13 @@ const MemoizedSearchSelectBase = React.forwardRef(({
   const [value, setValue] = React.useState(data)
   const selectedOptionRef = React.useRef(null)
 
+  const filterOptions = React.useCallback((items, term) => {
+    const normalizedTerm = String(term ?? '').trim().toLowerCase()
+    if (!normalizedTerm) return []
+
+    return (items || []).filter((item) => String(item).toLowerCase().includes(normalizedTerm))
+  }, [])
+
   // Event handler.
   React.useEffect(() => {
     // Clear selected option on data change.
@@ -257,6 +264,10 @@ const MemoizedSearchSelectBase = React.forwardRef(({
     // Update if data is available.
     setValue(data)
   }, [data])
+  React.useEffect(() => {
+    // Recompute dropdown suggestions whenever async options or input value changes.
+    setSearch(filterOptions(options, value))
+  }, [options, value, filterOptions])
   React.useEffect(() => {
     const handleClickOutside = (event) => {
       if (selectedOptionRef.current && !selectedOptionRef.current.contains(event.target)) {
@@ -288,11 +299,13 @@ const MemoizedSearchSelectBase = React.forwardRef(({
             disabled={disabled}
             value={(selectedOption === null || selectedOption === undefined || selectedOption === '') ? value : selectedOption}
             onChange={i => {
+              const inputValue = i.target.value
+
               // Update value.
-              setValue(i.target.value)
+              setValue(inputValue)
 
               // Update search.
-              setSearch(options.filter(j => j.toLowerCase().startsWith(i.target.value.toLowerCase())))
+              setSearch(filterOptions(options, inputValue))
 
               // Call the onChange function.
               onChange?.(i)
@@ -323,6 +336,9 @@ const MemoizedSearchSelectBase = React.forwardRef(({
                       onClick={() => {
                         // Update selected option.
                         setSelectedOption(item)
+
+                        // Keep input value in sync with selected text.
+                        setValue(item)
 
                         // Update value.
                         setSearch([])

@@ -316,6 +316,7 @@ const Invoices = () => {
     confirmText: "Confirm",
     type: "danger",
     onConfirm: null,
+    isLoading: false,
   });
 
   const toast  = useToast();
@@ -1141,13 +1142,21 @@ const Invoices = () => {
         isOpen={confirmDialog.isOpen}
         onClose={closeConfirm}
         onConfirm={async () => {
-          closeConfirm();
-          if (confirmDialog.onConfirm) await confirmDialog.onConfirm();
+          if (confirmDialog.onConfirm) {
+            setConfirmDialog((prev) => ({ ...prev, isLoading: true }));
+            try {
+              await confirmDialog.onConfirm();
+            } finally {
+              closeConfirm();
+              setConfirmDialog((prev) => ({ ...prev, isLoading: false }));
+            }
+          }
         }}
         title={confirmDialog.title}
         message={confirmDialog.message}
         confirmText={confirmDialog.confirmText}
         type={confirmDialog.type}
+        isLoading={confirmDialog.isLoading}
       />
     </Box>
   );

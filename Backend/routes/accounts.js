@@ -85,10 +85,12 @@ const normalizeContactChannels = (payload) => {
   data.disputeEmails = splitToList(data.disputeEmails || data.disputeEmail);
   data.nocEmails = splitToList(data.nocEmails || data.nocEmail);
 
-  data.ratesMobileNumber = splitToList(data.ratesMobileNumber);
-  data.billingPhoneNumbers = splitToList(data.billingPhoneNumbers);
-  data.disputePhoneNumber = splitToList(data.disputePhoneNumber);
-  data.nocPhoneNumbers = splitToList(data.nocPhoneNumbers);
+  // Explicitly remove deprecated contact/mobile fields and carrier type.
+  delete data.ratesMobileNumber;
+  delete data.billingPhoneNumbers;
+  delete data.disputePhoneNumber;
+  delete data.nocPhoneNumbers;
+  delete data.carrierType;
 
   // Keep current notification logic working via existing scalar fields.
   if (!data.billingEmail && data.billingEmails.length > 0) {
@@ -138,6 +140,24 @@ const normalizeAuthFields = (payload) => {
 
   data.customerauthenticationValue = normalizeAuthValues(data.customerauthenticationValue);
   data.vendorauthenticationValue = normalizeAuthValues(data.vendorauthenticationValue);
+
+  return data;
+};
+
+const normalizeCountryFields = (payload) => {
+  const data = { ...payload };
+
+  const rawCountry = String(data.country ?? '').trim();
+  const rawCountryCode = String(data.countryCode ?? '').trim();
+
+  // accounts.country is VARCHAR(2), so persist ISO code there.
+  // Prefer explicit countryCode; fallback to country when it is already 2 chars.
+  const isoCode = rawCountryCode || (rawCountry.length === 2 ? rawCountry : '');
+
+  if (isoCode) {
+    data.country = isoCode.toUpperCase();
+    data.countryCode = isoCode.toUpperCase();
+  }
 
   return data;
 };
@@ -622,7 +642,9 @@ router.post('/bulk', async (req, res) => {
   }
 
   const prepared = inputAccounts.map((raw) => {
-    const data = normalizeAuthFields(normalizeContactChannels({ ...(raw || {}) }));
+    const data = normalizeCountryFields(
+      normalizeAuthFields(normalizeContactChannels({ ...(raw || {}) }))
+    );
     if (Object.prototype.hasOwnProperty.call(data, 'documents')) {
       data.documents = normalizeDocuments(data.documents);
     }
@@ -721,7 +743,9 @@ router.post('/bulk', async (req, res) => {
 // Create new account
 router.post('/', async (req, res) => {
   try {
-    const data = normalizeAuthFields(normalizeContactChannels({ ...req.body }));
+    const data = normalizeCountryFields(
+      normalizeAuthFields(normalizeContactChannels({ ...req.body }))
+    );
     if (Object.prototype.hasOwnProperty.call(data, 'documents')) {
       data.documents = normalizeDocuments(data.documents);
     }
@@ -750,7 +774,9 @@ router.put('/:id', async (req, res) => {
     const account = await Customer.findByPk(parseInt(req.params.id));
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
-    const updates = normalizeAuthFields(normalizeContactChannels({ ...req.body }));
+    const updates = normalizeCountryFields(
+      normalizeAuthFields(normalizeContactChannels({ ...req.body }))
+    );
     if (Object.prototype.hasOwnProperty.call(updates, 'documents')) {
       updates.documents = normalizeDocuments(updates.documents);
     }
