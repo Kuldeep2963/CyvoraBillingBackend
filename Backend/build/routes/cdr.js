@@ -124,7 +124,7 @@ const unknownCustomerConditionSql = (alias) => `
               '\\s*,\\s*'
             ) AS auth(v)
             WHERE NULLIF(BTRIM(auth.v, ' "'), '') IS NOT NULL
-              AND TRIM(COALESCE(${alias}."callerip", '')) = BTRIM(auth.v, ' "')
+              AND TRIM(COALESCE(${alias}."callerip"::text, '')) = BTRIM(auth.v, ' "')
           )
         )
         OR
@@ -136,30 +136,30 @@ const unknownCustomerConditionSql = (alias) => `
               regexp_replace(
                 COALESCE(a."customerauthenticationValue"::text, ''),
                 '(^\\s*\\[|\\]\\s*$)',
-                '',
-                'g'
+                TRIM(COALESCE(${alias}."customeraccount"::text, '')) = BTRIM(auth.v, ' "')
+                OR TRIM(COALESCE(${alias}."customername"::text, '')) = BTRIM(auth.v, ' "')
               ),
               '\\s*,\\s*'
             ) AS auth(v)
             WHERE NULLIF(BTRIM(auth.v, ' "'), '') IS NOT NULL
               AND (
-                TRIM(COALESCE(${alias}."customeraccount", '')) = BTRIM(auth.v, ' "')
-                OR TRIM(COALESCE(${alias}."customername", '')) = BTRIM(auth.v, ' "')
+                TRIM(COALESCE(${alias}."customeraccount"::text, '')) = BTRIM(auth.v, ' "')
+                OR TRIM(COALESCE(${alias}."customername"::text, '')) = BTRIM(auth.v, ' "')
               )
-          )
-        )
+              NULLIF(TRIM(COALESCE(a."customerCode"::text, '')), '') IS NOT NULL
+              AND TRIM(COALESCE(${alias}."customeraccount"::text, '')) = TRIM(a."customerCode"::text)
         OR
         (
           COALESCE(a."customerauthenticationType"::text, '') NOT IN ('ip', 'custom')
-          AND (
-            (
-              NULLIF(TRIM(COALESCE(a."customerCode", '')), '') IS NOT NULL
-              AND TRIM(COALESCE(${alias}."customeraccount", '')) = TRIM(a."customerCode")
+              NULLIF(TRIM(COALESCE(a."gatewayId"::text, '')), '') IS NOT NULL
+              AND TRIM(COALESCE(${alias}."customeraccount"::text, '')) = TRIM(a."gatewayId"::text)
+              NULLIF(TRIM(COALESCE(a."customerCode"::text, '')), '') IS NOT NULL
+              AND TRIM(COALESCE(${alias}."customeraccount"::text, '')) = TRIM(a."customerCode"::text)
             )
             OR
             (
-              NULLIF(TRIM(COALESCE(a."gatewayId", '')), '') IS NOT NULL
-              AND TRIM(COALESCE(${alias}."customeraccount", '')) = TRIM(a."gatewayId")
+              NULLIF(TRIM(COALESCE(a."gatewayId"::text, '')), '') IS NOT NULL
+              AND TRIM(COALESCE(${alias}."customeraccount"::text, '')) = TRIM(a."gatewayId"::text)
             )
           )
         )
@@ -503,66 +503,70 @@ router.get('/missing-gateways', async (req, res) => {
       where[Op.and].push(
         sequelize.literal(`
           (
-            COALESCE("CDR"."callergatewayid", '') ILIKE '%${q}%'
-            OR COALESCE("CDR"."callerip", '') ILIKE '%${q}%'
-            OR COALESCE("CDR"."customeraccount", '') ILIKE '%${q}%'
-            OR COALESCE("CDR"."customername", '') ILIKE '%${q}%'
-            OR COALESCE("CDR"."callere164", '') ILIKE '%${q}%'
-            OR COALESCE("CDR"."calleee164", '') ILIKE '%${q}%'
+            COALESCE("CDR"."callergatewayid"::text, '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."callerip"::text, '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."customeraccount"::text, '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."customername"::text, '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."callere164"::text, '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."calleee164"::text, '') ILIKE '%${q}%'
           )
         `)
       );
     }
 
-    const totalCount = await CDR.count({ where });
+    const startTimeExpression = `CASE WHEN "CDR"."starttime"::text ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END`;
+    const gatewayExpression = `COALESCE(NULLIF(TRIM("CDR"."callerip"::text), ''), NULLIF(TRIM("CDR"."callergatewayid"::text), ''), 'unknown')`;
+    const safeFeeExpression = `COALESCE(SUM(
+      CASE
+        WHEN regexp_replace(COALESCE("CDR"."feetime"::text, ''), '[^0-9eE+\\-.]', '', 'g') ~ '^[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$'
+        THEN regexp_replace(COALESCE("CDR"."feetime"::text, ''), '[^0-9eE+\\-.]', '', 'g')::double precision
+        ELSE 0
+      END
+    ), 0)`;
 
-    const rows = await CDR.findAll({
+    const groupedRows = await CDR.findAll({
       where,
       attributes: [
-        
-        'callergatewayid',
-        'callerip',
-        'customeraccount',
-        'customername',
-        'callere164',
-        'calleee164',
-        'feetime',
-        'starttime',
+        [sequelize.literal(gatewayExpression), 'gateway'],
+        [sequelize.fn('MIN', sequelize.col('callerip')), 'callerip'],
+        [sequelize.fn('MIN', sequelize.col('customeraccount')), 'customeraccount'],
+        [sequelize.fn('MIN', sequelize.col('customername')), 'customername'],
+        [sequelize.fn('MIN', sequelize.col('callere164')), 'cli'],
+        [sequelize.fn('MIN', sequelize.col('calleee164')), 'called'],
+        [sequelize.literal('COUNT(*)'), 'occurrences'],
+        [sequelize.literal(safeFeeExpression), 'duration'],
+        [sequelize.literal(`MIN(${startTimeExpression})`), 'firstSeen'],
+        [sequelize.literal(`MAX(${startTimeExpression})`), 'lastSeen'],
       ],
-      order: [
-        sequelize.literal(`CASE WHEN "CDR"."starttime"::text ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END DESC NULLS LAST`),
-      ],
-      limit,
-      offset,
+      group: [sequelize.literal(gatewayExpression)],
       raw: true,
     });
 
-    const gatewaySeen = new Set();
-    const data = rows.map((row) => {
-      const gateway = String(row.callergatewayid || row.callerip || 'unknown').trim() || 'unknown';
-      const status = gatewaySeen.has(gateway) ? 'recurring' : 'new';
-      gatewaySeen.add(gateway);
-
-      return {
-        id: row.id,
-        gateway,
-        callerip: row.callerip || '',
+    const normalizedRows = groupedRows
+      .map((row) => ({
+        id: row.gateway,
+        gateway: row.gateway || 'unknown',
+        callerip: row.callerip || row.gateway || '',
         customeraccount: row.customeraccount || '',
         customername: row.customername || '',
-        cli: row.callere164 || '',
-        called: row.calleee164 || '',
-        duration: Number(row.feetime) || 0,
-        starttime: Number(row.starttime) || 0,
-        status,
-      };
-    });
+        cli: row.cli || '',
+        called: row.called || '',
+        occurrences: Number(row.occurrences) || 0,
+        duration: Number(row.duration) || 0,
+        firstSeen: Number(row.firstSeen) || 0,
+        lastSeen: Number(row.lastSeen) || 0,
+      }))
+      .sort((a, b) => b.lastSeen - a.lastSeen);
+
+    const totalCount = normalizedRows.length;
+    const data = normalizedRows.slice(offset, offset + limit);
 
     const summary = {
       total: totalCount,
       pageCount: data.length,
-      uniqueGateways: new Set(data.map((r) => r.gateway)).size,
-      totalDuration: data.reduce((sum, r) => sum + (Number(r.duration) || 0), 0),
-      newGateways: data.filter((r) => r.status === 'new').length,
+      uniqueGateways: totalCount,
+      totalDuration: normalizedRows.reduce((sum, r) => sum + (Number(r.duration) || 0), 0),
+      totalOccurrences: normalizedRows.reduce((sum, r) => sum + (Number(r.occurrences) || 0), 0),
     };
 
     res.json({

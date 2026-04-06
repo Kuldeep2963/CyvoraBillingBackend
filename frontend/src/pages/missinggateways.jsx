@@ -49,9 +49,8 @@ const MissingGateways = () => {
   const [from, setFrom] = useState(toDateInput(new Date(Date.now() ))); 
   const [to, setTo] = useState(toDateInput(new Date()));
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [rows, setRows] = useState([]);
-  const [summary, setSummary] = useState({ total: 0, uniqueGateways: 0, totalDuration: 0, newGateways: 0 });
+  const [summary, setSummary] = useState({ total: 0, uniqueGateways: 0, totalDuration: 0, totalOccurrences: 0 });
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -70,7 +69,7 @@ const MissingGateways = () => {
         limit: pageSize,
       });
       setRows(result?.data || []);
-      setSummary(result?.summary || { total: 0, uniqueGateways: 0, totalDuration: 0, newGateways: 0 });
+      setSummary(result?.summary || { total: 0, uniqueGateways: 0, totalDuration: 0, totalOccurrences: 0 });
       setPagination(result?.pagination || { total: 0, page: pageNum, limit: pageSize, totalPages: 1 });
     } catch (error) {
       toast({
@@ -99,22 +98,20 @@ const MissingGateways = () => {
   }, [page, pageSize, hasAppliedFilters]);
 
   const filtered = useMemo(() => {
-    if (statusFilter === "all") return rows;
-    return rows.filter((r) => r.status === statusFilter);
-  }, [rows, statusFilter]);
+    return rows;
+  }, [rows]);
 
   const exportCSV = () => {
-    const header = ["gateway", "callerip", "customeraccount", "customername", "cli", "called", "duration", "status", "starttime"];
+    const header = ["gateway", "callerip", "customeraccount", "customername", "occurrences", "duration", "firstSeen", "lastSeen"];
     const lines = filtered.map((r) => [
       r.gateway,
       r.callerip,
       r.customeraccount,
       r.customername,
-      r.cli,
-      r.called,
+      r.occurrences,
       r.duration,
-      r.status,
-      new Date(Number(r.starttime) || 0).toISOString(),
+      r.firstSeen ? new Date(Number(r.firstSeen)).toISOString() : "",
+      r.lastSeen ? new Date(Number(r.lastSeen)).toISOString() : "",
     ].map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","));
 
     const blob = new Blob([[header.join(","), ...lines].join("\n")], { type: "text/csv" });
@@ -130,15 +127,15 @@ const MissingGateways = () => {
 
      const STAT_CARDS = [
   {
-    label: "Total CDRs",
-    getValue: (s) => (s.total ?? 0).toLocaleString(),
-    subtext: "Unmatched records",
+      label: "Unique Missing IPs",
+      getValue: (s) => (s.uniqueGateways ?? 0).toLocaleString(),
+      subtext: "Deduplicated gateways",
     color: "blue.600",
   },
   {
-    label: "Unique Gateways",
-    getValue: (s) => (s.uniqueGateways ?? 0).toLocaleString(),
-    subtext: "Distinct sources",
+      label: "Total Missing CDRs",
+      getValue: (s) => (s.totalOccurrences ?? 0).toLocaleString(),
+      subtext: "Raw unmatched records",
     color: "purple.600",
   },
   {
@@ -148,9 +145,9 @@ const MissingGateways = () => {
     color: "green.600",
   },
   {
-    label: "New Gateways",
-    getValue: (s) => (s.newGateways ?? 0).toLocaleString(),
-    subtext: "First occurrence",
+    label: "Page Count",
+    getValue: (s) => (s.total ?? 0).toLocaleString(),
+    subtext: "Rows in current view",
     color: "red.600",
   },
 ];
@@ -203,45 +200,11 @@ SummaryStatCard.displayName = "SummaryStatCard";
                     pl={10}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Gateway, account, CLI, called..."
+                    placeholder="IP, account, gateway..."
                     disabled={loading}
                   />
                 </InputGroup>
               </FormControl>
-            
-
-            <FormControl>
-              <FormLabel >Status Filter</FormLabel>
-              <HStack spacing={2}>
-                <Button 
-                  size="sm" 
-                  variant={statusFilter === "all" ? "solid" : "outline"} 
-                  colorScheme={statusFilter === "all" ? "blue" : "gray"}
-                  onClick={() => setStatusFilter("all")}
-                  disabled={loading}
-                >
-                  All
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant={statusFilter === "new" ? "solid" : "outline"} 
-                  colorScheme={statusFilter === "new" ? "red" : "gray"}
-                  onClick={() => setStatusFilter("new")}
-                  disabled={loading}
-                >
-                  New
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant={statusFilter === "recurring" ? "solid" : "outline"} 
-                  colorScheme={statusFilter === "recurring" ? "orange" : "gray"}
-                  onClick={() => setStatusFilter("recurring")}
-                  disabled={loading}
-                >
-                  Recurring
-                </Button>
-              </HStack>
-            </FormControl>
             </Grid>
 
             <HStack spacing={3}>
@@ -304,40 +267,37 @@ SummaryStatCard.displayName = "SummaryStatCard";
                 <Table size="sm" variant="simple">
                   <Thead position="sticky" top={0} zIndex={1} bg="gray.100">
                     <Tr>
-                      {/* <Th fontWeight="bold">Gateway/IP</Th> */}
-                      {/* <Th fontWeight="bold">Customer Account</Th> */}
                       <Th fontWeight="bold">Caller IP</Th>
                       <Th fontWeight="bold">Customer Name</Th>
-                      <Th fontWeight="bold">CLI (Caller)</Th>
-                      <Th fontWeight="bold">Called</Th>
+                      <Th fontWeight="bold">Occurrences</Th>
                       <Th isNumeric fontWeight="bold">Duration</Th>
-                      <Th fontWeight="bold" textAlign="center">Status</Th>
                       <Th fontWeight="bold">First Seen</Th>
+                      <Th fontWeight="bold">Last Seen</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
                     {filtered.map((r, idx) => (
                       <Tr key={r.id || idx} _hover={{ bg: "gray.50" }}>
-                        {/* <Td fontFamily="mono" fontSize="xs" fontWeight="bold">{r.gateway}</Td> */}
-                        {/* <Td fontSize="sm">{r.customeraccount || <Text color="gray.400">—</Text>}</Td> */}
                         <Td fontFamily="mono" fontSize="xs">{r.callerip || <Text color="gray.400">—</Text>}</Td>
                         <Td fontSize="sm">{r.customername || <Text color="gray.400">—</Text>}</Td>
-                        <Td fontFamily="mono" fontSize="xs">{r.cli || <Text color="gray.400">—</Text>}</Td>
-                        <Td fontFamily="mono" fontSize="xs">{r.called || <Text color="gray.400">—</Text>}</Td>
+                        <Td fontFamily="mono" fontSize="xs">{Number(r.occurrences || 0).toLocaleString()}</Td>
                         <Td isNumeric fontSize="xs" fontFamily="mono">{formatDuration(r.duration)}</Td>
-                        <Td textAlign="center">
-                          <Badge 
-                            colorScheme={r.status === "new" ? "red" : "orange"}
-                            variant="subtle"
-                            px={1}
-                            py={0}
-                          >
-                            {r.status?.toUpperCase()}
-                          </Badge>
+                        <Td fontSize="xs">
+                          {r.firstSeen 
+                            ? new Date(Number(r.firstSeen)).toLocaleString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                              })
+                            : <Text color="gray.400">—</Text>
+                          }
                         </Td>
                         <Td fontSize="xs">
-                          {r.starttime 
-                            ? new Date(Number(r.starttime)).toLocaleString('en-US', {
+                          {r.lastSeen 
+                            ? new Date(Number(r.lastSeen)).toLocaleString('en-US', {
                                 year: 'numeric',
                                 month: 'short',
                                 day: '2-digit',
@@ -359,7 +319,7 @@ SummaryStatCard.displayName = "SummaryStatCard";
                   Showing <strong>{filtered.length}</strong> of <strong>{summary.total || 0}</strong> records
                 </Text>
                 <Text color="gray.600">
-                  <strong>{new Set(filtered.map(r => r.gateway)).size}</strong> unique gateways in view
+                  <strong>{new Set(filtered.map(r => r.callerip)).size}</strong> unique missing IPs in view
                 </Text>
               </HStack>
             </>

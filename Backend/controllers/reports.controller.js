@@ -147,8 +147,8 @@ const buildAccountConditions = (account, vendorReport) => {
     });
   }
 
-  // 3️⃣ Fallback to vendorCode/customerCode or gatewayId if nothing else matched
-  if (or.length === 0) {
+  // 3️⃣ Fallback to vendorCode/customerCode or gatewayId only when auth is not configured
+  if (or.length === 0 && authType !== 'ip' && authType !== 'custom') {
     if (vendorReport) {
       const vCode = account.vendorCode || account.gatewayId;
       if (vCode) or.push({ agentaccount: vCode });
