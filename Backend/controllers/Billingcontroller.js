@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const { Op, fn, col } = require('sequelize');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
 const puppeteer = require('puppeteer');
@@ -847,6 +848,24 @@ const generateInvoicePDFBuffer = async (invoice) => {
   let browser;
   try {
     const invoiceData = invoice.toJSON();
+
+    const logoCandidates = [
+      process.env.INVOICE_LOGO_PATH,
+      path.resolve(process.cwd(), 'frontend/public/Cyvora.png'),
+      path.resolve(__dirname, '../../frontend/public/Cyvora.png'),
+      path.resolve(__dirname, '../../../frontend/public/Cyvora.png')
+    ].filter(Boolean);
+    const logoPath = logoCandidates.find((candidate) => fs.existsSync(candidate));
+
+    let logoSrc = '';
+    if (logoPath) {
+      const ext = path.extname(logoPath).toLowerCase();
+      const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+      const logoBase64 = fs.readFileSync(logoPath).toString('base64');
+      logoSrc = `data:${mime};base64,${logoBase64}`;
+    } else {
+      console.warn('[Invoice PDF] Cyvora logo not found. Checked paths:', logoCandidates.join(', '));
+    }
     
     // Format dates for the template
     const formattedInvoiceDate = moment(parseInt(invoiceData.invoiceDate)).format("DD-MM-YYYY");
@@ -879,7 +898,7 @@ const generateInvoicePDFBuffer = async (invoice) => {
               padding-bottom: 20px;
             }
             .company-logo {
-              height: 40px;
+              height: 56px;
               width: auto;
               display: block;
               object-fit: contain;
@@ -1009,9 +1028,11 @@ const generateInvoicePDFBuffer = async (invoice) => {
           <div class="invoice-container">
             <div class="invoice-header">
               <div>
-                <h2 style="color: #1a365d; margin: 0;">PAI TELECOMM</h2>
+                ${logoSrc
+                  ? `<img class="company-logo" src="${logoSrc}" alt="Cyvora Logo" />`
+                  : '<h2 style="color: #1a365d; margin: 0;">Cyvora</h2>'}
               </div>
-              <div class="invoice-title">INVOICE</div>
+              <div class="invoice-title">${invoiceData.invoiceNumber || 'INVOICE'}</div>
             </div>
 
             <div class="address-section">
@@ -1132,53 +1153,101 @@ const generateInvoicePDFBuffer = async (invoice) => {
     `;
 
     const envChromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    let puppeteerDefaultPath = null;
+    try {
+      puppeteerDefaultPath = puppeteer.executablePath();
+    } catch (_error) {
+      // Keep null and continue with system candidates.
+    }
+
     const chromiumCandidates = [
       envChromiumPath,
       '/usr/bin/chromium-browser',
       '/usr/bin/chromium',
-      '/snap/bin/chromium'
+      '/snap/bin/chromium',
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      puppeteerDefaultPath
     ].filter(Boolean);
-    const executablePath = chromiumCandidates.find((candidate) => fs.existsSync(candidate));
 
-    if (!executablePath) {
-      const checkedPaths = [envChromiumPath, '/usr/bin/chromium-browser', '/usr/bin/chromium', '/snap/bin/chromium'].filter(Boolean);
-      const errorMsg = `Chromium/Puppeteer executable not found. Checked paths: ${checkedPaths.join(', ')}. Set PUPPETEER_EXECUTABLE_PATH environment variable or install chromium.`;
-      console.error('[Puppeteer] ERROR:', errorMsg);
-      throw new Error(errorMsg);
+    const checkedPaths = [...new Set(chromiumCandidates)];
+    let executablePath = checkedPaths.find((candidate) => fs.existsSync(candidate));
+
+    if (executablePath) {
+      // Check if executable has execute permissions.
+      try {
+        fs.accessSync(executablePath, fs.constants.X_OK);
+      } catch (permError) {
+        console.error('[Puppeteer] ERROR: File exists but not executable:', executablePath);
+        throw new Error(`Chromium executable found at "${executablePath}" but it's not executable. Try: chmod +x "${executablePath}"`);
+      }
+
+      if (!hasLoggedPuppeteerExecutablePath) {
+        console.log('[Puppeteer] Using executablePath:', executablePath);
+        hasLoggedPuppeteerExecutablePath = true;
+      }
+    } else {
+      console.warn(
+        '[Puppeteer] No local Chromium executable found in known paths. Will attempt Puppeteer-managed default. Checked:',
+        checkedPaths.join(', ')
+      );
     }
 
-    // Check if executable has execute permissions
+    const launchArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-zygote',
+      '--single-process'
+    ];
+
+    const launchOptions = {
+      headless: true,
+      args: launchArgs
+    };
+
+    if (executablePath) {
+      launchOptions.executablePath = executablePath;
+    }
+
+    let launchError = null;
     try {
-      fs.accessSync(executablePath, fs.constants.X_OK);
-    } catch (permError) {
-      console.error('[Puppeteer] ERROR: File exists but not executable:', executablePath);
-      throw new Error(`Chromium executable found at "${executablePath}" but it's not executable. Try: chmod +x "${executablePath}"`);
+      browser = await puppeteer.launch(launchOptions);
+    } catch (firstLaunchError) {
+      launchError = firstLaunchError;
+
+      // Retry without forcing executablePath in case system chrome exists but is broken.
+      if (launchOptions.executablePath) {
+        console.warn('[Puppeteer] Launch with explicit executablePath failed, retrying with Puppeteer default executable.');
+        try {
+          browser = await puppeteer.launch({
+            headless: true,
+            args: launchArgs
+          });
+          launchError = null;
+          executablePath = null;
+        } catch (secondLaunchError) {
+          launchError = secondLaunchError;
+        }
+      }
     }
 
-    if (!hasLoggedPuppeteerExecutablePath) {
-      console.log('[Puppeteer] Using executablePath:', executablePath);
-      hasLoggedPuppeteerExecutablePath = true;
-    }
-
-    try {
-      browser = await puppeteer.launch({
-        headless: true,
-        executablePath,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-      });
-    } catch (launchError) {
-      const launchMsg = launchError.message || String(launchError);
+    if (launchError || !browser) {
+      const launchMsg = (launchError && launchError.message) ? launchError.message : String(launchError || 'Unknown launch error');
       console.error('[Puppeteer] ERROR launching browser:', launchMsg);
-      // Check if it's a common system dependency issue
+      // Check if it's a common system dependency issue.
       const errorLower = launchMsg.toLowerCase();
       let suggestion = 'See https://pptr.dev/troubleshooting for detailed troubleshooting.';
-      
+
       if (errorLower.includes('libnss3') || errorLower.includes('libxss') || errorLower.includes('missing') || errorLower.includes('library')) {
         suggestion = 'Missing system dependencies. Try: sudo apt-get install -y libnss3 libxss1 libasound2 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc1 libgconf-2-4 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libharfbuzz0b libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxinerama1 libxrandr2 libxrender1 libxss1 libxtst6';
       } else if (errorLower.includes('permission') || errorLower.includes('denied')) {
-        suggestion = `Permission denied. Try: chmod +x "${executablePath}"`;
+        suggestion = executablePath
+          ? `Permission denied. Try: chmod +x "${executablePath}"`
+          : 'Permission denied while launching Chromium. Ensure browser binary is executable.';
       }
-      
+
       throw new Error(`Failed to launch browser: ${launchMsg}. ${suggestion}`);
     }
 
