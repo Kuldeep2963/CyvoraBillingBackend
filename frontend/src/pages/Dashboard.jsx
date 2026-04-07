@@ -395,7 +395,7 @@ const Dashboard = () => {
                   </HStack>
                 </Box>
 
-                <Box
+                {/* <Box
                   px={3}
                   py={1}
                   bg="gray.200"
@@ -408,11 +408,11 @@ const Dashboard = () => {
                     <Text fontSize="13px" color="gray.600" fontWeight="600">
                       Last CDR : {lastProcessedMeta.timeLabel}
                     </Text>
-                    {/* <Text fontSize="xs" color="gray.500" maxW="240px" isTruncated title={lastProcessedMeta.filename || "No processed file yet"}>
+                    <Text fontSize="xs" color="gray.500" maxW="240px" isTruncated title={lastProcessedMeta.filename || "No processed file yet"}>
                       {lastProcessedMeta.filename || "No processed file yet"}
-                    </Text> */}
+                    </Text>
                   </VStack>
-                </Box>
+                </Box> */}
 
                 <Select
                   value={timeRange}

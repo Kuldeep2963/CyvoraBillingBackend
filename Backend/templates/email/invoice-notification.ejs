@@ -8,7 +8,6 @@
         .content { padding: 20px; }
         .footer { font-size: 12px; color: #777; margin-top: 20px; border-top: 1px solid #ddd; padding-top: 10px; }
         .invoice-details { background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0; }
-        .button { display: inline-block; padding: 10px 20px; background-color: #28a745; color: white; text-decoration: none; border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -28,11 +27,7 @@
                 <p><strong>Total Amount:</strong> <%= invoice.totalAmount %> <%= invoice.currency || 'USD' %></p>
             </div>
             
-            <p>You can view and download your full invoice by logging into our portal.</p>
-            
-            <p style="text-align: center;">
-                <a href="<%= process.env.BASE_API_URL %>/invoices/<%= invoice.id %>" class="button">View Invoice</a>
-            </p>
+            <p>Please review the invoice details shared in this email. If you need a copy in another format, contact the billing team.</p>
             
             <p>Thank you for choosing our services!</p>
         </div>

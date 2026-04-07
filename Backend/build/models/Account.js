@@ -346,6 +346,30 @@ const Account = sequelize.define('Account', {
     comment: 'Date of the last billing process'
   },
 
+  customerLastBillingDate: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    comment: 'Last billing date for customer invoices'
+  },
+
+  customerNextBillingDate: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    comment: 'Next billing date for customer invoices'
+  },
+
+  vendorLastBillingDate: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    comment: 'Last billing date for vendor invoices'
+  },
+
+  vendorNextBillingDate: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    comment: 'Next billing date for vendor invoices'
+  },
+
   nextbillingdate: {
     type: DataTypes.DATEONLY,
     allowNull: true,

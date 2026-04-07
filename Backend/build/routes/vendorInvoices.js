@@ -73,6 +73,11 @@ const handleUpload = (req, res, next) => {
 
 router.post('/', handleUpload, vendorInvoiceController.createVendorInvoice);
 router.get('/', vendorInvoiceController.getVendorInvoices);
+router.get('/:id/files', vendorInvoiceController.getVendorInvoiceFiles);
+router.get('/:id/files/:fileIndex/download', vendorInvoiceController.downloadVendorInvoiceFile);
+router.post('/:id/files', handleUpload, vendorInvoiceController.addVendorInvoiceFiles);
+router.delete('/:id/files/:fileIndex', vendorInvoiceController.deleteVendorInvoiceFile);
+router.put('/:id', vendorInvoiceController.updateVendorInvoice);
 router.put('/:id/status', vendorInvoiceController.updateVendorInvoiceStatus);
 
 // allow removal of a vendor invoice (refunds account and deletes files)

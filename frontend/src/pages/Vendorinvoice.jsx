@@ -37,13 +37,34 @@ import {
   Input as ChakraInput,
   InputGroup as ChakraInputGroup,
   InputLeftElement as ChakraInputLeftElement,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalCloseButton,
+  ModalBody,
+  List,
+  ListItem,
+  ModalFooter,
 } from "@chakra-ui/react";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import DataTable from "../components/DataTable";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { useNavigate } from "react-router-dom";
 import { useState, useRef, useCallback, useEffect } from "react";
-import { fetchVendors, uploadVendorInvoice, fetchVendorInvoices, markInvoiceAsPaid, deletevendorinvoice } from "../utils/api";
+import {
+  fetchVendors,
+  uploadVendorInvoice,
+  fetchVendorInvoices,
+  markInvoiceAsPaid,
+  deletevendorinvoice,
+  fetchVendorInvoiceFiles,
+  downloadVendorInvoiceFileBlob,
+  deleteVendorInvoiceFile,
+  updateVendorInvoice,
+  uploadFilesToVendorInvoice,
+} from "../utils/api";
 import {
   FiUploadCloud,
   FiFile,
@@ -68,6 +89,9 @@ import {
   FiList,
   FiRefreshCw,
   FiTrash2,
+  FiPaperclip,
+  FiImage,
+  FiEdit2,
 } from "react-icons/fi";
 
 const CURRENCY = ["USD", "EUR", "GBP", "INR", "AED", "SGD"];
@@ -86,6 +110,42 @@ const fmtSeconds = (s) => {
   if (m) parts.push(`${m}m`);
   if (sec) parts.push(`${sec}s`);
   return parts.join(" ") || "0s";
+};
+
+const parseInvoiceFiles = (rawFilePaths) => {
+  if (!rawFilePaths) return [];
+
+  if (Array.isArray(rawFilePaths)) {
+    return rawFilePaths.map((entry) => String(entry || "").trim()).filter(Boolean);
+  }
+
+  if (typeof rawFilePaths === "string") {
+    const trimmed = rawFilePaths.trim();
+    if (!trimmed) return [];
+
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map((entry) => String(entry || "").trim()).filter(Boolean);
+        }
+      } catch (_error) {
+        // Fallback to comma split.
+      }
+    }
+
+    return trimmed.split(",").map((entry) => entry.trim()).filter(Boolean);
+  }
+
+  return [];
+};
+
+const pickFileIcon = (name = "") => {
+  const lower = String(name).toLowerCase();
+  if (lower.endsWith(".pdf")) return FiFileText;
+  if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp")) return FiImage;
+  if (lower.endsWith(".csv") || lower.endsWith(".xls") || lower.endsWith(".xlsx")) return FiFileText;
+  return FiFile;
 };
 
 // ── Status badge helper ───────────────────────────────────────
@@ -114,6 +174,314 @@ const InvoicesTab = ({ onAddNew }) => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [invoiceFiles, setInvoiceFiles] = useState([]);
+  const [isFilesOpen, setIsFilesOpen] = useState(false);
+  const [isFilesLoading, setIsFilesLoading] = useState(false);
+  const [isDeletingFile, setIsDeletingFile] = useState(false);
+  const [isDeleteInvoiceLoading, setIsDeleteInvoiceLoading] = useState(false);
+  const [deleteFileTarget, setDeleteFileTarget] = useState(null);
+  const [deleteInvoiceTarget, setDeleteInvoiceTarget] = useState(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isEditSaving, setIsEditSaving] = useState(false);
+  const [editInvoiceFiles, setEditInvoiceFiles] = useState([]);
+  const [isEditFilesLoading, setIsEditFilesLoading] = useState(false);
+  const [isEditFilesUploading, setIsEditFilesUploading] = useState(false);
+  const [uploadTargetInvoice, setUploadTargetInvoice] = useState(null);
+  const [isQuickUploading, setIsQuickUploading] = useState(false);
+  const [editForm, setEditForm] = useState({
+    invoiceNumber: "",
+    issueDate: "",
+    startDate: "",
+    endDate: "",
+    grandTotal: "",
+    currency: "USD",
+    totalSeconds: "",
+  });
+  const editFilesRef = useRef(null);
+  const quickAddFilesRef = useRef(null);
+  const isSelectedInvoicePaid = String(selectedInvoice?.status || "").toLowerCase() === "paid";
+
+  const safeOpenBlob = (blob, nameHint = "file") => {
+    const blobUrl = window.URL.createObjectURL(blob);
+    const opened = window.open(blobUrl, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = nameHint;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 30000);
+  };
+
+  const safeDownloadBlob = (blob, filename) => {
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename || "vendor-invoice-file";
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(blobUrl);
+    document.body.removeChild(a);
+  };
+
+  const openFilesModal = async (row) => {
+    setSelectedInvoice(row);
+    setIsFilesOpen(true);
+    setIsFilesLoading(true);
+
+    try {
+      const response = await fetchVendorInvoiceFiles(row.id);
+      const files = response?.data?.files || [];
+      setInvoiceFiles(Array.isArray(files) ? files : []);
+    } catch (err) {
+      setInvoiceFiles([]);
+      toast({
+        title: "Failed to load attachments",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setIsFilesLoading(false);
+    }
+  };
+
+  const openEditModal = async (row) => {
+    setSelectedInvoice(row);
+    setIsEditFilesLoading(true);
+    setEditInvoiceFiles([]);
+    setEditForm({
+      invoiceNumber: row.invoiceNumber || "",
+      issueDate: row.issueDate || "",
+      startDate: row.startDate || "",
+      endDate: row.endDate || "",
+      grandTotal: row.grandTotal != null ? String(row.grandTotal) : "",
+      currency: row.currency || "USD",
+      totalSeconds: row.totalSeconds != null ? String(row.totalSeconds) : "0",
+    });
+    setIsEditOpen(true);
+
+    try {
+      const response = await fetchVendorInvoiceFiles(row.id);
+      const files = response?.data?.files || [];
+      setEditInvoiceFiles(Array.isArray(files) ? files : []);
+    } catch (err) {
+      toast({
+        title: "Failed to load invoice attachments",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setIsEditFilesLoading(false);
+    }
+  };
+
+  const handleEditField = (key, value) => {
+    setEditForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedInvoice?.id) return;
+
+    if (!editForm.invoiceNumber.trim()) {
+      toast({ title: "Invoice number is required", status: "error", duration: 3000, isClosable: true });
+      return;
+    }
+
+    if (editForm.startDate && editForm.endDate && new Date(editForm.startDate) > new Date(editForm.endDate)) {
+      toast({ title: "End date must be after start date", status: "error", duration: 3000, isClosable: true });
+      return;
+    }
+
+    setIsEditSaving(true);
+    try {
+      await updateVendorInvoice(selectedInvoice.id, {
+        invoiceNumber: editForm.invoiceNumber.trim(),
+        issueDate: editForm.issueDate,
+        startDate: editForm.startDate,
+        endDate: editForm.endDate,
+        grandTotal: Number(editForm.grandTotal || 0),
+        currency: editForm.currency,
+        totalSeconds: Number(editForm.totalSeconds || 0),
+      });
+
+      toast({ title: "Vendor invoice updated", status: "success", duration: 3000, isClosable: true });
+      setIsEditOpen(false);
+      await loadInvoices();
+    } catch (err) {
+      toast({ title: "Failed to update invoice", description: err.message, status: "error", duration: 4000, isClosable: true });
+    } finally {
+      setIsEditSaving(false);
+    }
+  };
+
+  const handleViewFile = async (row, file) => {
+    try {
+      const blob = await downloadVendorInvoiceFileBlob(row.id, file.fileIndex, "inline");
+      safeOpenBlob(blob, file.originalName);
+    } catch (err) {
+      toast({
+        title: "Unable to open file",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    }
+  };
+
+  const handleDownloadFile = async (row, file) => {
+    try {
+      const blob = await downloadVendorInvoiceFileBlob(row.id, file.fileIndex, "attachment");
+      safeDownloadBlob(blob, file.originalName);
+    } catch (err) {
+      toast({
+        title: "Unable to download file",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    }
+  };
+
+  const handleDeleteFile = async (row, file) => {
+    setIsDeletingFile(true);
+    try {
+      await deleteVendorInvoiceFile(row.id, file.fileIndex);
+      const response = await fetchVendorInvoiceFiles(row.id);
+      const files = response?.data?.files || [];
+      setInvoiceFiles(Array.isArray(files) ? files : []);
+      setEditInvoiceFiles(Array.isArray(files) ? files : []);
+      await loadInvoices();
+      toast({ title: "Attachment deleted", status: "success", duration: 3000, isClosable: true });
+      setDeleteFileTarget(null);
+    } catch (err) {
+      toast({ title: "Failed to delete attachment", description: err.message, status: "error", duration: 4000, isClosable: true });
+    } finally {
+      setIsDeletingFile(false);
+    }
+  };
+
+  const handleUploadEditFiles = async (event) => {
+    const incomingFiles = Array.from(event?.target?.files || []);
+    if (!selectedInvoice?.id || incomingFiles.length === 0) {
+      if (event?.target) event.target.value = "";
+      return;
+    }
+
+    const formData = new FormData();
+    incomingFiles.forEach((file) => formData.append("files", file));
+
+    setIsEditFilesUploading(true);
+    try {
+      await uploadFilesToVendorInvoice(selectedInvoice.id, formData);
+      const response = await fetchVendorInvoiceFiles(selectedInvoice.id);
+      const files = response?.data?.files || [];
+      setEditInvoiceFiles(Array.isArray(files) ? files : []);
+      setInvoiceFiles(Array.isArray(files) ? files : []);
+      await loadInvoices();
+      toast({
+        title: "Files uploaded",
+        description: `${incomingFiles.length} file${incomingFiles.length > 1 ? "s" : ""} added to invoice`,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to upload files",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setIsEditFilesUploading(false);
+      if (event?.target) event.target.value = "";
+    }
+  };
+
+  const openQuickAddFiles = (row) => {
+    setUploadTargetInvoice(row);
+    quickAddFilesRef.current?.click();
+  };
+
+  const handleQuickAddFiles = async (event) => {
+    const incomingFiles = Array.from(event?.target?.files || []);
+    if (!uploadTargetInvoice?.id || incomingFiles.length === 0) {
+      if (event?.target) event.target.value = "";
+      return;
+    }
+
+    const formData = new FormData();
+    incomingFiles.forEach((file) => formData.append("files", file));
+
+    setIsQuickUploading(true);
+    try {
+      await uploadFilesToVendorInvoice(uploadTargetInvoice.id, formData);
+
+      if (selectedInvoice?.id === uploadTargetInvoice.id) {
+        const response = await fetchVendorInvoiceFiles(uploadTargetInvoice.id);
+        const files = response?.data?.files || [];
+        const normalized = Array.isArray(files) ? files : [];
+        setInvoiceFiles(normalized);
+        setEditInvoiceFiles(normalized);
+      }
+
+      await loadInvoices();
+      toast({
+        title: "Files uploaded",
+        description: `${incomingFiles.length} file${incomingFiles.length > 1 ? "s" : ""} added to invoice`,
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to upload files",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setIsQuickUploading(false);
+      setUploadTargetInvoice(null);
+      if (event?.target) event.target.value = "";
+    }
+  };
+
+  const handleDeleteInvoice = async (id) => {
+    setIsDeleteInvoiceLoading(true);
+    try {
+      await deletevendorinvoice(id);
+      toast({
+        title: "Invoice deleted",
+        status: "success",
+        duration: 4000,
+        isClosable: true,
+      });
+      setDeleteInvoiceTarget(null);
+      loadInvoices(); // Reload invoices to reflect the updated status
+    } catch (err) {
+      toast({
+        title: "Failed to delete invoice",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDeleteInvoiceLoading(false);
+    }
+  };
 
   const loadInvoices = useCallback(async () => {
     setIsLoading(true);
@@ -165,27 +533,6 @@ const InvoicesTab = ({ onAddNew }) => {
     } catch (err) {
       toast({
         title: "Failed to mark invoice as paid",
-        description: err.message,
-        status: "error",
-        duration: 4000,
-        isClosable: true,
-      });
-    }
-  };
-
-  const handleDeleteInvoice = async (id) => {
-    try {
-      await deletevendorinvoice(id);
-      toast({
-        title: "Invoice deleted",
-        status: "success",
-        duration: 4000,
-        isClosable: true,
-      });
-      loadInvoices(); // Reload invoices to reflect the updated status
-    } catch (err) {
-      toast({
-        title: "Failed to delete invoice",
         description: err.message,
         status: "error",
         duration: 4000,
@@ -249,6 +596,45 @@ const InvoicesTab = ({ onAddNew }) => {
       ),
     },
     {
+      key: "filePaths",
+      header: "Attachments",
+      render: (value, row) => {
+        const count = parseInvoiceFiles(value).length;
+        const isPaid = String(row?.status || "").toLowerCase() === "paid";
+
+        return (
+          <HStack spacing={2}>
+            {count > 0 ? (
+              <Button
+                size="xs"
+                variant="outline"
+                leftIcon={<FiPaperclip />}
+                borderRadius="999px"
+                onClick={() => openFilesModal(row)}
+              >
+                {count} file{count > 1 ? "s" : ""}
+              </Button>
+            ) : (
+              <Text fontSize="12px" color="gray.400">No files</Text>
+            )}
+
+            <Tooltip label={isPaid ? "Cannot add files to paid invoice" : "Add files"}>
+              <IconButton
+                size="xs"
+                variant="ghost"
+                colorScheme="blue"
+                icon={<FiPlus />}
+                aria-label="Add attachment"
+                isDisabled={isPaid || isQuickUploading}
+                isLoading={isQuickUploading && uploadTargetInvoice?.id === row.id}
+                onClick={() => openQuickAddFiles(row)}
+              />
+            </Tooltip>
+          </HStack>
+        );
+      },
+    },
+    {
       key: "status",
       header: "Status",
       render: (value) => <StatusBadge status={value} />,
@@ -270,8 +656,16 @@ const InvoicesTab = ({ onAddNew }) => {
             borderRadius="6px"
           />
           <MenuList fontSize="sm" minW="140px" shadow="lg" borderColor={border}>
-            <MenuItem icon={<FiTrash2 />} onClick={() => handleDeleteInvoice(row.id)} fontSize="13px">Delete</MenuItem>
-            <MenuItem icon={<FiCheck />} onClick={() => handleMarkAsPaid(row.id)} fontSize="13px">Mark as paid</MenuItem>
+            <MenuItem icon={<FiPaperclip />} onClick={() => openFilesModal(row)} fontSize="13px">View files</MenuItem>
+            {String(row?.status || "").toLowerCase() === "paid" ? (
+              <MenuItem icon={<FiEye />} onClick={() => openEditModal(row)} fontSize="13px">View details</MenuItem>
+            ) : (
+              <>
+                <MenuItem icon={<FiEdit2 />} onClick={() => openEditModal(row)} fontSize="13px">Edit invoice</MenuItem>
+                <MenuItem icon={<FiTrash2 />} onClick={() => setDeleteInvoiceTarget(row)} fontSize="13px">Delete</MenuItem>
+                <MenuItem icon={<FiCheck />} onClick={() => handleMarkAsPaid(row.id)} fontSize="13px">Mark as paid</MenuItem>
+              </>
+            )}
           </MenuList>
         </Menu>
       ),
@@ -280,6 +674,15 @@ const InvoicesTab = ({ onAddNew }) => {
 
   return (
     <VStack spacing={4} align="stretch">
+      <input
+        ref={quickAddFilesRef}
+        type="file"
+        multiple
+        hidden
+        accept=".pdf,.png,.jpg,.jpeg,.csv,.xls,.xlsx"
+        onChange={handleQuickAddFiles}
+      />
+
       {/* Table card */}
       <Card bg={cardBg} border="1px" borderColor={border} shadow="sm" borderRadius="12px">
         <CardHeader pb={3}>
@@ -361,6 +764,240 @@ const InvoicesTab = ({ onAddNew }) => {
           )}
         </CardBody>
       </Card>
+
+      <Modal isOpen={isFilesOpen} onClose={() => setIsFilesOpen(false)} size="xl" isCentered>
+        <ModalOverlay />
+        <ModalContent borderRadius="12px">
+          <ModalHeader>
+            <HStack spacing={2}>
+              <FiPaperclip />
+              <Text fontSize="md">Invoice Attachments</Text>
+            </HStack>
+            <Text fontSize="xs" color="gray.500" mt={1}>
+              {selectedInvoice?.invoiceNumber || "Vendor invoice"}
+            </Text>
+          </ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={5} maxH={"350px"} overflowY={"auto"}>
+            {isFilesLoading ? (
+              <VStack spacing={3} align="stretch">
+                <SkeletonText noOfLines={2} spacing="2" />
+                <SkeletonText noOfLines={2} spacing="2" />
+                <SkeletonText noOfLines={2} spacing="2" />
+              </VStack>
+            ) : invoiceFiles.length === 0 ? (
+              <Flex direction="column" align="center" py={8} color="gray.500">
+                <FiFile size={28} style={{ marginBottom: 8, opacity: 0.7 }} />
+                <Text fontSize="sm">No uploaded files found for this invoice.</Text>
+              </Flex>
+            ) : (
+              <List spacing={3}>
+                {invoiceFiles.map((file) => {
+                  const IconComp = pickFileIcon(file.originalName);
+                  return (
+                    <ListItem key={`${file.fileIndex}-${file.originalName}`}>
+                      <Flex align="center" border="1px" borderColor={border} borderRadius="10px" p={3} gap={3}>
+                        <Box color="blue.500"><Icon as={IconComp} boxSize={5} /></Box>
+                        <Box minW={0} flex={1}>
+                          <Text fontSize="sm" fontWeight="600" color="gray.700" isTruncated>{file.originalName}</Text>
+                          <Text fontSize="xs" color="gray.500">{(file.extension || "").toUpperCase().replace('.', '') || 'FILE'}</Text>
+                        </Box>
+                        <HStack spacing={2}>
+                          <Button size="xs" variant="outline" leftIcon={<FiEye />} onClick={() => handleViewFile(selectedInvoice, file)}>
+                            View
+                          </Button>
+                          <Button size="xs" colorScheme="blue" leftIcon={<FiDownload />} onClick={() => handleDownloadFile(selectedInvoice, file)}>
+                            Download
+                          </Button>
+                          <IconButton
+                            size="xs"
+                            colorScheme="red"
+                            variant="ghost"
+                            icon={<FiTrash2 />}
+                            aria-label="Delete attachment"
+                            isLoading={isDeletingFile}
+                            onClick={() => setDeleteFileTarget({ row: selectedInvoice, file })}
+                          />
+                        </HStack>
+                      </Flex>
+                    </ListItem>
+                  );
+                })}
+              </List>
+            )}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={isEditOpen} onClose={() => setIsEditOpen(false)} size="lg" isCentered>
+        <ModalOverlay />
+        <ModalContent borderRadius="12px">
+          <ModalHeader>{isSelectedInvoicePaid ? "View Vendor Invoice Details" : "Edit Vendor Invoice"}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={5} maxH={"400px"} overflowY={"auto"}>
+            <VStack spacing={4} align="stretch">
+              <FormControl isRequired>
+                <FormLabel fontSize="sm">Invoice Number</FormLabel>
+                <Input isDisabled={isSelectedInvoicePaid} value={editForm.invoiceNumber} onChange={(e) => handleEditField("invoiceNumber", e.target.value)} />
+              </FormControl>
+
+              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
+                <FormControl isRequired>
+                  <FormLabel fontSize="sm">Issue Date</FormLabel>
+                  <Input isDisabled={isSelectedInvoicePaid} type="date" value={editForm.issueDate} onChange={(e) => handleEditField("issueDate", e.target.value)} />
+                </FormControl>
+                <FormControl isRequired>
+                  <FormLabel fontSize="sm">Start Date</FormLabel>
+                  <Input isDisabled={isSelectedInvoicePaid} type="date" value={editForm.startDate} onChange={(e) => handleEditField("startDate", e.target.value)} />
+                </FormControl>
+                <FormControl isRequired>
+                  <FormLabel fontSize="sm">End Date</FormLabel>
+                  <Input isDisabled={isSelectedInvoicePaid} type="date" value={editForm.endDate} onChange={(e) => handleEditField("endDate", e.target.value)} />
+                </FormControl>
+                <FormControl isRequired>
+                  <FormLabel fontSize="sm">Currency</FormLabel>
+                  <Select disabled={isSelectedInvoicePaid} value={editForm.currency} onChange={(e) => handleEditField("currency", e.target.value)}>
+                    {CURRENCY.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </Select>
+                </FormControl>
+                <FormControl isRequired>
+                  <FormLabel fontSize="sm">Grand Total</FormLabel>
+                  <Input isDisabled={isSelectedInvoicePaid} type="number" min={0} step="0.01" value={editForm.grandTotal} onChange={(e) => handleEditField("grandTotal", e.target.value)} />
+                </FormControl>
+                <FormControl isRequired>
+                  <FormLabel fontSize="sm">Total Seconds</FormLabel>
+                  <Input isDisabled={isSelectedInvoicePaid} type="number" min={0} step="1" value={editForm.totalSeconds} onChange={(e) => handleEditField("totalSeconds", e.target.value)} />
+                </FormControl>
+              </SimpleGrid>
+
+              <Box>
+                <Flex align="center" justify="space-between" mb={2}>
+                  <FormLabel fontSize="sm" mb={0}>Attachments</FormLabel>
+                  <Button
+                    size="xs"
+                    leftIcon={<FiPlus />}
+                    colorScheme="blue"
+                    variant="outline"
+                    isLoading={isEditFilesUploading}
+                    isDisabled={isSelectedInvoicePaid || isEditFilesUploading}
+                    onClick={() => editFilesRef.current?.click()}
+                  >
+                    Add Files
+                  </Button>
+                  <input
+                    ref={editFilesRef}
+                    type="file"
+                    multiple
+                    hidden
+                    accept=".pdf,.png,.jpg,.jpeg,.csv,.xls,.xlsx"
+                    onChange={handleUploadEditFiles}
+                  />
+                </Flex>
+                {isEditFilesLoading ? (
+                  <VStack spacing={2} align="stretch">
+                    <SkeletonText noOfLines={2} spacing="2" />
+                    <SkeletonText noOfLines={2} spacing="2" />
+                  </VStack>
+                ) : editInvoiceFiles.length === 0 ? (
+                  <Text fontSize="sm" color="gray.500">No attachments uploaded for this invoice.</Text>
+                ) : (
+                  <List spacing={2}>
+                    {editInvoiceFiles.map((file) => {
+                      const IconComp = pickFileIcon(file.originalName);
+                      return (
+                        <ListItem key={`edit-${file.fileIndex}-${file.originalName}`}>
+                          <Flex align="center" border="1px" borderColor={border} borderRadius="10px" p={2.5} gap={3}>
+                            <Box color="blue.500"><Icon as={IconComp} boxSize={4} /></Box>
+                            <Box minW={0} flex={1}>
+                              <Text fontSize="sm" fontWeight="600" color="gray.700" isTruncated>{file.originalName}</Text>
+                              <Text fontSize="xs" color="gray.500">{(file.extension || "").toUpperCase().replace('.', '') || 'FILE'}</Text>
+                            </Box>
+                            <HStack spacing={1.5}>
+                              <Button size="xs" variant="outline" leftIcon={<FiEye />} onClick={() => handleViewFile(selectedInvoice, file)}>
+                                View
+                              </Button>
+                              {!isSelectedInvoicePaid && (
+                                <>
+                                  <Button size="xs" colorScheme="blue" leftIcon={<FiDownload />} onClick={() => handleDownloadFile(selectedInvoice, file)}>
+                                    Download
+                                  </Button>
+                                  <IconButton
+                                    size="xs"
+                                    colorScheme="red"
+                                    variant="ghost"
+                                    icon={<FiTrash2 />}
+                                    aria-label="Delete attachment"
+                                    isLoading={isDeletingFile}
+                                    onClick={() => setDeleteFileTarget({ row: selectedInvoice, file })}
+                                  />
+                                </>
+                              )}
+                            </HStack>
+                          </Flex>
+                        </ListItem>
+                      );
+                    })}
+                  </List>
+                )}
+              </Box>
+
+             
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+             <HStack justify="flex-end" spacing={3}>
+                {isSelectedInvoicePaid ? (
+                  <Button colorScheme="blue" onClick={() => setIsEditOpen(false)}>Close</Button>
+                ) : (
+                  <>
+                    <Button variant="ghost" onClick={() => setIsEditOpen(false)} isDisabled={isEditSaving}>Cancel</Button>
+                    <Button colorScheme="blue" onClick={handleSaveEdit} isLoading={isEditSaving}>Save Changes</Button>
+                  </>
+                )}
+              </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={!!deleteFileTarget}
+        onClose={() => {
+          if (!isDeletingFile) setDeleteFileTarget(null);
+        }}
+        onConfirm={() => {
+          if (deleteFileTarget?.row && deleteFileTarget?.file) {
+            handleDeleteFile(deleteFileTarget.row, deleteFileTarget.file);
+          }
+        }}
+        title="Delete Attachment"
+        message={deleteFileTarget?.file?.originalName
+          ? `Are you sure you want to delete ${deleteFileTarget.file.originalName}?`
+          : "Are you sure you want to delete this attachment?"}
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="danger"
+        isLoading={isDeletingFile}
+      />
+
+      <ConfirmDialog
+        isOpen={!!deleteInvoiceTarget}
+        onClose={() => {
+          if (!isDeleteInvoiceLoading) setDeleteInvoiceTarget(null);
+        }}
+        onConfirm={() => {
+          if (deleteInvoiceTarget?.id) {
+            handleDeleteInvoice(deleteInvoiceTarget.id);
+          }
+        }}
+        title="Delete Vendor Invoice"
+        message={deleteInvoiceTarget?.invoiceNumber
+          ? `Are you sure you want to delete invoice ${deleteInvoiceTarget.invoiceNumber}?`
+          : "Are you sure you want to delete this vendor invoice?"}
+        confirmText="Delete"
+        cancelText="Cancel"
+        type="danger"
+        isLoading={isDeleteInvoiceLoading}
+      />
     </VStack>
    
 

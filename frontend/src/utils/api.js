@@ -10,6 +10,18 @@ const requestNotificationsRefresh = () => {
 let isRefreshing = false;
 let refreshPromise = null;
 
+const extractApiErrorMessage = (payload, fallback) => {
+  if (!payload || typeof payload !== 'object') return fallback;
+
+  return (
+    payload.message ||
+    payload.error ||
+    payload.detail ||
+    payload.errors?.[0]?.message ||
+    fallback
+  );
+};
+
 const getAuthHeaders = () => {
   const accessToken = localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken');
   return accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {};
@@ -105,7 +117,7 @@ const handleResponse = async (response, originalRequest) => {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Network error' }));
-    throw new Error(error.error || `HTTP error! status: ${response.status}`);
+    throw new Error(extractApiErrorMessage(error, `HTTP error! status: ${response.status}`));
   }
   return response.json();
 };
@@ -147,7 +159,7 @@ const fetchWithTokenRefresh = async (url, options = {}) => {
         
         if (!retryResponse.ok) {
           const error = await retryResponse.json().catch(() => ({ error: 'Network error' }));
-          throw new Error(error.error || `HTTP error! status: ${retryResponse.status}`);
+          throw new Error(extractApiErrorMessage(error, `HTTP error! status: ${retryResponse.status}`));
         }
         
         return responseType === 'blob' ? await retryResponse.blob() : await retryResponse.json();
@@ -174,7 +186,7 @@ const fetchWithTokenRefresh = async (url, options = {}) => {
         
         if (!retryResponse.ok) {
           const error = await retryResponse.json().catch(() => ({ error: 'Network error' }));
-          throw new Error(error.error || `HTTP error! status: ${retryResponse.status}`);
+          throw new Error(extractApiErrorMessage(error, `HTTP error! status: ${retryResponse.status}`));
         }
         
         return responseType === 'blob' ? await retryResponse.blob() : await retryResponse.json();
@@ -186,7 +198,7 @@ const fetchWithTokenRefresh = async (url, options = {}) => {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Network error' }));
-    throw new Error(error.error || `HTTP error! status: ${response.status}`);
+    throw new Error(extractApiErrorMessage(error, `HTTP error! status: ${response.status}`));
   }
 
   return responseType === 'blob' ? await response.blob() : await response.json();
@@ -1083,6 +1095,72 @@ export const markInvoiceAsPaid = async (id) => {
   }
 };
 
+export const fetchVendorInvoiceFiles = async (id) => {
+  try {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/vendor-invoices/${id}/files`, {
+      method: 'GET',
+    });
+  } catch (error) {
+    console.error(`Error fetching files for vendor invoice ${id}:`, error);
+    throw error;
+  }
+};
+
+export const downloadVendorInvoiceFileBlob = async (id, fileIndex, disposition = 'attachment') => {
+  try {
+    const query = new URLSearchParams({ disposition }).toString();
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/vendor-invoices/${id}/files/${fileIndex}/download?${query}`, {
+      method: 'GET',
+      responseType: 'blob',
+    });
+  } catch (error) {
+    console.error(`Error downloading file ${fileIndex} for vendor invoice ${id}:`, error);
+    throw error;
+  }
+};
+
+export const deleteVendorInvoiceFile = async (id, fileIndex) => {
+  try {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/vendor-invoices/${id}/files/${fileIndex}`, {
+      method: 'DELETE',
+    });
+  } catch (error) {
+    console.error(`Error deleting file ${fileIndex} for vendor invoice ${id}:`, error);
+    throw error;
+  }
+};
+
+export const updateVendorInvoice = async (id, payload) => {
+  try {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/vendor-invoices/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    console.error(`Error updating vendor invoice ${id}:`, error);
+    throw error;
+  }
+};
+
+export const uploadFilesToVendorInvoice = async (id, formData) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/vendor-invoices/${id}/files`, {
+      method: 'POST',
+      headers: {
+        ...getAuthHeaders(),
+      },
+      body: formData,
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error uploading files to vendor invoice ${id}:`, error);
+    throw error;
+  }
+};
+
 export const topupAccount = async (topupData) => {
   try {
     const response = await fetch(`${API_BASE_URL}/billing/account/topup`, {
@@ -1232,7 +1310,7 @@ export const deleteCountryCode = async (code) => {
   }
 };
 
-export const fetchNotifications = async (params = {}) => {
+const fetchNotifications = async (params = {}) => {
   try {
     const query = new URLSearchParams(params).toString();
     const url = query
@@ -1249,7 +1327,7 @@ export const fetchNotifications = async (params = {}) => {
   }
 };
 
-export const markNotificationRead = async (id) => {
+const markNotificationRead = async (id) => {
   try {
     const response = await fetch(`${API_BASE_URL}/notifications/${id}/read`, {
       method: 'PATCH',
@@ -1262,7 +1340,7 @@ export const markNotificationRead = async (id) => {
   }
 };
 
-export const markAllNotificationsRead = async () => {
+const markAllNotificationsRead = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/notifications/read-all`, {
       method: 'PATCH',
@@ -1273,6 +1351,12 @@ export const markAllNotificationsRead = async () => {
     console.error('Error marking all notifications read:', error);
     throw error;
   }
+};
+
+export {
+  fetchNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
 };
 
 export const createTestNotification = async (payload = {}) => {

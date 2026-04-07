@@ -803,10 +803,6 @@ exports.sendInvoiceEmail = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Invoice not found' });
     }
 
-    if (!invoice.customerEmail) {
-      return res.status(400).json({ success: false, error: 'Customer has no email address' });
-    }
-
     const pdfBuffer = await generateInvoicePDFBuffer(invoice);
     
     // Fetch account to get billing email
@@ -820,9 +816,12 @@ exports.sendInvoiceEmail = async (req, res) => {
       }
     });
 
-    const recipientEmail = account?.billingEmail || account?.email || invoice.customerEmail;
-    
-    await EmailService.sendInvoiceWithAttachment(recipientEmail, invoice, pdfBuffer);
+    const recipients = EmailService.getBillingRecipients(account || {}, invoice);
+    if (recipients.length === 0) {
+      return res.status(400).json({ success: false, error: 'Customer has no billing email address' });
+    }
+
+    await EmailService.sendInvoiceWithAttachment(recipients, invoice, pdfBuffer);
 
     // Update status to 'sent' if it was 'generated' or 'pending'
     if (['generated', 'pending'].includes(invoice.status)) {
@@ -831,7 +830,7 @@ exports.sendInvoiceEmail = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Invoice email sent to ${invoice.customerEmail}`
+      message: `Invoice email sent to ${recipients.join(', ')}`
     });
 
   } catch (error) {
@@ -2375,12 +2374,20 @@ exports.updateDispute = async (req, res) => {
     // optional: notify customer/admin of status change
     if (status && ['resolved', 'closed', 'in_review'].includes(status)) {
       try {
-        await EmailService.sendEmail(
-          process.env.EMAIL_FROM,
-          `Dispute ${status.charAt(0).toUpperCase() + status.slice(1)}`,
-          'dispute-status-update',
-          { dispute, status }
-        );
+        const customer = await Account.findOne({
+          where: {
+            [Op.or]: [
+              { customerCode: dispute.customerCode },
+              { accountName: dispute.customerName }
+            ]
+          }
+        });
+
+        if (customer) {
+          await EmailService.sendDisputeStatusUpdateNotification(dispute, status, customer);
+        } else {
+          console.warn('No customer account found for dispute status email:', dispute.id);
+        }
       } catch (e) {
         console.error('Failed to send status update email', e);
       }

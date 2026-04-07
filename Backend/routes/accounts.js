@@ -224,6 +224,41 @@ const computeNextBillingDate = (lastBillingDate, billingCycle) => {
   return dt.toISOString().split('T')[0];
 };
 
+const syncDirectionalBillingDates = (data, existingAccount = null) => {
+  const role = String(data.accountRole || existingAccount?.accountRole || '').toLowerCase();
+  const baseLastDate = data.lastbillingdate || data.customerLastBillingDate || data.vendorLastBillingDate || null;
+
+  if (baseLastDate) {
+    if (!data.customerLastBillingDate) {
+      data.customerLastBillingDate = baseLastDate;
+    }
+
+    if (role === 'vendor' || role === 'both') {
+      if (!data.vendorLastBillingDate) {
+        data.vendorLastBillingDate = baseLastDate;
+      }
+    }
+  }
+
+  if (data.billingCycle && data.customerLastBillingDate && !data.customerNextBillingDate) {
+    data.customerNextBillingDate = computeNextBillingDate(data.customerLastBillingDate, data.billingCycle);
+  }
+
+  if (data.billingCycle && data.vendorLastBillingDate && !data.vendorNextBillingDate) {
+    data.vendorNextBillingDate = computeNextBillingDate(data.vendorLastBillingDate, data.billingCycle);
+  }
+
+  if (!data.lastbillingdate) {
+    data.lastbillingdate = data.customerLastBillingDate || data.vendorLastBillingDate || null;
+  }
+
+  if (!data.nextbillingdate) {
+    data.nextbillingdate = data.customerNextBillingDate || data.vendorNextBillingDate || null;
+  }
+
+  return data;
+};
+
 const applyBillingTypeAdjustments = (data) => {
   if (data.billingType === 'prepaid') {
     data.creditLimit = 0;
@@ -235,11 +270,7 @@ const applyBillingTypeAdjustments = (data) => {
     data.balance = 0;
   }
 
-  if (data.lastbillingdate && data.billingCycle) {
-    data.nextbillingdate = computeNextBillingDate(data.lastbillingdate, data.billingCycle);
-  }
-
-  return data;
+  return syncDirectionalBillingDates(data);
 };
 
 const validateAccountPayload = (data) => {
@@ -819,6 +850,8 @@ router.put('/:id', async (req, res) => {
     if (updates.lastbillingdate && updates.billingCycle) {
       updates.nextbillingdate = computeNext2(updates.lastbillingdate, updates.billingCycle);
     }
+
+    syncDirectionalBillingDates(updates, account);
 
     await account.update(updates);
     // reload with owner

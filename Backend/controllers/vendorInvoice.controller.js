@@ -7,6 +7,44 @@ const path = require('path');
 const fs = require('fs');
 const { normalizeStoredPath, toStoredRelativePath } = require('../config/storage');
 
+const parseStoredFilePaths = (rawValue) => {
+  if (!rawValue) return [];
+
+  if (Array.isArray(rawValue)) {
+    return rawValue
+      .map((item) => (item == null ? '' : String(item).trim()))
+      .filter(Boolean);
+  }
+
+  if (typeof rawValue === 'string') {
+    try {
+      const parsed = JSON.parse(rawValue);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => (item == null ? '' : String(item).trim()))
+          .filter(Boolean);
+      }
+    } catch (_error) {
+      // Fall through to plain string parsing.
+    }
+
+    return rawValue
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const getFileExtCategory = (ext) => {
+  const lower = String(ext || '').toLowerCase();
+  if (['.pdf'].includes(lower)) return 'pdf';
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(lower)) return 'image';
+  if (['.xls', '.xlsx', '.csv'].includes(lower)) return 'spreadsheet';
+  return 'file';
+};
+
 const removeFileSafe = async (storedPathOrAbsolutePath) => {
   const resolvedPath = normalizeStoredPath(storedPathOrAbsolutePath);
   if (!resolvedPath) return;
@@ -198,6 +236,287 @@ exports.getVendorInvoices = async (req, res) => {
     res.status(500).json({
       message: 'Failed to fetch vendor invoices',
       error: error.message
+    });
+  }
+};
+
+exports.getVendorInvoiceFiles = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const invoice = await VendorInvoice.findByPk(id);
+
+    if (!invoice) {
+      return res.status(404).json({ message: 'Vendor invoice not found' });
+    }
+
+    const storedPaths = parseStoredFilePaths(invoice.filePaths);
+    const files = storedPaths
+      .map((storedPath, index) => {
+        const absolutePath = normalizeStoredPath(storedPath);
+        if (!absolutePath) return null;
+
+        const ext = path.extname(storedPath || absolutePath);
+        const originalName = path.basename(storedPath || absolutePath);
+
+        return {
+          fileIndex: index,
+          storedPath,
+          originalName,
+          extension: ext,
+          category: getFileExtCategory(ext),
+          viewUrl: `/api/vendor-invoices/${invoice.id}/files/${index}/download?disposition=inline`,
+          downloadUrl: `/api/vendor-invoices/${invoice.id}/files/${index}/download`,
+        };
+      })
+      .filter(Boolean);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        files,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching vendor invoice files:', error);
+    return res.status(500).json({
+      message: 'Failed to fetch vendor invoice files',
+      error: error.message,
+    });
+  }
+};
+
+exports.downloadVendorInvoiceFile = async (req, res) => {
+  try {
+    const { id, fileIndex } = req.params;
+    const disposition = String(req.query.disposition || '').toLowerCase() === 'inline' ? 'inline' : 'attachment';
+
+    const invoice = await VendorInvoice.findByPk(id);
+    if (!invoice) {
+      return res.status(404).json({ message: 'Vendor invoice not found' });
+    }
+
+    const storedPaths = parseStoredFilePaths(invoice.filePaths);
+    const index = Number(fileIndex);
+
+    if (!Number.isInteger(index) || index < 0 || index >= storedPaths.length) {
+      return res.status(404).json({ message: 'Vendor invoice file not found' });
+    }
+
+    const storedPath = storedPaths[index];
+    const absolutePath = normalizeStoredPath(storedPath);
+    if (!absolutePath) {
+      return res.status(404).json({ message: 'Vendor invoice file path is invalid' });
+    }
+
+    try {
+      await fs.promises.access(absolutePath, fs.constants.R_OK);
+    } catch (_error) {
+      return res.status(404).json({ message: 'Vendor invoice file not found on disk' });
+    }
+
+    const safeName = path.basename(storedPath || absolutePath);
+    if (disposition === 'inline') {
+      return res.sendFile(absolutePath, {
+        headers: {
+          'Content-Disposition': `inline; filename="${safeName}"`,
+        },
+      });
+    }
+
+    return res.download(absolutePath, safeName);
+  } catch (error) {
+    console.error('Error downloading vendor invoice file:', error);
+    return res.status(500).json({
+      message: 'Failed to download vendor invoice file',
+      error: error.message,
+    });
+  }
+};
+
+exports.deleteVendorInvoiceFile = async (req, res) => {
+  try {
+    const { id, fileIndex } = req.params;
+    const invoice = await VendorInvoice.findByPk(id);
+
+    if (!invoice) {
+      return res.status(404).json({ message: 'Vendor invoice not found' });
+    }
+
+    const index = Number(fileIndex);
+    const storedPaths = parseStoredFilePaths(invoice.filePaths);
+
+    if (!Number.isInteger(index) || index < 0 || index >= storedPaths.length) {
+      return res.status(404).json({ message: 'Vendor invoice file not found' });
+    }
+
+    const removedPath = storedPaths[index];
+    await removeFileSafe(removedPath);
+
+    storedPaths.splice(index, 1);
+    invoice.filePaths = JSON.stringify(storedPaths);
+    await invoice.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Vendor invoice file deleted successfully',
+      data: {
+        invoiceId: invoice.id,
+        filePaths: storedPaths,
+      },
+    });
+  } catch (error) {
+    console.error('Error deleting vendor invoice file:', error);
+    return res.status(500).json({
+      message: 'Failed to delete vendor invoice file',
+      error: error.message,
+    });
+  }
+};
+
+exports.addVendorInvoiceFiles = async (req, res) => {
+  const uploadedFiles = Array.isArray(req.files) ? req.files : [];
+
+  try {
+    const { id } = req.params;
+    const invoice = await VendorInvoice.findByPk(id);
+
+    if (!invoice) {
+      await cleanupUploadedFiles(uploadedFiles);
+      return res.status(404).json({ message: 'Vendor invoice not found' });
+    }
+
+    if (String(invoice.status).toLowerCase() === 'paid') {
+      await cleanupUploadedFiles(uploadedFiles);
+      return res.status(400).json({ message: 'Cannot upload files to a paid vendor invoice' });
+    }
+
+    if (uploadedFiles.length === 0) {
+      return res.status(400).json({ message: 'Please upload at least one file' });
+    }
+
+    const existingPaths = parseStoredFilePaths(invoice.filePaths);
+    const appendedPaths = uploadedFiles
+      .map((file) => toStoredRelativePath(path.resolve(file.path)))
+      .filter(Boolean);
+
+    if (appendedPaths.length === 0) {
+      await cleanupUploadedFiles(uploadedFiles);
+      return res.status(400).json({ message: 'No valid files were uploaded' });
+    }
+
+    const merged = [...existingPaths, ...appendedPaths];
+    invoice.filePaths = JSON.stringify(merged);
+    await invoice.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Files uploaded successfully',
+      data: {
+        invoiceId: invoice.id,
+        filePaths: merged,
+      },
+    });
+  } catch (error) {
+    await cleanupUploadedFiles(uploadedFiles);
+    console.error('Error uploading files to vendor invoice:', error);
+    return res.status(500).json({
+      message: 'Failed to upload files to vendor invoice',
+      error: error.message,
+    });
+  }
+};
+
+exports.updateVendorInvoice = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const invoice = await VendorInvoice.findByPk(id, { transaction });
+
+    if (!invoice) {
+      await transaction.rollback();
+      return res.status(404).json({ message: 'Vendor invoice not found' });
+    }
+
+    if (String(invoice.status).toLowerCase() === 'paid') {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'Paid vendor invoices cannot be edited' });
+    }
+
+    const payload = req.body || {};
+
+    const nextValues = {
+      invoiceNumber: payload.invoiceNumber != null ? String(payload.invoiceNumber).trim() : invoice.invoiceNumber,
+      issueDate: payload.issueDate || invoice.issueDate,
+      startDate: payload.startDate || invoice.startDate,
+      endDate: payload.endDate || invoice.endDate,
+      currency: payload.currency || invoice.currency,
+      grandTotal: payload.grandTotal != null ? Number(payload.grandTotal) : Number(invoice.grandTotal),
+      totalSeconds: payload.totalSeconds != null ? Number(payload.totalSeconds) : Number(invoice.totalSeconds),
+    };
+
+    if (!nextValues.invoiceNumber) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'Invoice number is required' });
+    }
+
+    if (Number.isNaN(nextValues.grandTotal) || nextValues.grandTotal < 0) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'Grand total must be a non-negative number' });
+    }
+
+    if (!Number.isInteger(nextValues.totalSeconds) || nextValues.totalSeconds < 0) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'Total seconds must be a non-negative integer' });
+    }
+
+    if (new Date(nextValues.startDate) > new Date(nextValues.endDate)) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'End date must be after start date' });
+    }
+
+    const duplicate = await VendorInvoice.findOne({
+      where: {
+        invoiceNumber: nextValues.invoiceNumber,
+        id: { [Op.ne]: invoice.id },
+      },
+      transaction,
+    });
+
+    if (duplicate) {
+      await transaction.rollback();
+      return res.status(409).json({ message: 'Invoice number already exists' });
+    }
+
+    const oldGrandTotal = Number(invoice.grandTotal) || 0;
+    const delta = nextValues.grandTotal - oldGrandTotal;
+
+    if (delta !== 0 && invoice.vendorId) {
+      const account = await Account.findByPk(invoice.vendorId, { transaction });
+      if (account) {
+        if (account.billingType === 'postpaid') {
+          await account.decrement('creditLimit', { by: delta, transaction });
+        } else {
+          await account.decrement('balance', { by: delta, transaction });
+        }
+      }
+    }
+
+    await invoice.update(nextValues, { transaction });
+    await transaction.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Vendor invoice updated successfully',
+      invoice,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error updating vendor invoice:', error);
+    return res.status(500).json({
+      message: 'Failed to update vendor invoice',
+      error: error.message,
     });
   }
 };

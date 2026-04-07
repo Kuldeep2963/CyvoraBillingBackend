@@ -30,26 +30,113 @@ class EmailService {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
   }
 
+  parseEmailCandidates(value) {
+    if (value == null) return [];
+
+    if (Array.isArray(value)) {
+      return value.flatMap((item) => this.parseEmailCandidates(item));
+    }
+
+    if (typeof value !== 'string') {
+      return [];
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.flatMap((item) => this.parseEmailCandidates(item));
+        }
+      } catch (_error) {
+        // Fall through to split parsing.
+      }
+    }
+
+    return trimmed
+      .split(/[,;]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  normalizeRecipients(...values) {
+    const unique = new Map();
+
+    for (const value of values) {
+      const candidates = this.parseEmailCandidates(value);
+      for (const candidate of candidates) {
+        const email = candidate.trim();
+        const key = email.toLowerCase();
+        if (!this.isSafeSingleRecipient(email) || unique.has(key)) continue;
+        unique.set(key, email);
+      }
+    }
+
+    return Array.from(unique.values());
+  }
+
+  getBillingRecipients(customer = {}, invoice = {}) {
+    return this.normalizeRecipients(
+      customer.billingEmails,
+      customer.billingEmail,
+      invoice.customerEmail
+    );
+  }
+
+  getSOARecipients(account = {}) {
+    return this.normalizeRecipients(
+      account.soaEmail
+    );
+  }
+
+  getDisputeRecipients(customer = {}) {
+    return this.normalizeRecipients(
+      customer.disputeEmails,
+      customer.disputeEmail
+    );
+  }
+
+  getRatesRecipients(account = {}) {
+    return this.normalizeRecipients(
+      account.ratesEmails
+    );
+  }
+
+  getNOCRecipients(account = {}) {
+    return this.normalizeRecipients(
+      account.nocEmails,
+      account.nocEmail
+    );
+  }
+
   async sendEmail(to, subject, templateName, data, attachments = []) {
     try {
-      if (!this.isSafeSingleRecipient(to)) {
+      const recipients = this.normalizeRecipients(to);
+      if (recipients.length === 0) {
         throw new Error('Invalid recipient email format');
       }
 
       const templatePath = path.join(__dirname, '../templates/email', `${templateName}.ejs`);
       const html = await ejs.renderFile(templatePath, data);
 
-      const mailOptions = {
-        from: process.env.EMAIL_FROM,
-        to,
-        subject,
-        html,
-        attachments,
-      };
+      const deliveryResults = [];
+      for (const recipient of recipients) {
+        const mailOptions = {
+          from: process.env.EMAIL_FROM,
+          to: recipient,
+          subject,
+          html,
+          attachments,
+        };
 
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Email sent: %s', info.messageId);
-      return info;
+        const info = await this.transporter.sendMail(mailOptions);
+        deliveryResults.push(info);
+        console.log('Email sent to %s: %s', recipient, info.messageId);
+      }
+
+      return deliveryResults.length === 1 ? deliveryResults[0] : deliveryResults;
     } catch (error) {
       console.error('Error sending email:', error);
       throw error;
@@ -71,8 +158,13 @@ class EmailService {
   }
 
   async sendInvoiceEmail(invoice, customer) {
+    const recipients = this.getBillingRecipients(customer, invoice);
+    if (recipients.length === 0) {
+      throw new Error('Customer has no billing email address');
+    }
+
     return this.sendEmail(
-      customer.billingEmail || customer.email || invoice.customerEmail,
+      recipients,
       `New Invoice: ${invoice.invoiceNumber}`,
       'invoice-notification',
       { invoice, customer }
@@ -80,8 +172,13 @@ class EmailService {
   }
 
   async sendPaymentConfirmation(payment, invoice, customer) {
+    const recipients = this.getBillingRecipients(customer, invoice);
+    if (recipients.length === 0) {
+      throw new Error('Customer has no billing email address');
+    }
+
     return this.sendEmail(
-      customer.billingEmail || customer.email || invoice.customerEmail,
+      recipients,
       `Payment Confirmation: ${payment.paymentNumber}`,
       'payment-confirmation',
       { payment, invoice, customer }
@@ -89,12 +186,30 @@ class EmailService {
   }
 
   async sendDisputeRaisedNotification(disputeData, customer) {
-    // Notify admin about the dispute
+    const recipients = this.getDisputeRecipients(customer);
+    if (recipients.length === 0) {
+      throw new Error('Account has no dispute email address');
+    }
+
     return this.sendEmail(
-      process.env.EMAIL_FROM, // Send to admin
+      recipients,
       `New Dispute Raised: ${customer.accountName}`,
       'dispute-raised',
       { disputeData, customer }
+    );
+  }
+
+  async sendDisputeStatusUpdateNotification(dispute, status, customer) {
+    const recipients = this.getDisputeRecipients(customer);
+    if (recipients.length === 0) {
+      throw new Error('Account has no dispute email address');
+    }
+
+    return this.sendEmail(
+      recipients,
+      `Dispute ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+      'dispute-status-update',
+      { dispute, status, customer }
     );
   }
 
@@ -123,15 +238,15 @@ class EmailService {
   }
 
   async sendSOAEmail(account, startDate, endDate, soaData) {
-    const accountEmail = account.billingEmail || account.email;
-    if (!accountEmail) {
-      throw new Error('Account has no email address');
+    const recipients = this.getSOARecipients(account);
+    if (recipients.length === 0) {
+      throw new Error('Account has no SOA email address');
     }
 
     const subject = `Statement of Account - ${account.accountName} (${startDate} to ${endDate})`;
 
     return this.sendEmail(
-      accountEmail,
+      recipients,
       subject,
       'soa-statement',
       {

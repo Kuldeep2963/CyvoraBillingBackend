@@ -1868,10 +1868,11 @@ exports.sendSOAEmail = async (req, res) => {
 
     // Send the email
     await EmailService.sendSOAEmail(accountDetails, formattedStartDate, formattedEndDate, soaData);
+    const recipients = EmailService.getSOARecipients(accountDetails);
 
     res.json({
       success: true,
-      message: `SOA email sent successfully to ${accountDetails.billingEmail || accountDetails.email}`
+      message: `SOA email sent successfully to ${recipients.join(', ')}`
     });
 
   } catch (e) {
