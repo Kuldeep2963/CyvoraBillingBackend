@@ -139,11 +139,10 @@ exports.createVendorInvoice = async (req, res) => {
       status: 'pending'
     }, { transaction });
 
-    // Update account balance/credit limit (same semantics as customer invoices)
+    // Update account balance/credit limit.
+    // Vendor invoices are allowed even when the remaining credit limit is insufficient;
+    // postpaid creditLimit can temporarily go below zero until payment is recorded.
     if (account.billingType === 'postpaid') {
-      if (Number(account.creditLimit) < grandTotal) {
-        throw new Error('Credit limit exceeded – cannot generate vendor invoice');
-      }
       await account.decrement('creditLimit', { by: grandTotal, transaction });
     } else {
       // Prepaid vendor accounts are allowed to go negative after invoice generation.

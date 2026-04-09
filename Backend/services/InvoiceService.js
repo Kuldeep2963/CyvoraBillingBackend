@@ -146,6 +146,69 @@ const buildAccountConditions = (account, vendorReport = false) => {
   return or;
 };
 
+const resolveInvoiceAccount = async (invoice, transaction = null) => {
+  const query = {
+    where: {
+      [Op.or]: [
+        { gatewayId: invoice.customerGatewayId },
+        { customerCode: invoice.customerCode },
+        { vendorCode: invoice.customerCode },
+        { accountName: invoice.customerName },
+      ],
+    },
+  };
+
+  if (transaction) {
+    query.transaction = transaction;
+  }
+
+  return Account.findOne(query);
+};
+
+const adjustAccountForInvoice = async (
+  account,
+  amount,
+  transaction,
+  direction,
+) => {
+  const normalizedAmount = Number(amount || 0);
+  if (!account || normalizedAmount <= 0) return;
+
+  if (account.billingType === 'postpaid') {
+    const currentLimit = Number(account.creditLimit || 0);
+    const nextLimit =
+      direction === 'consume'
+        ? currentLimit - normalizedAmount
+        : currentLimit + normalizedAmount;
+
+    const cappedLimit =
+      direction === 'restore' && Number(account.originalCreditLimit || 0) > 0
+        ? Math.min(nextLimit, Number(account.originalCreditLimit || 0))
+        : nextLimit;
+
+    await account.update(
+      {
+        creditLimit: parseFloat(cappedLimit.toFixed(2))
+      },
+      { transaction }
+    );
+    return;
+  }
+
+  const currentBalance = Number(account.balance || 0);
+  const nextBalance =
+    direction === 'consume'
+      ? currentBalance - normalizedAmount
+      : currentBalance + normalizedAmount;
+
+  await account.update(
+    {
+      balance: parseFloat(nextBalance.toFixed(2))
+    },
+    { transaction }
+  );
+};
+
 class InvoiceService {
   
   /**
@@ -394,17 +457,7 @@ class InvoiceService {
         }, { transaction });
       }
 
-      // Update account balance/credit limit
-      if (account.billingType === 'postpaid') {
-        if (Number(account.creditLimit) < totalAmount) {
-          throw new Error('Credit limit exceeded – cannot generate invoice');
-        }
-        await account.decrement('creditLimit', { by: totalAmount, transaction });
-      } else {
-        // Prepaid invoices must still be generated even when balance is insufficient.
-        // This allows balance to move into negative values (debt state).
-        await account.decrement('balance', { by: totalAmount, transaction });
-      }
+      await adjustAccountForInvoice(account, totalAmount, transaction, 'consume');
 
       await transaction.commit();
 
@@ -574,6 +627,15 @@ class InvoiceService {
 
       if (Number(invoice.paidAmount) > 0) {
         throw new Error('Cannot void an invoice with payments. Refund payments first.');
+      }
+
+      const account = await resolveInvoiceAccount(invoice, transaction);
+      if (account) {
+        const restoreAmount =
+          account.billingType === 'postpaid'
+            ? Number(invoice.balanceAmount || 0)
+            : Number(invoice.totalAmount || 0);
+        await adjustAccountForInvoice(account, restoreAmount, transaction, 'restore');
       }
 
       await invoice.update({

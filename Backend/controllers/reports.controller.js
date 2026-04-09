@@ -1590,10 +1590,10 @@ exports.exportSOA = async (req, res) => {
     mainHeader.alignment = { horizontal: 'center' };
 
     // --- GROUP HEADERS (Row 4) ---
-    // Left Group: Customer Usage (Pai INVOICE)
+    // Left Group: Customer Usage (Cyvoratech Pvt Ltd. INVOICE)
     worksheet.mergeCells('A4:C4');
     const leftInvoiceHeader = worksheet.getCell('A4');
-    leftInvoiceHeader.value = 'Pai Telecommunications Ltd. INVOICE';
+    leftInvoiceHeader.value = 'Cyvoratech Pvt Ltd. INVOICE';
     leftInvoiceHeader.font = { bold: true };
     leftInvoiceHeader.alignment = { horizontal: 'center' };
 
@@ -1612,7 +1612,7 @@ exports.exportSOA = async (req, res) => {
 
     worksheet.mergeCells('N4:O4');
     const rightPaymentHeader = worksheet.getCell('N4');
-    rightPaymentHeader.value = `Pai Telecommunications Ltd. PAYMENT`;
+    rightPaymentHeader.value = `Cyvoratech Pvt Ltd. PAYMENT`;
     rightPaymentHeader.font = { bold: true };
     rightPaymentHeader.alignment = { horizontal: 'center' };
 
@@ -1621,7 +1621,7 @@ exports.exportSOA = async (req, res) => {
       1: 'INVOICE NO', 2: 'PERIOD COVERED', 3: 'AMOUNT', 4: 'PENDING DISPUTE',
       6: 'DATE', 7: `${accountName} PAYMENT`, 8: 'BALANCE',
       9: 'INVOICE NO', 10: 'PERIOD COVERED', 11: 'AMOUNT', 12: 'PENDING DISPUTE',
-      14: 'DATE', 15: `Pai Telecommunications Ltd. PAYMENT`
+      14: 'DATE', 15: `Cyvoratech Pvt Ltd. PAYMENT`
     };
 
     const headerRow = worksheet.getRow(5);

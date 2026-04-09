@@ -4,16 +4,35 @@ module.exports = {
   up: async (queryInterface, Sequelize) => {
     const transaction = await queryInterface.sequelize.transaction();
     try {
-      // Remove index on status field before dropping it
-      await queryInterface.removeIndex('payments', ['status'], { transaction });
-      
-      // Remove unused fields
-      await queryInterface.removeColumn('payments', 'status', { transaction });
-      await queryInterface.removeColumn('payments', 'customerNotes', { transaction });
-      await queryInterface.removeColumn('payments', 'receiptPath', { transaction });
-      await queryInterface.removeColumn('payments', 'refundedAmount', { transaction });
-      await queryInterface.removeColumn('payments', 'refundDate', { transaction });
-      await queryInterface.removeColumn('payments', 'refundReason', { transaction });
+      const table = await queryInterface.describeTable('payments', { transaction });
+
+      // Remove index on status only when both index and column exist.
+      if (table.status) {
+        const indexes = await queryInterface.showIndex('payments', { transaction });
+        const statusIndex = indexes.find((index) =>
+          Array.isArray(index.fields) && index.fields.some((field) => field.attribute === 'status')
+        );
+
+        if (statusIndex) {
+          await queryInterface.removeIndex('payments', statusIndex.name, { transaction });
+        }
+      }
+
+      // Remove only columns that still exist to keep migration re-runnable.
+      const removableColumns = [
+        'status',
+        'customerNotes',
+        'receiptPath',
+        'refundedAmount',
+        'refundDate',
+        'refundReason',
+      ];
+
+      for (const column of removableColumns) {
+        if (table[column]) {
+          await queryInterface.removeColumn('payments', column, { transaction });
+        }
+      }
       
       await transaction.commit();
     } catch (err) {

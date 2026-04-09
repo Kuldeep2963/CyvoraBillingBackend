@@ -31,7 +31,7 @@ const settingsRoutes = require('./routes/settings');
 const notificationRoutes = require('./routes/notifications');
 const authMiddleware = require('./middleware/auth');
 const uploadCdr = require('./api/upload-cdr');
-const CDRAutoFetcher = require('./services/cdr-auto-fetch');
+const { MySQLCDRFetcher } = require('./services/cdr-auto-fetch');
 const BillingScheduler = require('./schedulers/BillingScheduler');
 const CDRRetentionService = require('./services/cdr-retention-service');
 const NotificationRetentionService = require('./services/notification-retention-service');
@@ -90,7 +90,7 @@ runMigrations().then(() => {
   return sequelize.sync();
 }).then(() => {
 
-  new CDRAutoFetcher();
+  new MySQLCDRFetcher();
   new BillingScheduler();
   new CDRRetentionService().start();
   new NotificationRetentionService().start();

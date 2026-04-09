@@ -217,6 +217,69 @@ const generatePaymentNumber = async () => {
   return `PAY-${year}-${month}-${String(sequence).padStart(4, "0")}`;
 };
 
+const resolveInvoiceAccount = async (invoice, transaction = null) => {
+  const query = {
+    where: {
+      [Op.or]: [
+        { gatewayId: invoice.customerGatewayId },
+        { customerCode: invoice.customerCode },
+        { vendorCode: invoice.customerCode },
+        { accountName: invoice.customerName },
+      ],
+    },
+  };
+
+  if (transaction) {
+    query.transaction = transaction;
+  }
+
+  return Account.findOne(query);
+};
+
+const adjustAccountForInvoice = async (
+  account,
+  amount,
+  transaction,
+  direction,
+) => {
+  const normalizedAmount = Number(amount || 0);
+  if (!account || normalizedAmount <= 0) return;
+
+  if (account.billingType === "postpaid") {
+    const currentLimit = Number(account.creditLimit || 0);
+    const nextLimit =
+      direction === "consume"
+        ? currentLimit - normalizedAmount
+        : currentLimit + normalizedAmount;
+
+    const cappedLimit =
+      direction === "restore" && Number(account.originalCreditLimit || 0) > 0
+        ? Math.min(nextLimit, Number(account.originalCreditLimit || 0))
+        : nextLimit;
+
+    await account.update(
+      {
+        creditLimit: parseFloat(cappedLimit.toFixed(2)),
+      },
+      { transaction },
+    );
+    return;
+  }
+
+  const currentBalance = Number(account.balance || 0);
+  const nextBalance =
+    direction === "consume"
+      ? currentBalance - normalizedAmount
+      : currentBalance + normalizedAmount;
+
+  await account.update(
+    {
+      balance: parseFloat(nextBalance.toFixed(2)),
+    },
+    { transaction },
+  );
+};
+
 /* ===================== GENERATE INVOICE FROM CDRs ===================== */
 exports.generateInvoice = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -500,7 +563,12 @@ exports.generateInvoice = async (req, res) => {
       );
     }
 
-    // Invoice generation should not mutate account balance or credit limit.
+    await adjustAccountForInvoice(
+      account,
+      totalAmount,
+      transaction,
+      "consume",
+    );
 
     await transaction.commit();
 
@@ -514,10 +582,8 @@ exports.generateInvoice = async (req, res) => {
       ],
     });
 
-    // Send email notification (async - don't wait for response to speed up API)
-    EmailService.sendInvoiceEmail(completeInvoice, account).catch((err) => {
-      console.error("Failed to send invoice email:", err);
-    });
+    // Do not auto-send invoice emails on generation.
+    // Invoices are sent explicitly via the dedicated send-email endpoint.
 
     createNotification({
       title: "Invoice generated",
@@ -1410,6 +1476,8 @@ exports.generatePdf = async (invoice, res) => {
 
 /* ===================== UPDATE INVOICE ===================== */
 exports.updateInvoice = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
   try {
     const { id } = req.params;
     const updateData = req.body;
@@ -1474,7 +1542,7 @@ exports.updateInvoice = async (req, res) => {
     if (updateData.paymentDate)
       updateData.paymentDate = formatTime(updateData.paymentDate);
 
-    await invoice.update(updateData);
+    await invoice.update(updateData, { transaction });
 
     // if the status was just flipped to paid (manual update) and the
     // account is postpaid, return credit corresponding to the unpaid amount.
@@ -1482,25 +1550,41 @@ exports.updateInvoice = async (req, res) => {
       // determine amount to restore
       const restoreAmount = Number(invoice.totalAmount || 0) - prevPaid;
       if (restoreAmount > 0) {
-        // lookup customer to adjust credit
-        const customer = await Account.findOne({
-          where: {
-            [Op.or]: [
-              { gatewayId: invoice.customerGatewayId },
-              { customerCode: invoice.customerCode },
-              { accountName: invoice.customerName },
-            ],
-          },
-        });
+        const customer = await resolveInvoiceAccount(invoice, transaction);
 
         if (customer && customer.billingType === "postpaid") {
-          const orig = parseFloat(customer.originalCreditLimit) || 0;
-          let newLimit = parseFloat(customer.creditLimit) + restoreAmount;
-          if (orig && newLimit > orig) newLimit = orig;
-          await customer.update({ creditLimit: newLimit });
+          await adjustAccountForInvoice(
+            customer,
+            restoreAmount,
+            transaction,
+            "restore",
+          );
         }
       }
     }
+
+    if (
+      prevStatus !== "paid" &&
+      ["cancelled", "void", "draft"].includes(String(updateData.status || "").toLowerCase())
+    ) {
+      const customer = await resolveInvoiceAccount(invoice, transaction);
+      if (customer) {
+        const restoreAmount =
+          customer.billingType === "postpaid"
+            ? Number(invoice.balanceAmount || 0)
+            : Number(invoice.totalAmount || 0);
+        if (restoreAmount > 0) {
+          await adjustAccountForInvoice(
+            customer,
+            restoreAmount,
+            transaction,
+            "restore",
+          );
+        }
+      }
+    }
+
+    await transaction.commit();
 
     res.json({
       success: true,
@@ -1508,6 +1592,7 @@ exports.updateInvoice = async (req, res) => {
       data: invoice,
     });
   } catch (error) {
+    await transaction.rollback();
     console.error("Update Invoice Error:", error);
     res.status(500).json({
       success: false,
@@ -1545,6 +1630,20 @@ exports.deleteInvoice = async (req, res) => {
         success: false,
         error: "Only draft, cancelled, or void invoices can be deleted",
       });
+    }
+
+    const account = await resolveInvoiceAccount(invoice, transaction);
+    if (account) {
+      const restoreAmount =
+        account.billingType === "postpaid"
+          ? Number(invoice.balanceAmount || 0)
+          : Number(invoice.totalAmount || 0);
+      await adjustAccountForInvoice(
+        account,
+        restoreAmount,
+        transaction,
+        "restore",
+      );
     }
 
     // Delete invoice items
@@ -1761,41 +1860,13 @@ exports.recordPayment = async (req, res) => {
         { transaction },
       );
 
-      if (paymentSource === "account_funds") {
-        const allocationAmount = parseFloat(allocation.amount);
-
-        if (customer.billingType === "postpaid") {
-          const currentLimit = parseFloat(customer.creditLimit || 0);
-          if (currentLimit < allocationAmount) {
-            throw new Error(
-              `Insufficient credit limit for invoice ${invoice.invoiceNumber}`,
-            );
-          }
-          await customer.update(
-            {
-              creditLimit: parseFloat(
-                (currentLimit - allocationAmount).toFixed(2),
-              ),
-            },
-            { transaction },
-          );
-        } else {
-          const currentBalance = parseFloat(customer.balance || 0);
-          if (currentBalance < allocationAmount) {
-            throw new Error(
-              `Insufficient balance for invoice ${invoice.invoiceNumber}`,
-            );
-          }
-          await customer.update(
-            {
-              balance: parseFloat(
-                (currentBalance - allocationAmount).toFixed(2),
-              ),
-            },
-            { transaction },
-          );
-        }
-
+      if (customer.billingType === "postpaid") {
+        await adjustAccountForInvoice(
+          customer,
+          allocation.amount,
+          transaction,
+          "restore",
+        );
         await customer.reload({ transaction });
       }
     }

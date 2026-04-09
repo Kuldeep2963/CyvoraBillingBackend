@@ -1,15 +1,21 @@
 const jwt = require('jsonwebtoken');
 
 const auth = (req, res, next) => {
-  // Get token from header
-  const authHeader = req.header('Authorization');
+  const authHeader = req.header('Authorization') || req.header('authorization');
 
-  // Check if no token
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  // Accept both "Bearer <token>" and raw token values.
+  if (!authHeader) {
     return res.status(401).json({ error: 'No token, authorization denied' });
   }
 
-  const token = authHeader.split(' ')[1];
+  const bearerPrefix = /^Bearer\s+/i;
+  const token = bearerPrefix.test(authHeader)
+    ? authHeader.replace(bearerPrefix, '').trim()
+    : authHeader.trim();
+
+  if (!token) {
+    return res.status(401).json({ error: 'No token, authorization denied' });
+  }
 
   try {
     // Verify token
@@ -17,7 +23,12 @@ const auth = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (err) {
-    res.status(401).json({ error: 'Token is not valid' });
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired, please login again' });
+    }
+
+    console.error('Auth token verification failed:', err.message);
+    return res.status(401).json({ error: 'Token is not valid' });
   }
 };
 

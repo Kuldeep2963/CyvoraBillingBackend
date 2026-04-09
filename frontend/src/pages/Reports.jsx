@@ -849,11 +849,7 @@ const Reports = () => {
                   />
                 </>
               )}
-              {activeTab !== 6 && activeTab !== 0 && (
-                <Text fontSize="xs" color={mutedColor} mt={2}>
-                  Time inputs are treated as UTC in the UI and converted only for the existing backend request format.
-                </Text>
-              )}
+              
             </Wrap>
           )}
         </Flex>

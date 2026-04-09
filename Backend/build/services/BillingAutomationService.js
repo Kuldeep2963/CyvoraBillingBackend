@@ -2,7 +2,6 @@
 const { Op } = require('sequelize');
 const Account = require('../models/Account');
 const InvoiceService = require('./InvoiceService');
-const EmailService = require('./EmailService');
 const moment = require('moment');
 
 class BillingAutomationService {
@@ -184,11 +183,8 @@ class BillingAutomationService {
               vendorInvoice = invoice;
             }
 
-            if (invoice && account.sendInvoiceEmail) {
-              EmailService.sendInvoiceEmail(invoice, account).catch(err => {
-                console.error(`Failed to send automated ${invoiceType} invoice email for ${account.accountName}:`, err);
-              });
-            }
+            // Do not auto-send invoice emails on generation.
+            // Invoices are sent explicitly through the UI/API send-email action.
 
             await account.update(this.buildStreamUpdates(account, invoiceType, nextBillingDate));
             accountChanged = true;

@@ -124,22 +124,10 @@ const Account = sequelize.define('Account', {
     comment: 'Comma-separated rates team email list'
   },
 
-  ratesMobileNumber: {
-    type: DataTypes.JSONB,
-    defaultValue: [],
-    comment: 'Rates team mobile number'
-  },
-
   billingEmails: {
     type: DataTypes.JSONB,
     defaultValue: [],
     comment: 'Comma-separated billing email list'
-  },
-
-  billingPhoneNumbers: {
-    type: DataTypes.JSONB,
-    defaultValue: [],
-    comment: 'Billing phone number(s)'
   },
   
   soaEmail: {
@@ -163,12 +151,6 @@ const Account = sequelize.define('Account', {
     defaultValue: [],
     comment: 'Comma-separated dispute notification email list'
   },
-
-  disputePhoneNumber: {
-    type: DataTypes.JSONB,
-    defaultValue: [],
-    comment: 'Dispute contact phone number'
-  },
   
   nocEmail: {
     type: DataTypes.STRING,
@@ -182,12 +164,6 @@ const Account = sequelize.define('Account', {
     type: DataTypes.JSONB,
     defaultValue: [],
     comment: 'Comma-separated NOC email list'
-  },
-
-  nocPhoneNumbers: {
-    type: DataTypes.JSONB,
-    defaultValue: [],
-    comment: 'NOC phone number(s)'
   },
 
   documents: {
@@ -204,12 +180,6 @@ const Account = sequelize.define('Account', {
   
   vendorFax: {
     type: DataTypes.STRING
-  },
-  
-  // Carrier Information
-  carrierType: {
-    type: DataTypes.ENUM('tier1', 'tier2', 'tier3', 'mobile', 'voip', 'other'),
-    comment: 'Type of carrier or provider'
   },
   
   // Account Status & Verification

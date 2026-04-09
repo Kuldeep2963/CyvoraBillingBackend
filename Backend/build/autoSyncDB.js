@@ -122,37 +122,6 @@ async function applyMissingColumnsAndIndexes() {
   console.log(`Additive sync summary: ${addedColumns} column(s), ${addedIndexes} index(es) added.`);
 }
 
-async function ensureInvoiceStatusEnumValues() {
-  const requiredValues = [
-    'draft',
-    'generated',
-    'pending',
-    'sent',
-    'partial',
-    'paid',
-    'overdue',
-    'cancelled',
-    'void',
-  ];
-
-  // If the enum type exists from an older schema, add missing values before sync.
-  for (const value of requiredValues) {
-    await sequelize.query(
-      `DO $$
-      BEGIN
-        IF EXISTS (
-          SELECT 1
-          FROM pg_type t
-          JOIN pg_namespace n ON n.oid = t.typnamespace
-          WHERE t.typname = 'enum_invoices_status'
-            AND n.nspname = 'public'
-        ) THEN
-          ALTER TYPE "public"."enum_invoices_status" ADD VALUE IF NOT EXISTS '${value}';
-        END IF;
-      END $$;`
-    );
-  }
-}
 
 async function autoSyncDatabase() {
   try {
@@ -163,9 +132,6 @@ async function autoSyncDatabase() {
 
     await sequelize.authenticate();
     console.log('Database connection OK');
-
-    await ensureInvoiceStatusEnumValues();
-    console.log('Invoice status enum compatibility check completed');
 
     // Step 1: Ensure all tables exist.
     await sequelize.sync({ force: false, alter: false });
