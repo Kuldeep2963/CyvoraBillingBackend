@@ -54,6 +54,11 @@ const VendorInvoice = sequelize.define('VendorInvoice', {
   status: {
     type: DataTypes.ENUM('pending', 'approved', 'rejected', 'processing', 'paid', 'processed', 'error'),
     defaultValue: 'pending'
+  },
+  isDisputed: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
   }
 }, {
   tableName: 'vendor_invoices',

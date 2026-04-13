@@ -17,6 +17,7 @@ import {
   ModalCloseButton,
   FormControl,
   FormLabel,
+  Switch,
   useColorModeValue,
   NumberInput,
   NumberInputField,
@@ -265,6 +266,7 @@ const CreateAccountModal = ({
     phone: "", vendorFax: "", email: "", billingEmail: "", disputeEmail: "",
     nocEmail: "", soaEmail: "", ratesEmails: "",
     billingEmails: "", disputeEmails: "", nocEmails: "",
+    syncContactEmailsWithRates: false,
     active: true, vatNumber: "", verificationStatus: "pending",
     resellerAccount: false, reseller: "",
     currency: "USD", nominalCode: "", creditLimit: 1000.0,
@@ -300,6 +302,15 @@ const CreateAccountModal = ({
   const canAddDocument = !isViewMode && documentTitle.trim().length > 0 && !!documentFile;
   const totalDocs      = (formData.documents?.length ?? 0) + pendingDocuments.length;
 
+  useEffect(() => {
+    if (!formData.syncContactEmailsWithRates) return;
+
+    setFormData((fd) => ({
+      ...fd,
+      ...getSyncedContactEmailValues(fd.ratesEmails),
+    }));
+  }, [formData.ratesEmails, formData.syncContactEmailsWithRates]);
+
   // The label shown in the SearchSelect input once a country is selected.
   // Recomputed only when the saved country values change.
   const savedCountryLabel = useMemo(
@@ -325,6 +336,23 @@ const CreateAccountModal = ({
     return String(value).split(",").map((e) => e.trim()).filter(Boolean);
   };
 
+  const firstEmailFromList = (value = "") => splitEmailList(value)[0] ?? "";
+
+  const getSyncedContactEmailValues = (ratesValue = "") => {
+    const normalizedRates = normalizeListToInput(ratesValue);
+    const primaryRateEmail = firstEmailFromList(normalizedRates);
+
+    return {
+      billingEmails: normalizedRates,
+      billingEmail: primaryRateEmail,
+      disputeEmails: normalizedRates,
+      disputeEmail: primaryRateEmail,
+      nocEmails: normalizedRates,
+      nocEmail: primaryRateEmail,
+      soaEmail: primaryRateEmail,
+    };
+  };
+
   const normalizeAuthValues = (value) => {
     if (Array.isArray(value))
       return [...new Set(value.map((item) => String(item).trim()).filter(Boolean))];
@@ -341,8 +369,6 @@ const CreateAccountModal = ({
     }
     return [];
   };
-
-  const firstEmailFromList = (value = "") => splitEmailList(value)[0] ?? "";
 
   const normalizeDocuments = (input) => {
     if (!Array.isArray(input)) return [];
@@ -668,7 +694,6 @@ const CreateAccountModal = ({
 
     if (users.length > 0 && !formData.accountOwner) errors.push("Account owner is required");
     if (!formData.phone?.trim())               errors.push("Phone is required");
-    if (!formData.addressLine1?.trim())        errors.push("Address Line 1 is required");
     if (!formData.city?.trim())                errors.push("City is required");
     if (!formData.postalCode?.trim())          errors.push("Postal Code is required");
     if (!formData.billingStartDate)            errors.push("Billing Start Date is required");
@@ -713,9 +738,13 @@ const CreateAccountModal = ({
       const nDispute = splitEmailList(formData.disputeEmails || formData.disputeEmail).join(", ");
       const nNoc     = splitEmailList(formData.nocEmails     || formData.nocEmail).join(", ");
       const nRates   = splitEmailList(formData.ratesEmails).join(", ");
+      const syncedContactEmails = formData.syncContactEmailsWithRates
+        ? getSyncedContactEmailValues(formData.ratesEmails)
+        : {};
 
       const sanitizedData = {
         ...formData,
+        ...syncedContactEmails,
         // DB column `accounts.country` is VARCHAR(2), so always persist ISO code here.
         country:       (formData.countryCode || formData.country || "").trim(),
         countryCode:   (formData.countryCode || "").trim(),
@@ -734,7 +763,7 @@ const CreateAccountModal = ({
 
       // Clean up legacy / derived keys
       ["ratesMobileNumber", "billingPhoneNumbers", "disputePhoneNumber",
-       "nocPhoneNumbers", "carrierType"].forEach((k) => delete sanitizedData[k]);
+        "nocPhoneNumbers", "carrierType", "syncContactEmailsWithRates"].forEach((k) => delete sanitizedData[k]);
 
       // Re-compute nextbillingdate server-side style in case it drifted
       if (sanitizedData.lastbillingdate && sanitizedData.billingCycle) {
@@ -1064,12 +1093,36 @@ const CreateAccountModal = ({
                           </FormControl>
 
                           <FormControl>
+                            <HStack justify="space-between" align="center" spacing={4}>
+                              <Box>
+                                <FormLabel mb={0}>Same as Rates Emails</FormLabel>
+                                <FormHelperText mt={1}>
+                                  Mirror the rates email value into all contact email fields.
+                                </FormHelperText>
+                              </Box>
+                              <Switch
+                                isChecked={formData.syncContactEmailsWithRates}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setFormData((fd) => ({
+                                    ...fd,
+                                    syncContactEmailsWithRates: checked,
+                                    ...(checked ? getSyncedContactEmailValues(fd.ratesEmails) : {}),
+                                  }));
+                                }}
+                                isDisabled={isViewMode}
+                                colorScheme="blue"
+                              />
+                            </HStack>
+                          </FormControl>
+
+                          <FormControl>
                             <FormLabel>Billing Emails</FormLabel>
                             <Input
                               value={formData.billingEmails}
                               onChange={(e) => setFormData((fd) => ({ ...fd, billingEmails: e.target.value }))}
                               placeholder="billing1@example.com, billing2@example.com"
-                              isDisabled={isViewMode}
+                              isDisabled={isViewMode || formData.syncContactEmailsWithRates}
                             />
                             <FormHelperText>Comma-separated emails</FormHelperText>
                           </FormControl>
@@ -1080,7 +1133,7 @@ const CreateAccountModal = ({
                               value={formData.disputeEmails}
                               onChange={(e) => setFormData((fd) => ({ ...fd, disputeEmails: e.target.value }))}
                               placeholder="dispute@example.com"
-                              isDisabled={isViewMode}
+                              isDisabled={isViewMode || formData.syncContactEmailsWithRates}
                             />
                             <FormHelperText>Comma-separated emails</FormHelperText>
                           </FormControl>
@@ -1091,7 +1144,7 @@ const CreateAccountModal = ({
                               value={formData.nocEmails}
                               onChange={(e) => setFormData((fd) => ({ ...fd, nocEmails: e.target.value }))}
                               placeholder="noc@example.com"
-                              isDisabled={isViewMode}
+                              isDisabled={isViewMode || formData.syncContactEmailsWithRates}
                             />
                             <FormHelperText>Comma-separated emails</FormHelperText>
                           </FormControl>
@@ -1103,7 +1156,7 @@ const CreateAccountModal = ({
                               value={formData.soaEmail}
                               onChange={(e) => setFormData((fd) => ({ ...fd, soaEmail: e.target.value }))}
                               placeholder="soa@example.com"
-                              isDisabled={isViewMode}
+                              isDisabled={isViewMode || formData.syncContactEmailsWithRates}
                             />
                           </FormControl>
 
@@ -1148,7 +1201,7 @@ const CreateAccountModal = ({
                       <Box>
                         <Heading size="sm" mb={2}>Address Information</Heading>
                         <VStack spacing={3}>
-                          <FormControl isRequired>
+                          <FormControl>
                             <FormLabel>Address Line 1</FormLabel>
                             <Input
                               value={formData.addressLine1}

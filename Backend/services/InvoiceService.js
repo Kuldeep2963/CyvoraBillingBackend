@@ -457,8 +457,6 @@ class InvoiceService {
         }, { transaction });
       }
 
-      await adjustAccountForInvoice(account, totalAmount, transaction, 'consume');
-
       await transaction.commit();
 
       return await Invoice.findByPk(invoice.id, {
@@ -627,15 +625,6 @@ class InvoiceService {
 
       if (Number(invoice.paidAmount) > 0) {
         throw new Error('Cannot void an invoice with payments. Refund payments first.');
-      }
-
-      const account = await resolveInvoiceAccount(invoice, transaction);
-      if (account) {
-        const restoreAmount =
-          account.billingType === 'postpaid'
-            ? Number(invoice.balanceAmount || 0)
-            : Number(invoice.totalAmount || 0);
-        await adjustAccountForInvoice(account, restoreAmount, transaction, 'restore');
       }
 
       await invoice.update({

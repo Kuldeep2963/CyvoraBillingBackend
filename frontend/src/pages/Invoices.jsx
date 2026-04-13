@@ -7,14 +7,6 @@ import {
   useToast,
   HStack,
   Badge,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  Card,
-  CardBody,
   IconButton,
   Menu,
   MenuButton,
@@ -29,7 +21,6 @@ import {
   Divider,
   Tooltip,
   useColorModeValue,
-  TableContainer,
   InputGroup,
   InputLeftElement,
   InputRightElement,
@@ -43,6 +34,7 @@ import {
   MemoizedSelect as Select,
 } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
+import DataTable from "../components/DataTable";
 import {
   FiFileText,
   FiDownload,
@@ -67,7 +59,6 @@ import {
   FiMoreVertical,
   FiSettings,
 } from "react-icons/fi";
-import TablePagination from "../components/TablePagination";
 import ViewInvoiceModal from "../components/modals/ViewInvoiceModal";
 import GenerateInvoiceModal from "../components/modals/GenerateInvoiceModal";
 import RecordPaymentModal from "../components/modals/RecordPaymentModal";
@@ -78,7 +69,6 @@ import {
   generateInvoice as apiGenerateInvoice,
   fetchReportAccounts,
   deleteInvoice as apiDeleteInvoice,
-  updateInvoiceStatus,
   recordPayment,
   downloadInvoice,
   sendInvoiceEmail,
@@ -100,7 +90,6 @@ const STATUS_CONFIG = {
 const DEFAULT_PAGINATION = { total: 0, page: 1, limit: 25, totalPages: 1 };
 
 const DEFAULT_GENERATE_FORM = {
-  invoiceType: "customer",
   customerId: "",
   periodStart: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
   periodEnd: format(new Date(), "yyyy-MM-dd"),
@@ -209,7 +198,7 @@ const InvoiceStatusBadge = React.memo(({ status }) => {
       alignItems="center"
       gap={2}
       px={3}
-      py={0}
+      py={1}
       borderRadius="full"
     >
       <Icon />
@@ -289,10 +278,10 @@ const Invoices = () => {
   const [searchTerm, setSearchTerm]                 = useState("");
   const [debouncedSearch, setDebouncedSearch]       = useState("");
   const [statusFilter, setStatusFilter]             = useState("all");
-  const [invoiceTypeFilter, setInvoiceTypeFilter]   = useState("all");
   const [page, setPage]                             = useState(1);
   const [pageSize, setPageSize]                     = useState(25);
   const [pagination, setPagination]                 = useState(DEFAULT_PAGINATION);
+  const [isLoading, setIsLoading]                   = useState(true);
   const [selectedInvoice, setSelectedInvoice]       = useState(null);
   const [isViewModalOpen, setIsViewModalOpen]       = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
@@ -321,7 +310,6 @@ const Invoices = () => {
 
   const toast  = useToast();
   const bgColor     = useColorModeValue("white", "gray.800");
-  const borderColor = useColorModeValue("gray.200", "gray.700");
 
   // ── Dispute lookup map – O(1) per row instead of O(n) ─────────────────────
   // BUG FIX: was O(n²) — Array.find() inside invoices.map()
@@ -354,10 +342,10 @@ const Invoices = () => {
   // ── Data loading ────────────────────────────────────────────────────────────
   // BUG FIX: loadData wrapped in useCallback so the effect dependency is stable
   const loadData = useCallback(async () => {
+    setIsLoading(true);
     try {
       const queryParams = { page, limit: pageSize };
       if (statusFilter !== "all")      queryParams.status      = statusFilter;
-      if (invoiceTypeFilter !== "all") queryParams.invoiceType = invoiceTypeFilter;
 
       const invoicesRequest = debouncedSearch
         ? searchInvoicesByAccountName(debouncedSearch, queryParams)
@@ -407,8 +395,10 @@ const Invoices = () => {
         duration: 3000,
         isClosable: true,
       });
+    } finally {
+      setIsLoading(false);
     }
-  }, [debouncedSearch, statusFilter, invoiceTypeFilter, page, pageSize, toast]);
+  }, [debouncedSearch, statusFilter, page, pageSize, toast]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -466,19 +456,17 @@ const Invoices = () => {
     if (isGeneratingInvoice) return;
     setIsGeneratingInvoice(true);
     try {
-      const isVendor = generateForm.invoiceType === "vendor";
       const customer = customers.find(
         (c) =>
           c.gatewayId      === generateForm.customerId ||
           c.customerCode   === generateForm.customerId ||
-          c.vendorCode     === generateForm.customerId ||
           c.accountId      === generateForm.customerId,
       );
 
       if (!customer) {
         toast({
-          title: `${isVendor ? "Vendor" : "Customer"} not found`,
-          description: `Please select a valid ${isVendor ? "vendor" : "customer"}`,
+          title: "Customer not found",
+          description: "Please select a valid customer",
           status: "error",
           duration: 3000,
           isClosable: true,
@@ -487,7 +475,6 @@ const Invoices = () => {
       }
 
       const response = await apiGenerateInvoice({
-        invoiceType:        generateForm.invoiceType,
         customerId:         generateForm.customerId,
         billingPeriodStart: generateForm.periodStart,
         billingPeriodEnd:   generateForm.periodEnd,
@@ -496,9 +483,7 @@ const Invoices = () => {
       if (response.success) {
         toast({
           title: "Invoice generated",
-          description: isVendor
-            ? `Vendor usage report for ${customer.accountName} has been generated`
-            : `Invoice ${response.invoice.invoiceNumber} has been generated successfully`,
+          description: `Invoice ${response.invoice.invoiceNumber} has been generated successfully`,
           status: "success",
           duration: 3000,
           isClosable: true,
@@ -560,17 +545,6 @@ const Invoices = () => {
     } catch (error) {
       console.error("Error sending email:", error);
       toast({ title: "Error sending email", description: error.message, status: "error", duration: 3000, isClosable: true });
-    }
-  }, [toast, loadData]);
-
-  const handleUpdateStatus = useCallback(async (invoiceId, newStatus) => {
-    try {
-      await updateInvoiceStatus(invoiceId, { status: newStatus });
-      loadData();
-      toast({ title: "Status updated", description: `Invoice status updated to ${newStatus}`, status: "success", duration: 3000, isClosable: true });
-    } catch (error) {
-      console.error("Error updating status:", error);
-      toast({ title: "Error updating status", description: error.message, status: "error", duration: 3000, isClosable: true });
     }
   }, [toast, loadData]);
 
@@ -709,31 +683,6 @@ const Invoices = () => {
     });
   }, [selectedInvoiceIds, openConfirm, toast, executeBulkSend]);
 
-  // BUG FIX: Promise.allSettled — partial failures don't abort the batch
-  const handleBulkStatusChange = useCallback(async (status) => {
-    if (selectedInvoiceIds.length === 0) {
-      toast({ title: "No invoices selected", status: "warning", duration: 3000, isClosable: true });
-      return;
-    }
-    try {
-      const results = await Promise.allSettled(
-        selectedInvoiceIds.map((id) => updateInvoiceStatus(id, { status })),
-      );
-      const failed = results.filter((r) => r.status === "rejected").length;
-      loadData();
-      setSelectedInvoiceIds([]);
-      toast({
-        title:       "Bulk status update complete",
-        description: `Marked ${results.length - failed} invoices as ${status}${failed > 0 ? `. ${failed} failed.` : ""}`,
-        status:      failed === 0 ? "success" : "warning",
-        duration:    3000,
-        isClosable:  true,
-      });
-    } catch (error) {
-      toast({ title: "Error in bulk update", description: error.message, status: "error", duration: 3000, isClosable: true });
-    }
-  }, [selectedInvoiceIds, toast, loadData]);
-
   // BUG FIX: uses ConfirmDialog; Promise.allSettled for partial-failure handling
   const handleDeleteSelected = useCallback(() => {
     if (selectedInvoiceIds.length === 0) {
@@ -788,6 +737,188 @@ const Invoices = () => {
     );
   }, []);
 
+  const invoiceColumns = useMemo(() => {
+    const isAllSelected = invoices.length > 0 && selectedInvoiceIds.length === invoices.length;
+    const isIndeterminate = selectedInvoiceIds.length > 0 && selectedInvoiceIds.length < invoices.length;
+
+    return [
+      {
+        key: "select",
+        header: (
+          <Checkbox
+            sx={CHECKBOX_SX}
+            isChecked={isAllSelected}
+            isIndeterminate={isIndeterminate}
+            onChange={handleSelectAll}
+          />
+        ),
+        minWidth: "40px",
+        render: (_, row) => (
+          <Checkbox
+            sx={CHECKBOX_SX}
+            isChecked={selectedInvoiceIds.includes(row.id)}
+            onChange={(e) => handleRowSelect(row.id, e.target.checked)}
+          />
+        ),
+      },
+      {
+        key: "invoiceNumber",
+        header: "Invoice No.",
+        minWidth: "160px",
+        render: (value, row) => {
+          const invoiceDateParsed = safeParseDateValue(row.invoiceDate);
+          return (
+            <VStack align="start" spacing={0}>
+              <Text fontWeight="bold" color="blue.600">
+                {value}
+              </Text>
+              <HStack spacing={2}>
+                <Text fontSize="xs" color="gray.500">
+                  {invoiceDateParsed ? format(invoiceDateParsed, "MMM dd, yyyy") : "—"}
+                </Text>
+                {getInvoiceDispute(value) && (
+                  <Badge colorScheme="red" fontSize="10px">
+                    Disputed
+                  </Badge>
+                )}
+              </HStack>
+            </VStack>
+          );
+        },
+      },
+      {
+        key: "customerName",
+        header: "Customer",
+        minWidth: "180px",
+        render: (value, row) => (
+          <Box>
+            <Text fontWeight="medium">{value}</Text>
+            <Text fontSize="sm" color="gray.600">
+              {row.customerGatewayId ?? row.customerCode}
+            </Text>
+          </Box>
+        ),
+      },
+      {
+        key: "period",
+        header: "Period",
+        minWidth: "140px",
+        render: (_, row) => {
+          const periodStartParsed = safeParseDateValue(row.billingPeriodStart);
+          const periodEndParsed = safeParseDateValue(row.billingPeriodEnd);
+          return (
+            <VStack align="start" spacing={0}>
+              <Text fontSize="sm">
+                {periodStartParsed ? format(periodStartParsed, "MMM dd") : "—"}
+              </Text>
+              <Text fontSize="xs" color="gray.500">
+                to {periodEndParsed ? format(periodEndParsed, "MMM dd, yyyy") : "—"}
+              </Text>
+            </VStack>
+          );
+        },
+      },
+      {
+        key: "totalAmount",
+        header: "Amount",
+        minWidth: "120px",
+        isNumeric: true,
+        render: (value, row) => (
+          <VStack align="start" spacing={0}>
+            <Text fontWeight="medium" color="green.700" fontSize="md" textAlign="right">
+              ${parseFloat(value ?? 0).toFixed(4)}
+            </Text>
+            <Text fontSize="xs" color="gray.500">
+              {row.items?.length ?? 0} destinations
+            </Text>
+          </VStack>
+        ),
+      },
+      {
+        key: "dueDate",
+        header: "Due Date",
+        minWidth: "140px",
+        render: (value, row) => {
+          const dueDateParsed = safeParseDateValue(value);
+          const isOverdue =
+            row.status === "overdue" ||
+            (row.status === "sent" && dueDateParsed && differenceInDays(new Date(), dueDateParsed) > 0);
+          const daysOverdue = dueDateParsed ? differenceInDays(new Date(), dueDateParsed) : 0;
+
+          return (
+            <VStack align="start" spacing={1}>
+              <Text color={isOverdue ? "red.500" : "inherit"}>
+                {dueDateParsed ? format(dueDateParsed, "MMM dd, yyyy") : "—"}
+              </Text>
+              {isOverdue && daysOverdue > 0 && (
+                <Badge colorScheme="red" variant="subtle" size="sm">
+                  {daysOverdue}d overdue
+                </Badge>
+              )}
+            </VStack>
+          );
+        },
+      },
+      {
+        key: "status",
+        header: "Status",
+        minWidth: "120px",
+        render: (value) => <InvoiceStatusBadge status={value || "generated"} />,
+      },
+      {
+        key: "actions",
+        header: "Actions",
+        minWidth: "160px",
+        render: (_, row) => (
+          <HStack spacing={2} justify="center">
+            <IconButton
+              bg="transparent"
+              icon={<FiEye />}
+              size="sm"
+              aria-label="View invoice"
+              onClick={() => handleViewInvoice(row)}
+            />
+            <Menu>
+              <MenuButton
+                as={IconButton}
+                icon={<FiMoreVertical />}
+                size="sm"
+                variant="ghost"
+                color="gray.400"
+                _hover={{ color: "gray.700", bg: "gray.100" }}
+                borderRadius="6px"
+                aria-label="Invoice actions"
+              />
+              <MenuList fontSize="sm" minW="160px" shadow="lg">
+                <MenuItem icon={<FiDownload />} fontSize="13px" onClick={() => handleDownloadInvoice(row)}>
+                  Download
+                </MenuItem>
+                <MenuItem icon={<FiMail />} fontSize="13px" onClick={() => handleSendEmail(row)}>
+                  Send Email
+                </MenuItem>
+                <MenuItem
+                  icon={<FiCreditCard />}
+                  fontSize="13px"
+                  onClick={() => onRecordPaymentClick(row)}
+                  isDisabled={row.status === "paid"}
+                >
+                  Record Payment
+                </MenuItem>
+                <MenuItem icon={<FiEdit />} fontSize="13px" onClick={() => handleViewInvoice(row)}>
+                  Edit Invoice
+                </MenuItem>
+                <MenuDivider />
+                <MenuItem icon={<FiTrash2 />} fontSize="13px" color="red.500" onClick={() => handleDeleteInvoice(row)}>
+                  Delete Invoice
+                </MenuItem>
+              </MenuList>
+            </Menu>
+          </HStack>
+        ),
+      },
+    ];
+  }, [invoices, selectedInvoiceIds, handleSelectAll, handleRowSelect, handleViewInvoice, handleDownloadInvoice, handleSendEmail, onRecordPaymentClick, handleDeleteInvoice, getInvoiceDispute]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <Box>
@@ -841,12 +972,6 @@ const Invoices = () => {
                   </Box>
                 </MenuItem>
                 <MenuDivider />
-                <MenuGroup title="Change Status">
-                  <MenuItem icon={<FiCheckCircle />} onClick={() => handleBulkStatusChange("paid")}>Mark as Paid</MenuItem>
-                  <MenuItem icon={<FiClock />}        onClick={() => handleBulkStatusChange("sent")}>Mark as Sent</MenuItem>
-                  <MenuItem icon={<FiAlertTriangle />} onClick={() => handleBulkStatusChange("overdue")}>Mark as Overdue</MenuItem>
-                </MenuGroup>
-                <MenuDivider />
                 <MenuItem icon={<FiEdit />}   onClick={handleRegenerateSelected}>Regenerate Selected</MenuItem>
                 <MenuItem icon={<FiTrash2 />} onClick={handleDeleteSelected} color="red.500">Delete Selected</MenuItem>
               </MenuList>
@@ -857,21 +982,6 @@ const Invoices = () => {
 
       {/* ── Filters ─────────────────────────────────────────────────────────── */}
       <Flex px={3} borderRadius="12px" alignItems="center" gap={8} mb={3} wrap="wrap">
-        <HStack spacing={2}>
-          <Text color="gray.600">Invoice Type:</Text>
-          <Select
-            maxW="220px"
-            borderRadius="8px"
-            value={invoiceTypeFilter}
-            size="sm"
-            onChange={(e) => { setInvoiceTypeFilter(e.target.value); setPage(1); }}
-          >
-            <option value="all">All Types</option>
-            <option value="customer">Customer</option>
-            <option value="vendor">Vendor</option>
-          </Select>
-        </HStack>
-
         <HStack spacing={2}>
           <Text color="gray.600">Status:</Text>
           <Select
@@ -907,203 +1017,29 @@ const Invoices = () => {
         </InputGroup>
       </Flex>
 
-      {/* ── Table Card ──────────────────────────────────────────────────────── */}
-      <Card shadow="lg" borderWidth="1px" borderColor={borderColor}>
-        <TableContainer
-          h={invoices.length > 0 ? "calc(100vh - 240px)" : "auto"}
-          maxH={invoices.length > 0 ? "calc(100vh - 240px)" : "auto"}
-          overflowY="auto"
-        >
-          <Table variant="simple" size="md">
-            <Thead bg="gray.200" position="sticky" top={0} zIndex={1}>
-              <Tr>
-                <Th width="40px">
-                  <Checkbox
-                    sx={CHECKBOX_SX}
-                    isChecked={selectedInvoiceIds.length === invoices.length && invoices.length > 0}
-                    isIndeterminate={selectedInvoiceIds.length > 0 && selectedInvoiceIds.length < invoices.length}
-                    onChange={handleSelectAll}
-                  />
-                </Th>
-                <Th color="gray.700">Invoice No.</Th>
-                <Th color="gray.700">Invoice Type</Th>
-                <Th color="gray.700">Customer</Th>
-                <Th color="gray.700">Period</Th>
-                <Th color="gray.700">Amount</Th>
-                <Th color="gray.700">Due Date</Th>
-                <Th color="gray.700">Status</Th>
-                <Th color="gray.700">Actions</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {invoices.length === 0 ? (
-                <InvoiceEmptyState searchTerm={searchTerm} statusFilter={statusFilter} />
-              ) : (
-                invoices.map((invoice) => {
-                  // BUG FIX: safe date parsing — parseInt on ISO string returns NaN
-                  const invoiceDateParsed = safeParseDateValue(invoice.invoiceDate);
-                  const dueDateParsed     = safeParseDateValue(invoice.dueDate);
-                  const periodStartParsed = safeParseDateValue(invoice.billingPeriodStart);
-                  const periodEndParsed   = safeParseDateValue(invoice.billingPeriodEnd);
-
-                  const isOverdue =
-                    invoice.status === "overdue" ||
-                    (invoice.status === "sent" && dueDateParsed && differenceInDays(new Date(), dueDateParsed) > 0);
-
-                  const daysOverdue = dueDateParsed
-                    ? differenceInDays(new Date(), dueDateParsed)
-                    : 0;
-
-                  const dispute = getInvoiceDispute(invoice.invoiceNumber);
-
-                  return (
-                    <Tr
-                      key={invoice.id}
-                      _hover={{ bg: "gray.50" }}
-                      transition="background-color 0.2s"
-                    >
-                      {/* Checkbox */}
-                      <Td>
-                        <Checkbox
-                          sx={CHECKBOX_SX}
-                          isChecked={selectedInvoiceIds.includes(invoice.id)}
-                          onChange={(e) => handleRowSelect(invoice.id, e.target.checked)}
-                        />
-                      </Td>
-
-                      {/* Invoice number */}
-                      <Td>
-                        <VStack align="start" spacing={0}>
-                          <Text fontWeight="bold" color="blue.600">{invoice.invoiceNumber}</Text>
-                          <HStack spacing={2}>
-                            <Text fontSize="xs" color="gray.500">
-                              {invoiceDateParsed ? format(invoiceDateParsed, "MMM dd, yyyy") : "—"}
-                            </Text>
-                            {dispute && (
-                              <Badge colorScheme="red" fontSize="10px">Disputed</Badge>
-                            )}
-                          </HStack>
-                        </VStack>
-                      </Td>
-
-                      {/* Invoice type */}
-                      <Td>
-                        <Badge colorScheme="gray" px={3} py={0} borderRadius="full">
-                          {invoice.invoiceType}
-                        </Badge>
-                      </Td>
-
-                      {/* Customer */}
-                      <Td
-                        maxW="170px"
-                        overflowX="auto"
-                        sx={{ "&::-webkit-scrollbar": { display: "none" }, msOverflowStyle: "none", scrollbarWidth: "none" }}
-                      >
-                        <Box>
-                          <Text fontWeight="medium">{invoice.customerName}</Text>
-                          <Text fontSize="sm" color="gray.600">
-                            {invoice.customerGatewayId ?? invoice.customerCode}
-                          </Text>
-                        </Box>
-                      </Td>
-
-                      {/* Period */}
-                      <Td>
-                        <VStack align="start" spacing={0}>
-                          <Text fontSize="sm">
-                            {periodStartParsed ? format(periodStartParsed, "MMM dd") : "—"}
-                          </Text>
-                          <Text fontSize="xs" color="gray.500">
-                            to {periodEndParsed ? format(periodEndParsed, "MMM dd, yyyy") : "—"}
-                          </Text>
-                        </VStack>
-                      </Td>
-
-                      {/* Amount */}
-                      <Td>
-                        <VStack align="start" spacing={0}>
-                          <Text fontWeight="medium" color="green.700" fontSize="md">
-                            ${parseFloat(invoice.totalAmount ?? 0).toFixed(4)}
-                          </Text>
-                          <Text fontSize="xs" color="gray.500">
-                            {invoice.items?.length ?? 0} destinations
-                          </Text>
-                        </VStack>
-                      </Td>
-
-                      {/* Due date */}
-                      <Td>
-                        <VStack align="start" spacing={1}>
-                          <Text color={isOverdue ? "red.500" : "inherit"}>
-                            {dueDateParsed ? format(dueDateParsed, "MMM dd, yyyy") : "—"}
-                          </Text>
-                          {isOverdue && daysOverdue > 0 && (
-                            <Badge colorScheme="red" variant="subtle" size="sm">
-                              {daysOverdue}d overdue
-                            </Badge>
-                          )}
-                        </VStack>
-                      </Td>
-
-                      {/* Status */}
-                      <Td>
-                        <InvoiceStatusBadge status={invoice.status} />
-                      </Td>
-
-                      {/* Actions */}
-                      <Td>
-                        <HStack spacing={2} justify="end">
-                          <Menu>
-                            <MenuButton
-                              as={IconButton}
-                              icon={<FiMoreVertical />}
-                              size="sm"
-                              variant="ghost"
-                              color="gray.400"
-                              _hover={{ color: "gray.700", bg: "gray.100" }}
-                              borderRadius="6px"
-                              aria-label="Invoice actions"
-                            />
-                            <MenuList fontSize="sm" minW="160px" shadow="lg">
-                              <MenuItem icon={<FiEye />}      fontSize="13px" onClick={() => handleViewInvoice(invoice)}>View Details</MenuItem>
-                              <MenuItem icon={<FiDownload />} fontSize="13px" onClick={() => handleDownloadInvoice(invoice)}>Download</MenuItem>
-                              <MenuItem icon={<FiMail />}     fontSize="13px" onClick={() => handleSendEmail(invoice)}>Send Email</MenuItem>
-                              <MenuItem icon={<FiEdit />}     fontSize="13px" onClick={() => handleViewInvoice(invoice)}>Edit Invoice</MenuItem>
-                              <MenuDivider />
-                              <MenuItem icon={<FiCheckCircle />}  fontSize="13px" onClick={() => handleUpdateStatus(invoice.id, "paid")}>Mark as Paid</MenuItem>
-                              <MenuItem icon={<FiClock />}         fontSize="13px" onClick={() => handleUpdateStatus(invoice.id, "sent")}>Mark as Sent</MenuItem>
-                              <MenuItem icon={<FiAlertTriangle />} fontSize="13px" onClick={() => handleUpdateStatus(invoice.id, "overdue")}>Mark as Overdue</MenuItem>
-                              <MenuDivider />
-                              <MenuItem icon={<FiTrash2 />} fontSize="13px" color="red.500" onClick={() => handleDeleteInvoice(invoice)}>Delete Invoice</MenuItem>
-                            </MenuList>
-                          </Menu>
-                          <IconButton
-                            bg="transparent"
-                            icon={<FiEye />}
-                            size="sm"
-                            aria-label="View invoice"
-                            onClick={() => handleViewInvoice(invoice)}
-                          />
-                        </HStack>
-                      </Td>
-                    </Tr>
-                  );
-                })
-              )}
-            </Tbody>
-          </Table>
-        </TableContainer>
-
-        {invoices.length > 0 && (
-          <TablePagination
-            page={pagination.page ?? page}
-            pageSize={pagination.limit ?? pageSize}
-            total={pagination.total ?? 0}
-            onPageChange={setPage}
-            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
-          />
-        )}
-      </Card>
+      {/* ── Table ───────────────────────────────────────────────────────────── */}
+      {isLoading ? (
+        <Box textAlign="center" py={10}>
+          <Text>Loading invoices...</Text>
+        </Box>
+      ) : (
+        <DataTable
+          columns={invoiceColumns}
+          data={invoices}
+          actions={false}
+          serverPagination
+          page={pagination.page ?? page}
+          pageSize={pagination.limit ?? pageSize}
+          total={pagination.total ?? 0}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          striped
+          height="calc(100vh - 240px)"
+        />
+      )}
 
       {/* ── Modals ──────────────────────────────────────────────────────────── */}
       <ViewInvoiceModal
@@ -1114,7 +1050,6 @@ const Invoices = () => {
         onRecordPayment={onRecordPaymentClick}
         onDownload={handleDownloadInvoice}
         onSendEmail={handleSendEmail}
-        onUpdateStatus={handleUpdateStatus}
       />
 
       <GenerateInvoiceModal

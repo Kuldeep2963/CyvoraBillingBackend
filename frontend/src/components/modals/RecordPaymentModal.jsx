@@ -11,6 +11,7 @@ import {
   VStack,
   FormControl,
   FormLabel,
+  FormHelperText,
   SimpleGrid,
   Heading,
   Alert,
@@ -33,6 +34,22 @@ const RecordPaymentModal = ({
 }) => {
   const [customerInvoices, setCustomerInvoices] = useState([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
+
+  const selectedCustomer = customers.find((c) => {
+    const value = paymentForm.customerId;
+    if (!value) return false;
+    return (
+      String(c.customerCode || "") === String(value) ||
+      String(c.gatewayId || "") === String(value) ||
+      String(c.accountId || "") === String(value)
+    );
+  });
+
+  const isPostpaidCustomer = String(selectedCustomer?.billingType || "").toLowerCase() === "postpaid";
+  const accountFundsLabel = isPostpaidCustomer ? "Use Credit Limit" : "Use Balance";
+  const availableFunds = isPostpaidCustomer
+    ? Number(selectedCustomer?.creditLimit || 0)
+    : Number(selectedCustomer?.balance || 0);
 
   useEffect(() => {
     if (isOpen && paymentForm.customerId) {
@@ -136,9 +153,18 @@ const RecordPaymentModal = ({
                   isDisabled={isSubmitting}
                 >
                   <option value="new_payment">Record New Payment</option>
-                  <option value="account_funds">Use Account Balance / Credit Limit</option>
+                  <option value="account_funds">{accountFundsLabel}</option>
                 </Select>
               </FormControl>
+            )}
+
+            {paymentForm.customerId && paymentForm.paymentSource === "account_funds" && (
+              <Alert status="info" borderRadius="md" fontSize="sm">
+                <AlertIcon />
+                {isPostpaidCustomer
+                  ? `Available credit limit: $${availableFunds.toFixed(4)}`
+                  : `Available balance: $${availableFunds.toFixed(4)}`}
+              </Alert>
             )}
 
             {paymentForm.customerId && (
@@ -189,8 +215,13 @@ const RecordPaymentModal = ({
                   onChange={(e) =>
                     setPaymentForm({ ...paymentForm, amount: e.target.value })
                   }
-                  isDisabled={isSubmitting}
+                  isDisabled={isSubmitting || Boolean(paymentForm.invoiceId)}
                 />
+                {paymentForm.invoiceId && (
+                  <FormHelperText>
+                    Amount is locked to the selected invoice outstanding balance.
+                  </FormHelperText>
+                )}
               </FormControl>
               <FormControl isRequired>
                 <FormLabel>Payment Date</FormLabel>

@@ -27,12 +27,11 @@ import {
   Spacer,
 } from "@chakra-ui/react";
 import { SearchIcon } from "@chakra-ui/icons";
-import { FiAlertCircle, FiDownload, FiRefreshCw, FiMail } from "react-icons/fi";
+import { FiAlertCircle, FiDownload, FiMail } from "react-icons/fi";
 import {
   fetchReportAccounts,
   fetchLiteInvoices,
   fetchVendorInvoices,
-  fetchInvoices,
   exportReport,
   exportSOA,
   sendSOAEmail,
@@ -276,7 +275,6 @@ const InvoiceTable = ({
 // ─── Comparison Summary ────────────────────────────────────────────────────────
 const ComparisonSummary = ({
   customerInvoices,
-  generatedVendorInvoices,
   uploadedVendorInvoices,
   hasMismatch,
   onExport,
@@ -284,27 +282,17 @@ const ComparisonSummary = ({
   onDispute,
   hasExistingDispute = false,
 }) => {
-  if (
-    !customerInvoices.length &&
-    !generatedVendorInvoices.length &&
-    !uploadedVendorInvoices.length
-  )
+  if (!customerInvoices.length && !uploadedVendorInvoices.length)
     return null;
 
   const customerTotal = customerInvoices.reduce(
     (s, i) => s + parseFloat(i.totalAmount || 0),
     0,
   );
-  const vendorTotal =
-    uploadedVendorInvoices.length > 0
-      ? uploadedVendorInvoices.reduce(
-          (s, i) => s + parseFloat(i.totalAmount || 0),
-          0,
-        )
-      : generatedVendorInvoices.reduce(
-          (s, i) => s + parseFloat(i.totalAmount || 0),
-          0,
-        );
+  const vendorTotal = uploadedVendorInvoices.reduce(
+    (s, i) => s + parseFloat(i.totalAmount || 0),
+    0,
+  );
 
   const margin = customerTotal - vendorTotal;
   const marginPct = customerTotal > 0 ? (margin / customerTotal) * 100 : 0;
@@ -480,23 +468,14 @@ const InvoiceCard = ({
   </Card>
 );
 
-// ─── Vendor fetch helper (shared by handleSearch + handleRefreshVendor) ────────
+// ─── Vendor fetch helper ────────────────────────────────────────────────────────
 const fetchAllVendorData = async (selectedAccount, startDate, endDate) => {
-  const [manualRes, generatedRes] = await Promise.all([
-    fetchVendorInvoices({
-      vendorCode: selectedAccount.vendorCode,
-      vendorId: selectedAccount.vendorId,
-      startDate: startDate || null,
-      endDate: endDate || null,
-    }),
-    fetchInvoices({
-      customerId: selectedAccount.vendorCode,
-      invoiceType: "vendor",
-      // FIX: pass dates so generated invoices are also date-filtered
-      startDate: startDate || null,
-      endDate: endDate || null,
-    }),
-  ]);
+  const manualRes = await fetchVendorInvoices({
+    vendorCode: selectedAccount.vendorCode,
+    vendorId: selectedAccount.vendorId,
+    startDate: startDate || null,
+    endDate: endDate || null,
+  });
 
   // ── Uploaded vendor invoices ──────────────────────────────────
   let uploadedInvoices = [];
@@ -537,15 +516,7 @@ const fetchAllVendorData = async (selectedAccount, startDate, endDate) => {
       }));
   }
 
-  // ── Generated vendor invoices ─────────────────────────────────
-  let generatedInvoices = [];
-  if (generatedRes?.success && Array.isArray(generatedRes.data)) {
-    generatedInvoices = generatedRes.data
-      .filter((inv) => inv.invoiceType === "vendor")
-      .map((inv) => ({ ...inv, type: "generated" }));
-  }
-
-  return { uploadedInvoices, generatedInvoices };
+  return { uploadedInvoices };
 };
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
@@ -561,7 +532,6 @@ const SOAPage = () => {
   const [dualAccounts, setDualAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [customerInvoices, setCustomerInvoices] = useState([]);
-  const [generatedVendorInvoices, setGeneratedVendorInvoices] = useState([]);
   const [uploadedVendorInvoices, setUploadedVendorInvoices] = useState([]);
   const [disputes, setDisputes] = useState([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -628,39 +598,10 @@ const SOAPage = () => {
   }, [toast]);
 
   // ── Mismatch detection ─────────────────────────────────────────────────────
-  const { mismatchedInvoices, mismatchedInvoiceNumbers, totalDisputeAmount, mismatchedPairCount } = React.useMemo(() => {
-    const mismatches = [];
-    const invoiceNumberPairs = [];
-    let totalAmount = 0;
-    let pairCount = 0;
-    
-    generatedVendorInvoices.forEach((gen) => {
-      const uploaded = uploadedVendorInvoices.find(
-        (up) =>
-          formatDate(up.billingPeriodStart) ===
-            formatDate(gen.billingPeriodStart) &&
-          formatDate(up.billingPeriodEnd) === formatDate(gen.billingPeriodEnd),
-      );
-      if (
-        uploaded &&
-        Math.abs(
-          parseFloat(uploaded.totalAmount) - parseFloat(gen.totalAmount),
-        ) > 0.01
-      ) {
-        mismatches.push(gen.id);
-        mismatches.push(uploaded.id);
-        invoiceNumberPairs.push(`Gen: ${gen.invoiceNumber} ↔ Uploaded: ${uploaded.invoiceNumber}`);
-        totalAmount += Math.abs(parseFloat(uploaded.totalAmount) - parseFloat(gen.totalAmount));
-        pairCount++;
-      }
-    });
-    return {
-      mismatchedInvoices: mismatches,
-      mismatchedInvoiceNumbers: invoiceNumberPairs.join("; "),
-      totalDisputeAmount: totalAmount,
-      mismatchedPairCount: pairCount
-    };
-  }, [generatedVendorInvoices, uploadedVendorInvoices]);
+  const mismatchedInvoices = [];
+  const mismatchedInvoiceNumbers = "";
+  const totalDisputeAmount = 0;
+  const mismatchedPairCount = 0;
 
   // ── Search: fetch ALL three tables in parallel ─────────────────────────────
   const handleSearch = useCallback(async () => {
@@ -677,7 +618,6 @@ const SOAPage = () => {
 
     // Clear previous results
     setCustomerInvoices([]);
-    setGeneratedVendorInvoices([]);
     setUploadedVendorInvoices([]);
 
     // FIX: run customer + vendor fetches in PARALLEL instead of sequentially
@@ -694,7 +634,7 @@ const SOAPage = () => {
           })
         : Promise.resolve(null),
 
-      // ── Vendor invoices (uploaded + generated) ─────────────────
+      // ── Vendor invoices (uploaded) ──────────────────────────────
       fetchAllVendorData(selectedAccount, startDate, endDate),
     ]);
 
@@ -722,13 +662,12 @@ const SOAPage = () => {
     // ── Handle vendor result ───────────────────────────────────────────────
     setLoadingVendor(false);
     if (vendorResult.status === "fulfilled") {
-      const { uploadedInvoices, generatedInvoices } = vendorResult.value;
+      const { uploadedInvoices } = vendorResult.value;
       setUploadedVendorInvoices(uploadedInvoices);
-      setGeneratedVendorInvoices(generatedInvoices);
 
-      if (uploadedInvoices.length === 0 && generatedInvoices.length === 0) {
+      if (uploadedInvoices.length === 0) {
         toast({
-          title: "No vendor data found.",
+          title: "No uploaded vendor invoices found.",
           status: "warning",
           duration: 3000,
         });
@@ -740,32 +679,6 @@ const SOAPage = () => {
         status: "error",
         duration: 3000,
       });
-    }
-  }, [selectedAccount, startDate, endDate, toast]);
-
-  // ── Refresh vendor only ────────────────────────────────────────────────────
-  const handleRefreshVendor = useCallback(async () => {
-    if (!selectedAccount) return;
-    setLoadingVendor(true);
-    setGeneratedVendorInvoices([]);
-    setUploadedVendorInvoices([]);
-    try {
-      const { uploadedInvoices, generatedInvoices } = await fetchAllVendorData(
-        selectedAccount,
-        startDate,
-        endDate,
-      );
-      setUploadedVendorInvoices(uploadedInvoices);
-      setGeneratedVendorInvoices(generatedInvoices);
-    } catch (err) {
-      console.error("Error refreshing vendor data:", err);
-      toast({
-        title: "Error refreshing vendor data",
-        status: "error",
-        duration: 3000,
-      });
-    } finally {
-      setLoadingVendor(false);
     }
   }, [selectedAccount, startDate, endDate, toast]);
 
@@ -818,9 +731,7 @@ const SOAPage = () => {
     const misatchedInvoiceNums = new Set();
     mismatchedInvoices.forEach((id) => {
       const uploadedInv = uploadedVendorInvoices.find((inv) => inv.id === id);
-      const generatedInv = generatedVendorInvoices.find((inv) => inv.id === id);
       if (uploadedInv) misatchedInvoiceNums.add(uploadedInv.invoiceNumber);
-      if (generatedInv) misatchedInvoiceNums.add(generatedInv.invoiceNumber);
     });
 
     // Check if any dispute covers these invoice numbers
@@ -835,7 +746,6 @@ const SOAPage = () => {
     mismatchedInvoices,
     disputes,
     uploadedVendorInvoices,
-    generatedVendorInvoices,
   ]);
 
   // Show toast when a dispute is already raised for mismatched invoices
@@ -934,7 +844,6 @@ const SOAPage = () => {
                     );
                     setSelectedAccount(found || null);
                     setCustomerInvoices([]);
-                    setGeneratedVendorInvoices([]);
                     setUploadedVendorInvoices([]);
                   }}
                 >
@@ -996,7 +905,6 @@ const SOAPage = () => {
           {/* ── Comparison Summary bar ─────────────────────────────────────── */}
           <ComparisonSummary
             customerInvoices={customerInvoices}
-            generatedVendorInvoices={generatedVendorInvoices}
             uploadedVendorInvoices={uploadedVendorInvoices}
             hasMismatch={mismatchedInvoices.length > 0}
             onExport={handleExport}
@@ -1045,39 +953,6 @@ const SOAPage = () => {
                 invoices={uploadedVendorInvoices}
                 loading={loadingVendor}
                 emptyLabel="No uploaded vendor invoices found."
-                mismatchedInvoices={mismatchedInvoices}
-                disputes={disputes}
-              />
-            </GridItem>
-
-            {/* Vendor Invoices — Generated */}
-            <GridItem>
-              <InvoiceCard
-                title="Vendor Invoices (Generated)"
-                badge={generatedVendorInvoices.length}
-                badgeScheme="purple"
-                subtitle={
-                  selectedAccount
-                    ? `${selectedAccount.accountName} · ${selectedAccount.vendorCode || selectedAccount.vendorId}`
-                    : undefined
-                }
-                rightSlot={
-                  <Button
-                    leftIcon={<FiRefreshCw />}
-                    size="xs"
-                    borderRadius="4px"
-                    variant="outline"
-                    colorScheme="blue"
-                    onClick={handleRefreshVendor}
-                    isLoading={loadingVendor}
-                    isDisabled={!selectedAccount || loadingVendor}
-                  >
-                    Refresh
-                  </Button>
-                }
-                invoices={generatedVendorInvoices}
-                loading={loadingVendor}
-                emptyLabel="No generated vendor invoices found."
                 mismatchedInvoices={mismatchedInvoices}
                 disputes={disputes}
               />

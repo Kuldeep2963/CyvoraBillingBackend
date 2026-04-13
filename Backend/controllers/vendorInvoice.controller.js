@@ -1,11 +1,14 @@
-const { Op } = require('sequelize');
+const { Op, fn, col, ValidationError, UniqueConstraintError } = require('sequelize');
 const VendorInvoice = require('../models/Vendorinvoice');
 const Account = require('../models/Account');
 const Payment = require('../models/Payment');
+const CDR = require('../models/CDR');
 const sequelize = require('../config/database');
 const path = require('path');
 const fs = require('fs');
 const { normalizeStoredPath, toStoredRelativePath } = require('../config/storage');
+const H = require('../utils/reportHelper');
+const EmailService = require('../services/EmailService');
 
 const parseStoredFilePaths = (rawValue) => {
   if (!rawValue) return [];
@@ -85,6 +88,204 @@ const generatePaymentNumber = async () => {
   return `PAY-${year}-${month}-${String(sequence).padStart(4, '0')}`;
 };
 
+/**
+ * Helper: Fetch vendor usage from CDRs for a given billing period
+ * Returns the total cost for the vendor in the specified period
+ */
+const fetchVendorUsage = async (account, startDate, endDate) => {
+  try {
+    // Build vendor authentication conditions
+    const vendorAuthType = account.vendorauthenticationType;
+    const vendorAuthValue = account.vendorauthenticationValue;
+    
+    const normalizeAuthValues = (value) => {
+      if (Array.isArray(value)) {
+        return [...new Set(value.map((v) => String(v || "").trim()).filter(Boolean))];
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) return [];
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) {
+              return [...new Set(parsed.map((v) => String(v || "").trim()).filter(Boolean))];
+            }
+          } catch (_error) {}
+        }
+        return [...new Set(trimmed.split(",").map((v) => v.trim()).filter(Boolean))];
+      }
+      if (value == null) return [];
+      const single = String(value).trim();
+      return single ? [single] : [];
+    };
+
+    const authValues = normalizeAuthValues(vendorAuthValue);
+    const authConditions = [];
+
+    if (vendorAuthType === "ip" && authValues.length > 0) {
+      authValues.forEach((value) => {
+        authConditions.push({ calleeip: value });
+      });
+    }
+
+    if (vendorAuthType === "custom" && authValues.length > 0) {
+      authValues.forEach((value) => {
+        const v = `${value}`;
+        authConditions.push({ agentaccount: { [Op.like]: v } });
+        authConditions.push({ agentname: { [Op.like]: v } });
+      });
+    }
+
+    if (authConditions.length === 0) {
+      const vCode = account.vendorCode || account.gatewayId;
+      if (vCode) authConditions.push({ agentaccount: vCode });
+    }
+
+    const formatTime = (date, hour = 0, isEnd = false) => {
+      if (!date) return null;
+      const numericDate = Number(date);
+      const d = !isNaN(numericDate) ? new Date(numericDate) : new Date(date);
+      if (isNaN(d.getTime())) return null;
+      d.setHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
+      return d.getTime().toString();
+    };
+
+    const cdrWhere = {
+      starttime: {
+        [Op.between]: [
+          formatTime(startDate),
+          formatTime(endDate, 23, true),
+        ],
+      },
+      [Op.or]: authConditions,
+    };
+
+    const cdrs = await CDR.findAll({
+      attributes: [
+        [fn("SUM", H.cost), "totalCost"],
+        [fn("COUNT", col("*")), "totalCalls"],
+        [fn("SUM", H.completedCall), "completedCalls"],
+      ],
+      where: cdrWhere,
+      raw: true,
+    });
+
+    const totalCost = cdrs.length > 0 && cdrs[0].totalCost ? Number(cdrs[0].totalCost) : 0;
+    const totalCalls = cdrs.length > 0 && cdrs[0].totalCalls ? Number(cdrs[0].totalCalls) : 0;
+    const completedCalls = cdrs.length > 0 && cdrs[0].completedCalls ? Number(cdrs[0].completedCalls) : 0;
+
+    return {
+      totalCost: parseFloat(totalCost.toFixed(4)),
+      totalCalls,
+      completedCalls,
+      failedCalls: totalCalls - completedCalls,
+    };
+  } catch (error) {
+    console.error('Error fetching vendor usage:', error);
+    return { totalCost: 0, totalCalls: 0, completedCalls: 0, failedCalls: 0 };
+  }
+};
+
+const resolveVendorAccount = async ({ vendorId, vendorCode }, transaction = null) => {
+  if (vendorId) {
+    return Account.findByPk(vendorId, transaction ? { transaction } : undefined);
+  }
+  if (vendorCode) {
+    return Account.findOne({ where: { vendorCode }, ...(transaction ? { transaction } : {}) });
+  }
+  return null;
+};
+
+const buildUsageComparison = (invoiceAmount, usageCost, tolerance = 0.01) => {
+  const uploadedAmount = Number(invoiceAmount || 0);
+  const actualAmount = Number(usageCost || 0);
+  const delta = uploadedAmount - actualAmount;
+  const mismatchAmount = Math.abs(delta);
+  const percentageDiffRaw = uploadedAmount > 0 ? (mismatchAmount / uploadedAmount) * 100 : 0;
+  // Any non-zero mismatch should present dispute action choices to the user.
+  const mismatchDetected = mismatchAmount > 0;
+  const mismatchDirection = delta > 0 ? 'overbilled' : (delta < 0 ? 'underbilled' : 'matched');
+  const canRaiseDispute = mismatchDirection === 'overbilled';
+  const exceedsTolerance = uploadedAmount > 0
+    ? (mismatchAmount / uploadedAmount) > tolerance
+    : mismatchAmount > 0;
+
+  return {
+    uploadedAmount: parseFloat(uploadedAmount.toFixed(4)),
+    actualUsage: parseFloat(actualAmount.toFixed(4)),
+    mismatchAmount: parseFloat(mismatchAmount.toFixed(4)),
+    percentageDiff: `${percentageDiffRaw.toFixed(2)}%`,
+    mismatchDetected,
+    mismatchDirection,
+    canRaiseDispute,
+    exceedsTolerance,
+    rows: [
+      {
+        label: 'Vendor Invoice Amount',
+        value: parseFloat(uploadedAmount.toFixed(4)),
+      },
+      {
+        label: 'Vendor Usage Amount',
+        value: parseFloat(actualAmount.toFixed(4)),
+      },
+      {
+        label: 'Difference',
+        value: parseFloat(mismatchAmount.toFixed(4)),
+      },
+      {
+        label: 'Difference %',
+        value: `${percentageDiffRaw.toFixed(2)}%`,
+      },
+    ],
+  };
+};
+
+exports.previewVendorUsage = async (req, res) => {
+  try {
+    const {
+      vendorId,
+      vendorCode,
+      startDate,
+      endDate,
+      grandTotal,
+    } = req.body || {};
+
+    if ((!vendorId && !vendorCode) || !startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'vendorId or vendorCode, startDate and endDate are required',
+      });
+    }
+
+    const account = await resolveVendorAccount({ vendorId, vendorCode });
+    if (!account) {
+      return res.status(404).json({ success: false, message: 'Vendor account not found' });
+    }
+
+    const actualUsage = await fetchVendorUsage(account, startDate, endDate);
+    const usageComparison = buildUsageComparison(grandTotal, actualUsage.totalCost);
+
+    return res.status(200).json({
+      success: true,
+      vendor: {
+        id: account.id,
+        vendorCode: account.vendorCode,
+        accountName: account.accountName,
+      },
+      usage: actualUsage,
+      usageComparison,
+    });
+  } catch (error) {
+    console.error('Error previewing vendor usage:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to preview vendor usage',
+      error: error.message,
+    });
+  }
+};
+
 exports.createVendorInvoice = async (req, res) => {
   const transaction = await sequelize.transaction();
   const uploadedFiles = Array.isArray(req.files) ? req.files : [];
@@ -99,19 +300,50 @@ exports.createVendorInvoice = async (req, res) => {
       endDate,
       grandTotal,
       currency,
-      totalSeconds
+      totalSeconds,
+      disputeAction,
     } = req.body;
+
+    const normalizedInvoiceNumber = String(invoiceNumber || '').trim();
+    const normalizedVendorCode = String(vendorCode || '').trim();
+    const normalizedCurrency = String(currency || 'USD').trim() || 'USD';
+    const normalizedIssueDate = String(issueDate || '').trim();
+    const normalizedStartDate = String(startDate || '').trim();
+    const normalizedEndDate = String(endDate || '').trim();
+    const normalizedGrandTotal = Number(grandTotal);
+    const normalizedTotalSeconds = Number(totalSeconds);
+
+    if (!normalizedInvoiceNumber || !normalizedIssueDate || !normalizedStartDate || !normalizedEndDate) {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: 'invoiceNumber, issueDate, startDate and endDate are required',
+      });
+    }
+
+    if (Number.isNaN(normalizedGrandTotal) || Number.isNaN(normalizedTotalSeconds)) {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: 'grandTotal and totalSeconds must be valid numbers',
+      });
+    }
+
+    const duplicateInvoice = await VendorInvoice.findOne({
+      where: { invoiceNumber: normalizedInvoiceNumber },
+      transaction,
+    });
+
+    if (duplicateInvoice) {
+      await transaction.rollback();
+      await cleanupUploadedFiles(uploadedFiles);
+      return res.status(409).json({
+        message: 'Invoice number already exists',
+        field: 'invoiceNumber',
+      });
+    }
 
     let finalVendorId = vendorId;
     let finalVendorCode = vendorCode;
-    let account = null;
-
-    // Find account and resolve IDs/Codes
-    if (finalVendorId) {
-      account = await Account.findByPk(finalVendorId, { transaction });
-    } else if (finalVendorCode) {
-      account = await Account.findOne({ where: { vendorCode: finalVendorCode }, transaction });
-    }
+    const account = await resolveVendorAccount({ vendorId: finalVendorId, vendorCode: normalizedVendorCode || finalVendorCode }, transaction);
 
     if (!account) {
       await transaction.rollback();
@@ -125,40 +357,99 @@ exports.createVendorInvoice = async (req, res) => {
       .map((file) => toStoredRelativePath(path.resolve(file.path)))
       .filter(Boolean);
 
+    // Fetch actual vendor usage from CDRs for this billing period
+    const actualUsage = await fetchVendorUsage(account, startDate, endDate);
+    const usageComparison = buildUsageComparison(grandTotal, actualUsage.totalCost);
+
+    if (usageComparison.mismatchDetected && usageComparison.canRaiseDispute && !['without_dispute', 'raise_dispute'].includes(String(disputeAction || '').trim())) {
+      await transaction.rollback();
+      await cleanupUploadedFiles(uploadedFiles);
+      return res.status(409).json({
+        success: false,
+        message: 'Mismatch detected. Choose save without dispute or save and raise dispute.',
+        requiresDisputeAction: true,
+        usageComparison,
+      });
+    }
+
+    const shouldRaiseDispute = usageComparison.mismatchDetected
+      && usageComparison.canRaiseDispute
+      && String(disputeAction).trim() === 'raise_dispute';
+
     const invoice = await VendorInvoice.create({
       vendorId: finalVendorId,
       vendorCode: finalVendorCode,
-      invoiceNumber,
-      issueDate,
-      startDate,
-      endDate,
-      grandTotal,
-      currency,
-      totalSeconds,
+      invoiceNumber: normalizedInvoiceNumber,
+      issueDate: normalizedIssueDate,
+      startDate: normalizedStartDate,
+      endDate: normalizedEndDate,
+      grandTotal: normalizedGrandTotal,
+      currency: normalizedCurrency,
+      totalSeconds: normalizedTotalSeconds,
       filePaths: JSON.stringify(filePaths),
-      status: 'pending'
+      status: 'pending',
+      isDisputed: shouldRaiseDispute,
     }, { transaction });
 
     // Update account balance/credit limit.
     // Vendor invoices are allowed even when the remaining credit limit is insufficient;
     // postpaid creditLimit can temporarily go below zero until payment is recorded.
     if (account.billingType === 'postpaid') {
-      await account.decrement('creditLimit', { by: grandTotal, transaction });
+      await account.decrement('creditLimit', { by: normalizedGrandTotal, transaction });
     } else {
       // Prepaid vendor accounts are allowed to go negative after invoice generation.
-      await account.decrement('balance', { by: grandTotal, transaction });
+      await account.decrement('balance', { by: normalizedGrandTotal, transaction });
     }
 
     await transaction.commit();
 
+    let disputeEmailSent = false;
+    if (shouldRaiseDispute) {
+      try {
+        await EmailService.sendDisputeRaisedNotification(
+          {
+            comment: `Vendor invoice mismatch detected. Uploaded amount: $${usageComparison.uploadedAmount.toFixed(4)}, Actual usage: $${usageComparison.actualUsage.toFixed(4)}, Difference: $${usageComparison.mismatchAmount.toFixed(4)} (${usageComparison.percentageDiff}).`,
+            mismatchedCount: 1,
+            invoiceNumber: invoice.invoiceNumber,
+            disputeAmount: usageComparison.mismatchAmount,
+            customerName: account.accountName,
+          },
+          account,
+        );
+        disputeEmailSent = true;
+      } catch (mailError) {
+        console.error('Failed to send dispute email for vendor invoice:', mailError);
+      }
+    }
+
     res.status(201).json({
       message: 'Vendor invoice created successfully',
-      invoice
+      invoice,
+      usageComparison: {
+        ...usageComparison,
+        disputeRaised: shouldRaiseDispute,
+        disputeEmailSent,
+      },
     });
   } catch (error) {
     if (transaction) await transaction.rollback();
     await cleanupUploadedFiles(uploadedFiles);
     console.error('Error creating vendor invoice:', error);
+
+    if (error instanceof UniqueConstraintError) {
+      return res.status(409).json({
+        message: 'Invoice number already exists',
+        error: error.errors?.[0]?.message || error.message,
+      });
+    }
+
+    if (error instanceof ValidationError) {
+      return res.status(400).json({
+        message: 'Vendor invoice validation failed',
+        error: error.errors?.map((item) => item.message).join(', ') || error.message,
+      });
+    }
+
     res.status(500).json({
       message: 'Failed to create vendor invoice',
       error: error.message
@@ -168,7 +459,7 @@ exports.createVendorInvoice = async (req, res) => {
 
 exports.getVendorInvoices = async (req, res) => {
   try {
-    const { vendorCode, vendorId, startDate, endDate, search, vendorName, status } = req.query;
+    const { vendorCode, vendorId, startDate, endDate, search, vendorName, status, isDisputed } = req.query;
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 10));
     const offset = (page - 1) * limit;
@@ -191,6 +482,11 @@ exports.getVendorInvoices = async (req, res) => {
 
     if (status) {
       whereClause.status = String(status).trim();
+    }
+
+    if (typeof isDisputed !== 'undefined' && isDisputed !== '') {
+      const normalized = String(isDisputed).trim().toLowerCase();
+      whereClause.isDisputed = ['true', '1', 'yes'].includes(normalized);
     }
 
     const include = [

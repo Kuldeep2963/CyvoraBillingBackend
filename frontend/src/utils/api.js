@@ -863,15 +863,45 @@ export const getAllDisputes = async (params = {}) => {
         return normalized !== '' && normalized !== 'undefined' && normalized !== 'null';
       })
     );
-    const query = new URLSearchParams(sanitizedParams).toString();
+
+    const vendorParams = {
+      ...sanitizedParams,
+      isDisputed: true,
+    };
+
+    const query = new URLSearchParams(vendorParams).toString();
     const url = query
-      ? `${API_BASE_URL}/billing/disputes?${query}`
-      : `${API_BASE_URL}/billing/disputes`;
+      ? `${API_BASE_URL}/vendor-invoices?${query}`
+      : `${API_BASE_URL}/vendor-invoices?isDisputed=true`;
 
     const response = await fetch(url, {
       headers: getAuthHeaders()
     });
-    return await handleResponse(response);
+    const result = await handleResponse(response);
+
+    if (!result?.success) {
+      return result;
+    }
+
+    const mappedDisputes = (result.data || []).map((invoice) => ({
+      id: `vendor-${invoice.id}`,
+      invoiceNumber: invoice.invoiceNumber,
+      customerCode: invoice.vendorCode,
+      customerName: invoice.vendor?.accountName || invoice.vendorCode,
+      disputeAmount: Number(invoice.grandTotal || 0),
+      status: invoice.status || 'open',
+      invoiceIds: [invoice.id],
+      comments: [],
+      source: 'vendor_invoice',
+      createdAt: invoice.createdAt,
+      updatedAt: invoice.updatedAt,
+    }));
+
+    return {
+      ...result,
+      data: mappedDisputes,
+      pagination: result.pagination,
+    };
   } catch (error) {
     console.error('Error fetching disputes:', error);
     throw error;
@@ -1054,6 +1084,23 @@ export const uploadVendorInvoice = async (formData) => {
     return await handleResponse(response);
   } catch (error) {
     console.error('Error uploading vendor invoice:', error);
+    throw error;
+  }
+};
+
+export const previewVendorInvoiceUsage = async (payload) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/vendor-invoices/usage-preview`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error previewing vendor invoice usage:', error);
     throw error;
   }
 };

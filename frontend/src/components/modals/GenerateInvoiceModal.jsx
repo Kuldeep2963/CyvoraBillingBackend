@@ -19,8 +19,6 @@ import {
   AlertIcon,
   AlertTitle,
   AlertDescription,
-  RadioGroup,
-  Radio,
 } from "@chakra-ui/react";
 import { FiFileText } from "react-icons/fi";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../memoizedinput/memoizedinput";
@@ -34,45 +32,31 @@ const GenerateInvoiceModal = ({
   onGenerate,
   isSubmitting = false,
 }) => {
-  const getAccountSelectionValue = (account, invoiceType) => {
+  const getAccountSelectionValue = (account) => {
     return (
       account.gatewayId ||
-      (invoiceType === "vendor" ? account.vendorCode : account.customerCode) ||
+      account.customerCode ||
       account.accountId ||
       ""
     );
   };
 
-  const getSelectedAccount = (selectionValue, invoiceType) => {
+  const getSelectedAccount = (selectionValue) => {
     return customers.find((account) => {
-      if (invoiceType === "vendor" && !(account.accountRole === "vendor" || account.accountRole === "both")) {
+      // Only show customers
+      if (!(account.accountRole === "customer" || account.accountRole === "both")) {
         return false;
       }
-      if (invoiceType !== "vendor" && !(account.accountRole === "customer" || account.accountRole === "both")) {
-        return false;
-      }
-      return getAccountSelectionValue(account, invoiceType) === selectionValue;
+      return getAccountSelectionValue(account) === selectionValue;
     });
   };
 
   const handleAccountChange = (selectionValue) => {
-    const selectedAccount = getSelectedAccount(selectionValue, generateForm.invoiceType);
+    const selectedAccount = getSelectedAccount(selectionValue);
 
     setGenerateForm({
       ...generateForm,
       customerId: selectionValue,
-      periodStart: selectedAccount?.lastbillingdate || generateForm.periodStart,
-      periodEnd: selectedAccount?.nextbillingdate || generateForm.periodEnd,
-    });
-  };
-
-  const handleInvoiceTypeChange = (invoiceType) => {
-    const selectedAccount = getSelectedAccount(generateForm.customerId, invoiceType);
-
-    setGenerateForm({
-      ...generateForm,
-      invoiceType,
-      customerId: selectedAccount ? generateForm.customerId : "",
       periodStart: selectedAccount?.lastbillingdate || generateForm.periodStart,
       periodEnd: selectedAccount?.nextbillingdate || generateForm.periodEnd,
     });
@@ -95,30 +79,13 @@ const GenerateInvoiceModal = ({
 
         <ModalBody>
           <VStack spacing={6} align="stretch">
-            {/* Invoice Type selection */}
-            <FormControl>
-              <FormLabel fontWeight={"bold"} color={"blue.700"}>
-                Invoice Type
-              </FormLabel>
-
-              <RadioGroup
-                value={generateForm.invoiceType}
-                onChange={handleInvoiceTypeChange}
-                isDisabled={isSubmitting}
-              >
-                <HStack spacing={6}>
-                  <Radio value="customer">Customer Invoice</Radio>
-                  <Radio value="vendor">Vendor Invoice</Radio>
-                </HStack>
-              </RadioGroup>
-            </FormControl>
             {/* Customer Selection */}
             <FormControl isRequired>
               <FormLabel fontWeight={"bold"} color={"blue.700"}>
-                Select {generateForm.invoiceType === "vendor" ? "Vendor" : "Customer"}
+                Select Customer
               </FormLabel>
               <Select
-                placeholder={`Choose a ${generateForm.invoiceType === "vendor" ? "vendor" : "customer"}...`}
+                placeholder="Choose a customer..."
                 value={generateForm.customerId}
                 onChange={(e) => handleAccountChange(e.target.value)}
                 size="md"
@@ -126,20 +93,15 @@ const GenerateInvoiceModal = ({
               >
                 {customers
                   .filter((c) => {
-                    if (generateForm.invoiceType === "vendor") {
-                      return c.accountRole === "vendor" || c.accountRole === "both";
-                    }
                     return c.accountRole === "customer" || c.accountRole === "both";
                   })
                   .map((customer) => (
                     <option
                       key={customer.accountId}
-                      value={getAccountSelectionValue(customer, generateForm.invoiceType)}
+                      value={getAccountSelectionValue(customer)}
                     >
                       {customer.accountName} (
-                      {(generateForm.invoiceType === "vendor"
-                        ? customer.vendorCode
-                        : customer.customerCode) || customer.gatewayId}
+                      {customer.customerCode || customer.gatewayId}
                       )
                     </option>
                   ))}

@@ -19,6 +19,14 @@ import {
   VStack,
   Badge,
   Divider,
+  TableContainer,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  
   Icon,
   useColorModeValue,
   useToast,
@@ -46,6 +54,10 @@ import {
   List,
   ListItem,
   ModalFooter,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
 } from "@chakra-ui/react";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
@@ -56,6 +68,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import {
   fetchVendors,
   uploadVendorInvoice,
+  previewVendorInvoiceUsage,
   fetchVendorInvoices,
   markInvoiceAsPaid,
   deletevendorinvoice,
@@ -161,11 +174,11 @@ const StatusBadge = ({ status }) => {
   return <Badge colorScheme={s.color} variant="subtle" fontSize="xs" px={2} py={0.5} borderRadius="full">{s.label}</Badge>;
 };
 
-// ── Invoices Table Tab ────────────────────────────────────────
+// ── Invoices List Tab ─────────────────────────────────────────
 const InvoicesTab = ({ onAddNew }) => {
-  const border = useColorModeValue("gray.200", "gray.700");
-  const cardBg = useColorModeValue("white", "gray.800");
   const toast  = useToast();
+  const cardBg = useColorModeValue("white", "gray.800");
+  const border = useColorModeValue("gray.200", "gray.700");
   const [search, setSearch]     = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [invoices, setInvoices] = useState([]);
@@ -1010,12 +1023,13 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
   const navigate = useNavigate();
   const toast = useToast();
   const fileRef = useRef();
-  const [dragOver, setDragOver] = useState(false);
   const [files, setFiles] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [vendors, setVendors] = useState([]);
   const [isLoadingVendors, setIsLoadingVendors] = useState(true);
+  const [usageComparison, setUsageComparison] = useState(null);
+  const [isCheckingUsage, setIsCheckingUsage] = useState(false);
 
   const [form, setForm] = useState({
     vendorCode: "", invoiceNumber: "", issueDate: "",
@@ -1026,9 +1040,6 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
   const cardBg     = useColorModeValue("white", "gray.800");
   const border     = useColorModeValue("gray.200", "gray.700");
   const label      = useColorModeValue("gray.500", "gray.400");
-  const dropBg     = useColorModeValue("blue.50", "blue.900");
-  const dropBorder = dragOver ? "blue.400" : useColorModeValue("blue.200", "blue.700");
-  const statBg     = useColorModeValue("gray.50", "gray.750");
 
   useEffect(() => {
     const loadVendors = async () => {
@@ -1047,6 +1058,9 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
   const handleField = (k, v) => {
     setForm(p => ({ ...p, [k]: v }));
     if (errors[k]) setErrors(p => ({ ...p, [k]: "" }));
+    if (["vendorCode", "startDate", "endDate", "grandTotal"].includes(k)) {
+      setUsageComparison(null);
+    }
   };
 
   const addFiles = (incoming) => {
@@ -1056,22 +1070,21 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
        "text/csv"].includes(f.type)
     );
-    if (valid.length !== incoming.length)
+
+    if (valid.length !== incoming.length) {
       toast({ title: "Some files were skipped", description: "Only PDF, PNG, JPG, CSV, XLS/XLSX allowed.", status: "warning", duration: 3000 });
-    const newEntries = valid.map(f => ({ file: f, id: Math.random().toString(36).slice(2), progress: 0, done: false }));
-    setFiles(p => [...p, ...newEntries]);
-    newEntries.forEach(entry => {
-      let prog = 0;
-      const iv = setInterval(() => {
-        prog += Math.random() * 25 + 5;
-        if (prog >= 100) { prog = 100; clearInterval(iv); }
-        setFiles(p => p.map(f => f.id === entry.id ? { ...f, progress: Math.round(prog), done: prog >= 100 } : f));
-      }, 200);
-    });
+    }
+
+    const newEntries = valid.map((f) => ({
+      file: f,
+      id: Math.random().toString(36).slice(2),
+      done: true,
+    }));
+
+    setFiles((prev) => [...prev, ...newEntries]);
   };
 
-  const removeFile = (id) => setFiles(p => p.filter(f => f.id !== id));
-  const onDrop = useCallback((e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }, []);
+  const removeFile = (id) => setFiles((prev) => prev.filter((f) => f.id !== id));
 
   const validate = () => {
     const e = {};
@@ -1084,25 +1097,70 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
       e.endDate = "End date must be after start date";
     if (!form.grandTotal)    e.grandTotal    = "Grand total is required";
     else if (isNaN(form.grandTotal) || +form.grandTotal < 0) e.grandTotal = "Enter a valid amount";
-    if (!form.totalSeconds)  e.totalSeconds  = "Total seconds is required";
-    else if (isNaN(form.totalSeconds) || +form.totalSeconds < 0) e.totalSeconds = "Enter a valid number";
     if (files.length === 0)  e.files         = "Please attach at least one invoice file";
     return e;
   };
 
-  const handleSubmit = async () => {
+  const handleCheckUsage = async () => {
+    const e = {};
+    if (!form.vendorCode) e.vendorCode = "Please select a vendor";
+    if (!form.startDate) e.startDate = "Start date is required";
+    if (!form.endDate) e.endDate = "End date is required";
+    if (!form.grandTotal) e.grandTotal = "Grand total is required";
+    if (Object.keys(e).length) {
+      setErrors((prev) => ({ ...prev, ...e }));
+      toast({ title: "Please complete vendor/date/amount to check usage", status: "warning", duration: 3000, isClosable: true });
+      return;
+    }
+
+    setIsCheckingUsage(true);
+    try {
+      const response = await previewVendorInvoiceUsage({
+        vendorCode: form.vendorCode,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        grandTotal: Number(form.grandTotal || 0),
+      });
+      setUsageComparison(response.usageComparison || null);
+      const comparison = response?.usageComparison || null;
+      const isMismatch = Boolean(comparison?.mismatchDetected);
+      const canRaiseDispute = Boolean(comparison?.canRaiseDispute);
+      toast({
+        title: isMismatch ? (canRaiseDispute ? "Mismatch detected" : "Favorable mismatch detected") : "Usage matched",
+        status: isMismatch ? (canRaiseDispute ? "warning" : "info") : "success",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (error) {
+      toast({ title: "Usage check failed", description: error.message, status: "error", duration: 4000, isClosable: true });
+    } finally {
+      setIsCheckingUsage(false);
+    }
+  };
+
+  const handleSubmit = async (disputeAction = null) => {
     const e = validate();
     if (Object.keys(e).length) {
       setErrors(e);
       toast({ title: "Please fix the highlighted fields", status: "error", duration: 3000, isClosable: true });
       return;
     }
+
+    if (!usageComparison) {
+      toast({ title: "Please check vendor usage first", status: "warning", duration: 3000, isClosable: true });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const formData = new FormData();
       Object.entries(form).forEach(([k, v]) => formData.append(k, v));
+      if (disputeAction) {
+        formData.append("disputeAction", disputeAction);
+      }
       files.forEach(f => formData.append("files", f.file));
-      await uploadVendorInvoice(formData);
+      const response = await uploadVendorInvoice(formData);
+      setUsageComparison(response.usageComparison || null);
       setSubmitted(true);
       toast({ title: "Invoice Submitted Successfully", description: `Invoice ${form.invoiceNumber} has been saved.`, status: "success", duration: 5000, isClosable: true });
       if (onSuccess) onSuccess();
@@ -1115,7 +1173,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
 
   const handleReset = () => {
     setForm({ vendorCode: "", invoiceNumber: "", issueDate: "", startDate: "", endDate: "", grandTotal: "", currency: "USD", totalSeconds: "" });
-    setFiles([]); setErrors({}); setSubmitted(false);
+    setFiles([]); setErrors({}); setSubmitted(false); setUsageComparison(null);
   };
 
   const selectedVendor = vendors.find(v => (v.vendorCode || v.accountId).toString() === form.vendorCode.toString());
@@ -1123,16 +1181,57 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
   if (submitted) {
     return (
       <Box display="flex" alignItems="center" justifyContent="center" p={6}>
-        <Card bg={cardBg} border="1px" borderColor={border} shadow="lg" maxW="480px" w="full" textAlign="center" borderRadius="16px">
+        <Card bg={cardBg} border="1px" borderColor={border} shadow="lg" maxW="580px" w="full" textAlign="center" borderRadius="16px">
           <CardBody py={12} px={10}>
-            <Circle size="80px" bg="green.50" border="2px" borderColor="green.200" mx="auto" mb={6}>
-              <Box color="green.500" fontSize="3xl"><FiCheck /></Box>
+            <Circle size="80px" bg="green.50" border="2px" borderColor={usageComparison?.mismatchDetected ? "orange.200" : "green.200"} mx="auto" mb={6}>
+              <Box color={usageComparison?.mismatchDetected ? "orange.500" : "green.500"} fontSize="3xl"><FiCheck /></Box>
             </Circle>
             <Heading size="md" color="gray.800" mb={2}>Invoice Submitted!</Heading>
             <Text color="gray.500" fontSize="sm" mb={1}>Invoice <b>{form.invoiceNumber}</b></Text>
             <Text color="gray.500" fontSize="sm" mb={6}>
               {selectedVendor?.name} · {files.length} file{files.length !== 1 ? "s" : ""} attached
             </Text>
+
+            {/* Display usage comparison if available */}
+            {usageComparison && (
+              <Box mb={6} p={4} bg={usageComparison.mismatchDetected ? (usageComparison.canRaiseDispute ? "orange.50" : "blue.50") : "green.50"} borderRadius="lg" border="1px" borderColor={usageComparison.mismatchDetected ? (usageComparison.canRaiseDispute ? "orange.200" : "blue.200") : "green.200"}>
+                <VStack align="start" spacing={2}>
+                  <HStack width="100%" justify="space-between">
+                    <Text fontSize="xs" fontWeight="bold" color="gray.600">Uploaded Amount:</Text>
+                    <Text fontSize="sm" fontWeight="bold" color="gray.800">${usageComparison.uploadedAmount.toFixed(4)}</Text>
+                  </HStack>
+                  <HStack width="100%" justify="space-between">
+                    <Text fontSize="xs" fontWeight="bold" color="gray.600">Actual Usage:</Text>
+                    <Text fontSize="sm" fontWeight="bold" color="gray.800">${usageComparison.actualUsage.toFixed(4)}</Text>
+                  </HStack>
+                  {usageComparison.mismatchDetected && (
+                    <>
+                      <Divider my={2} />
+                      <HStack width="100%" justify="space-between">
+                        <Text fontSize="xs" fontWeight="bold" color={usageComparison.canRaiseDispute ? "orange.700" : "blue.700"}>Mismatch Amount:</Text>
+                        <Text fontSize="sm" fontWeight="bold" color={usageComparison.canRaiseDispute ? "orange.600" : "blue.600"}>${usageComparison.mismatchAmount.toFixed(4)}</Text>
+                      </HStack>
+                      <HStack width="100%" justify="space-between">
+                        <Text fontSize="xs" fontWeight="bold" color={usageComparison.canRaiseDispute ? "orange.700" : "blue.700"}>Difference:</Text>
+                        <Text fontSize="sm" fontWeight="bold" color={usageComparison.canRaiseDispute ? "orange.600" : "blue.600"}>{usageComparison.percentageDiff}</Text>
+                      </HStack>
+                      <Alert status={usageComparison.disputeRaised ? "warning" : "info"} borderRadius="md" mt={2} variant="subtle">
+                        <AlertIcon />
+                        <Box>
+                          <AlertTitle fontSize="xs">Mismatch Detected</AlertTitle>
+                          <AlertDescription fontSize="xs">
+                            {usageComparison.disputeRaised
+                              ? "A dispute has been raised for this invoice due to overbilling mismatch."
+                              : "Uploaded amount is not higher than usage, so no dispute action was required."}
+                          </AlertDescription>
+                        </Box>
+                      </Alert>
+                    </>
+                  )}
+                </VStack>
+              </Box>
+            )}
+
             <HStack justify="center" spacing={3}>
               <Button colorScheme="blue" size="sm" onClick={handleReset}>Upload Another</Button>
               <Button variant="outline" size="sm" onClick={onViewInvoices} borderColor={border}>View All Invoices</Button>
@@ -1148,56 +1247,6 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
       <Grid templateColumns={{ base: "1fr", lg: "1fr 300px" }} gap={6}>
         {/* LEFT */}
         <VStack spacing={6} align="stretch">
-          {/* File Upload */}
-          <Card bg={cardBg} border="1px" borderColor={errors.files ? "red.300" : border} shadow="sm" borderRadius="12px">
-            <CardHeader pb={3}>
-              <HStack>
-                <Box w={1} h={5} bg="blue.500" borderRadius="full" />
-                <Heading size="sm" color="gray.800">Invoice Documents</Heading>
-                <Badge colorScheme="red" variant="subtle" fontSize="xs">Required</Badge>
-              </HStack>
-            </CardHeader>
-            <CardBody pt={0}>
-              <Box onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
-                onDrop={onDrop} onClick={() => fileRef.current?.click()} cursor="pointer"
-                bg={dragOver ? dropBg : "transparent"} border="2px dashed" borderColor={dropBorder}
-                borderRadius="xl" p={2} textAlign="center" transition="all 0.2s"
-                _hover={{ bg: dropBg, borderColor: "blue.300" }} mb={files.length ? 4 : 0}>
-                <input ref={fileRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.csv,.xls,.xlsx"
-                  onChange={e => { addFiles(e.target.files); e.target.value = ""; }} />
-                <Box color="blue.400" mb={3} display="flex" justifyContent="center"><FiUploadCloud size={40} /></Box>
-                <Text fontWeight="600" fontSize="sm" color="gray.700" mb={1}>Upload file</Text>
-                <Text fontSize="xs" color="gray.400" mb={3}>PDF, PNG, JPG, CSV, XLS / XLSX • Max 25 MB each</Text>
-                {/* <Button size="xs" colorScheme="blue" variant="outline" pointerEvents="none">Browse Files</Button> */}
-              </Box>
-              {files.length > 0 && (
-                <VStack spacing={2} align="stretch">
-                  {files.map(({ file, id, progress, done }) => (
-                    <Box key={id} p={3} bg={statBg} borderRadius="lg" border="1px" borderColor={border}>
-                      <Flex align="center" justify="space-between" mb={done ? 0 : 1.5}>
-                        <HStack spacing={3} flex={1} minW={0}>
-                          <Box color={done ? "teal.500" : "blue.400"} flexShrink={0}>{done ? <FiCheck /> : <FiFile />}</Box>
-                          <Box minW={0}>
-                            <Text fontSize="xs" fontWeight="600" color="gray.700" isTruncated>{file.name}</Text>
-                            <Text fontSize="xs" color="gray.400">{fmtBytes(file.size)}</Text>
-                          </Box>
-                        </HStack>
-                        <HStack spacing={2}>
-                          {done && <Badge colorScheme="green" fontSize="xs">Uploaded</Badge>}
-                          <Box cursor="pointer" color="gray.400" _hover={{ color: "red.400" }} onClick={() => removeFile(id)}><FiX /></Box>
-                        </HStack>
-                      </Flex>
-                      {!done && <Progress value={progress} size="xs" colorScheme="blue" borderRadius="full" bg="blue.50" />}
-                    </Box>
-                  ))}
-                </VStack>
-              )}
-              {errors.files && (
-                <HStack mt={2} color="red.500" spacing={1}><FiAlertTriangle /><Text fontSize="xs">{errors.files}</Text></HStack>
-              )}
-            </CardBody>
-          </Card>
-
           {/* Vendor & Invoice Details */}
           <Card bg={cardBg} border="1px" borderColor={border} shadow="sm" borderRadius="12px">
             <CardHeader pb={3}>
@@ -1241,6 +1290,79 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
                       _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }} />
                   </InputGroup>
                   <FormErrorMessage fontSize="xs">{errors.issueDate}</FormErrorMessage>
+                </FormControl>
+
+                <FormControl isInvalid={!!errors.files} isRequired gridColumn={{ md: "span 2" }}>
+                  <FormLabel fontSize="sm" color={label} fontWeight="500">Invoice Documents</FormLabel>
+                  <HStack spacing={2} align="center" mb={2}>
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      multiple
+                      hidden
+                      accept=".pdf,.png,.jpg,.jpeg,.csv,.xls,.xlsx"
+                      onChange={(e) => {
+                        addFiles(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      leftIcon={<FiUploadCloud size={14} />}
+                      variant="outline"
+                      borderColor={border}
+                      onClick={() => fileRef.current?.click()}
+                      isLoading={isSubmitting}
+                      loadingText="Uploading"
+                      isDisabled={isSubmitting}
+                    >
+                      Upload Files
+                    </Button>
+                    <Text fontSize="xs" color="gray.500">PDF, PNG, JPG, CSV, XLS/XLSX</Text>
+                  </HStack>
+
+                  {files.length > 0 && (
+  <Grid templateColumns="repeat(2, 1fr)" gap={2}>
+    {files.map(({ file, id }) => (
+      <Flex
+        key={id}
+        align="center"
+        justify="space-between"
+        p={2}
+        border="1px"
+        borderColor={border}
+        borderRadius="md"
+        bg="gray.50"
+      >
+        <HStack spacing={2} minW={0}>
+          <Box color="blue.500"><FiFile size={14} /></Box>
+          <Text fontSize="xs" fontWeight="500" color="gray.700" isTruncated>
+            {file.name}
+          </Text>
+          <Text fontSize="xs" color="gray.500">
+            ({fmtBytes(file.size)})
+          </Text>
+        </HStack>
+        <IconButton
+          size="xs"
+          variant="ghost"
+          colorScheme="red"
+          aria-label="Remove file"
+          icon={<FiX size={14} />}
+          onClick={() => removeFile(id)}
+          isDisabled={isSubmitting}
+        />
+      </Flex>
+    ))}
+  </Grid>
+)}
+
+                  {errors.files && (
+                    <HStack mt={2} color="red.500" spacing={1}>
+                      <FiAlertTriangle />
+                      <Text fontSize="xs">{errors.files}</Text>
+                    </HStack>
+                  )}
                 </FormControl>
               </SimpleGrid>
             </CardBody>
@@ -1316,7 +1438,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
                   </InputGroup>
                   <FormErrorMessage fontSize="xs">{errors.grandTotal}</FormErrorMessage>
                 </FormControl>
-                <FormControl isInvalid={!!errors.totalSeconds} isRequired>
+                <FormControl isInvalid={!!errors.totalSeconds}>
                   <FormLabel fontSize="sm" color={label} fontWeight="500">
                     Total Seconds (Usage)
                     <Tooltip label="Sum of all call durations in seconds as reported by the vendor" placement="top">
@@ -1335,25 +1457,53 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
                   )}
                   <FormErrorMessage fontSize="xs">{errors.totalSeconds}</FormErrorMessage>
                 </FormControl>
-                {form.grandTotal && form.totalSeconds && +form.totalSeconds > 0 && !isNaN(form.grandTotal) && (
-                  <Box gridColumn={{ md: "span 2" }} p={3} bg="green.50" borderRadius="lg" border="1px" borderColor="green.100">
-                    <HStack spacing={6} flexWrap="wrap">
-                      <Box>
-                        <Text fontSize="xs" color="green.600" fontWeight="500" mb={0.5}>Cost Per Second</Text>
-                        <Text fontSize="sm" fontWeight="700" color="green.800">{form.currency} {(+form.grandTotal / +form.totalSeconds).toFixed(6)}</Text>
-                      </Box>
-                      <Box>
-                        <Text fontSize="xs" color="green.600" fontWeight="500" mb={0.5}>Cost Per Minute</Text>
-                        <Text fontSize="sm" fontWeight="700" color="green.800">{form.currency} {(+form.grandTotal / +form.totalSeconds * 60).toFixed(4)}</Text>
-                      </Box>
-                      <Box>
-                        <Text fontSize="xs" color="green.600" fontWeight="500" mb={0.5}>Total Minutes</Text>
-                        <Text fontSize="sm" fontWeight="700" color="green.800">{(+form.totalSeconds / 60).toFixed(1)} min</Text>
-                      </Box>
-                    </HStack>
-                  </Box>
-                )}
+               
               </SimpleGrid>
+            </CardBody>
+          </Card>
+
+          {/* Usage comparison */}
+          <Card bg={cardBg} border="1px" borderColor={border} shadow="sm" borderRadius="12px">
+            <CardHeader pb={3}>
+              <HStack><Box w={1} h={5} bg="orange.500" borderRadius="full" /><Heading size="sm" color="gray.800">Vendor Usage Comparison</Heading></HStack>
+            </CardHeader>
+            <CardBody pt={0}>
+              <Button
+                mb={3}
+                size="sm"
+                colorScheme="orange"
+                variant="outline"
+                onClick={handleCheckUsage}
+                isLoading={isCheckingUsage}
+                isDisabled={isSubmitting}
+              >
+                Check Vendor Usage
+              </Button>
+
+              {usageComparison ? (
+                <TableContainer border="1px" borderColor={border} borderRadius="md">
+                  <Table size="sm">
+                    <Thead bg="gray.50">
+                      <Tr>
+                        <Th>Metric</Th>
+                        <Th isNumeric>Value</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {(usageComparison.rows || []).map((row) => (
+                        <Tr key={row.label}>
+                          <Td>{row.label}</Td>
+                          <Td isNumeric fontWeight="600">
+                            {typeof row.value === "number" ? `${form.currency} ${row.value.toFixed(4)}` : row.value}
+                          </Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Text fontSize="xs" color="gray.500">Run usage check to view vendor invoice amount vs vendor usage difference and percentage.</Text>
+              )}
             </CardBody>
           </Card>
         </VStack>
@@ -1440,10 +1590,47 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
           </Card>
 
           <VStack spacing={2}>
-            <Button w="full" colorScheme="green" size="md" fontWeight="600" onClick={handleSubmit}
-              isLoading={isSubmitting} loadingText="Submitting…" borderRadius="8px">
-              Submit Invoice
-            </Button>
+            {usageComparison?.mismatchDetected && usageComparison?.canRaiseDispute ? (
+              <>
+                <Button
+                  w="full"
+                  colorScheme="yellow"
+                  size="md"
+                  fontWeight="600"
+                  onClick={() => handleSubmit("without_dispute")}
+                  isLoading={isSubmitting}
+                  loadingText="Saving..."
+                  borderRadius="8px"
+                >
+                  Save Without Dispute
+                </Button>
+                <Button
+                  w="full"
+                  colorScheme="red"
+                  size="md"
+                  fontWeight="600"
+                  onClick={() => handleSubmit("raise_dispute")}
+                  isLoading={isSubmitting}
+                  loadingText="Saving..."
+                  borderRadius="8px"
+                >
+                  Save and Raise Dispute
+                </Button>
+              </>
+            ) : (
+              <Button
+                w="full"
+                colorScheme="green"
+                size="md"
+                fontWeight="600"
+                onClick={() => handleSubmit("without_dispute")}
+                isLoading={isSubmitting}
+                loadingText="Submitting…"
+                borderRadius="8px"
+              >
+                Submit Invoice
+              </Button>
+            )}
             <Button w="full" variant="ghost" leftIcon={<FiRotateCcw />} size="sm" color="gray.600" onClick={handleReset}>
               Reset Form
             </Button>

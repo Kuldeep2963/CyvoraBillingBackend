@@ -34,7 +34,6 @@ import {
   MenuList,
   InputGroup,
   InputLeftElement,
-  MenuItem,
   Spinner,
   Center,
 } from "@chakra-ui/react";
@@ -44,10 +43,6 @@ import {
   FiMail,
   FiPhone,
   FiCreditCard,
-  FiMoreVertical,
-  FiCheckCircle,
-  FiClock,
-  FiAlertTriangle,
   FiSearch,
   FiX,
 } from "react-icons/fi";
@@ -62,7 +57,6 @@ const ViewInvoiceModal = ({
   onRecordPayment,
   onDownload,
   onSendEmail,
-  onUpdateStatus,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);
@@ -314,43 +308,6 @@ const ViewInvoiceModal = ({
                     >
                       Download PDF
                     </Button>
-                    <Menu>
-                      <MenuButton
-                        borderRadius="2px"
-                        as={Button}
-                        size="sm"
-                        rightIcon={<FiMoreVertical />}
-                        variant="outline"
-                      >
-                        More Actions
-                      </MenuButton>
-                      <MenuList>
-                        <MenuItem
-                          icon={<FiCheckCircle />}
-                          onClick={() =>
-                            onUpdateStatus(selectedInvoice.id, "paid")
-                          }
-                        >
-                          Mark as Paid
-                        </MenuItem>
-                        <MenuItem
-                          icon={<FiClock />}
-                          onClick={() =>
-                            onUpdateStatus(selectedInvoice.id, "sent")
-                          }
-                        >
-                          Mark as Sent
-                        </MenuItem>
-                        <MenuItem
-                          icon={<FiAlertTriangle />}
-                          onClick={() =>
-                            onUpdateStatus(selectedInvoice.id, "overdue")
-                          }
-                        >
-                          Mark as Overdue
-                        </MenuItem>
-                      </MenuList>
-                    </Menu>
                   </HStack>
                 </HStack>
               </CardHeader>

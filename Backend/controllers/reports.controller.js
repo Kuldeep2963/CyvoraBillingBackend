@@ -7,7 +7,7 @@ const CountryCode = require('../models/CountryCode');
 const Invoice = require('../models/Invoice');
 const Payment = require('../models/Payment');
 const PaymentAllocation = require('../models/PaymentAllocation');
-const Dispute = require('../models/Dispute');
+const VendorInvoice = require('../models/Vendorinvoice');
 const H = require('../utils/reportHelper');
 const { secondsToMMSS } = require('../utils/timeUtils');
 const ExcelJS = require('exceljs');
@@ -1265,7 +1265,23 @@ exports.debugMapping = async (req, res) => {
   exports.getReportAccounts = async (req, res) => {
     try {
       const accounts = await Account.findAll({
-        attributes: ['id', 'accountId', 'accountName', 'accountRole', 'customerCode','lastbillingdate','nextbillingdate', 'vendorCode','accountOwner','customerauthenticationType','customerauthenticationValue'],
+        attributes: [
+          'id',
+          'accountId',
+          'accountName',
+          'accountRole',
+          'customerCode',
+          'lastbillingdate',
+          'nextbillingdate',
+          'vendorCode',
+          'accountOwner',
+          'customerauthenticationType',
+          'customerauthenticationValue',
+          'billingType',
+          'balance',
+          'creditLimit',
+          'originalCreditLimit',
+        ],
         where: { active: true },
         order: [['accountName', 'ASC']],
         raw: true
@@ -1514,15 +1530,25 @@ exports.exportSOA = async (req, res) => {
     const { accountName, customerCode, vendorCode } = account;
 
     // Dates for filtering
-    const start = startDate ? new Date(startDate).getTime() : 0;
-    const end = endDate ? new Date(endDate).getTime() : Date.now();
+    const normalizedStartDate = String(startDate || '').trim();
+    const normalizedEndDate = String(endDate || '').trim();
+    const start = normalizedStartDate ? new Date(normalizedStartDate) : new Date(0);
+    const end = normalizedEndDate ? new Date(normalizedEndDate) : new Date();
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return res.status(400).json({ error: 'Invalid date range' });
+    }
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    const startTs = start.getTime();
+    const endTs = end.getTime();
+    const startYmd = normalizedStartDate;
+    const endYmd = normalizedEndDate;
 
     // 1. Fetch Customer Invoices (Invoices we issue to them)
     const customerInvoices = await Invoice.findAll({
       where: {
         customerCode: customerCode,
-        invoiceType: 'customer',
-        invoiceDate: { [Op.between]: [start, end] }
+        invoiceDate: { [Op.between]: [startTs, endTs] }
       },
       order: [['invoiceDate', 'ASC']],
       raw: true
@@ -1534,20 +1560,22 @@ exports.exportSOA = async (req, res) => {
         customerCode: customerCode,
         partyType: 'customer',
         paymentDirection: 'inbound',
-        paymentDate: { [Op.between]: [start, end] }
+        paymentDate: { [Op.between]: [startTs, endTs] }
       },
       order: [['paymentDate', 'ASC']],
       raw: true
     });
 
-    // 3. Fetch Vendor Invoices (Invoices they issue to us)
-    const vendorInvoices = await Invoice.findAll({
+    // 3. Fetch Vendor Invoices (Invoices they issue to us - from VendorInvoice table)
+    const vendorInvoices = await VendorInvoice.findAll({
       where: {
-        customerCode: vendorCode,
-        invoiceType: 'vendor',
-        invoiceDate: { [Op.between]: [start, end] }
+        vendorCode: vendorCode,
+        [Op.and]: [
+          { startDate: { [Op.lte]: endYmd } },
+          { endDate: { [Op.gte]: startYmd } },
+        ],
       },
-      order: [['invoiceDate', 'ASC']],
+      order: [['createdAt', 'ASC']],
       raw: true
     });
 
@@ -1557,20 +1585,20 @@ exports.exportSOA = async (req, res) => {
         customerCode: vendorCode,
         partyType: 'vendor',
         paymentDirection: 'outbound',
-        paymentDate: { [Op.between]: [start, end] }
+        paymentDate: { [Op.between]: [startTs, endTs] }
       },
       order: [['paymentDate', 'ASC']],
       raw: true
     });
 
-    // 5. Fetch Disputes
-    const disputes = await Dispute.findAll({
-      where: {
-        customerCode: customerCode,
-        status: { [Op.ne]: 'closed' }
-      },
-      raw: true
-    });
+    // 5. Derive dispute rows from disputed vendor invoices
+    const disputes = vendorInvoices
+      .filter((invoice) => Boolean(invoice.isDisputed))
+      .map((invoice) => ({
+        invoiceNumber: invoice.invoiceNumber,
+        disputeAmount: Number(invoice.grandTotal || 0),
+        status: 'open',
+      }));
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('SOA');
@@ -1677,10 +1705,10 @@ exports.exportSOA = async (req, res) => {
       // Vendor Invoices
       if (vendorInvoices[i]) {
         row.getCell(9).value = vendorInvoices[i].invoiceNumber;
-        row.getCell(10).value = `${fmtDate(vendorInvoices[i].billingPeriodStart)}-${fmtDate(vendorInvoices[i].billingPeriodEnd)}`;
-        row.getCell(11).value = Number(vendorInvoices[i].totalAmount);
+        row.getCell(10).value = `${vendorInvoices[i].startDate || ''}-${vendorInvoices[i].endDate || ''}`;
+        row.getCell(11).value = Number(vendorInvoices[i].grandTotal || 0);
         row.getCell(11).numFmt = '#,##0.0000';
-        totalVendInv += Number(vendorInvoices[i].totalAmount);
+        totalVendInv += Number(vendorInvoices[i].grandTotal || 0);
 
         // Vendor side disputes (if any, though disputes model seems customer-centric in this DB)
       }
@@ -1781,7 +1809,6 @@ exports.sendSOAEmail = async (req, res) => {
     const customerInvoices = await Invoice.findAll({
       where: {
         customerCode: customerCode,
-        invoiceType: 'customer',
         invoiceDate: { [Op.between]: [start, end] }
       },
       order: [['invoiceDate', 'ASC']],
@@ -1800,14 +1827,13 @@ exports.sendSOAEmail = async (req, res) => {
       raw: true
     });
 
-    // 3. Fetch Vendor Invoices (Invoices they issue to us)
-    const vendorInvoices = await Invoice.findAll({
+    // 3. Fetch Vendor Invoices (Invoices they issue to us - from VendorInvoice table)
+    const vendorInvoices = await VendorInvoice.findAll({
       where: {
-        customerCode: vendorCode,
-        invoiceType: 'vendor',
-        invoiceDate: { [Op.between]: [start, end] }
+        vendorCode: vendorCode,
+        createdAt: { [Op.between]: [new Date(start), new Date(end)] }
       },
-      order: [['invoiceDate', 'ASC']],
+      order: [['createdAt', 'ASC']],
       raw: true
     });
 
@@ -1823,14 +1849,14 @@ exports.sendSOAEmail = async (req, res) => {
       raw: true
     });
 
-    // 5. Fetch Disputes
-    const disputes = await Dispute.findAll({
-      where: {
-        customerCode: customerCode,
-        status: { [Op.ne]: 'closed' }
-      },
-      raw: true
-    });
+    // 5. Derive dispute rows from disputed vendor invoices
+    const disputes = vendorInvoices
+      .filter((invoice) => Boolean(invoice.isDisputed))
+      .map((invoice) => ({
+        invoiceNumber: invoice.invoiceNumber,
+        disputeAmount: Number(invoice.grandTotal || 0),
+        status: 'open',
+      }));
 
     // Get the full account details for email
     const accountDetails = await Account.findOne({

@@ -512,8 +512,6 @@ const Accounts = () => {
     }
 
     if (!formData.phone?.trim()) errors.push("Phone is required");
-    if (!formData.addressLine1?.trim())
-      errors.push("Address Line 1 is required");
     if (!formData.city?.trim()) errors.push("City is required");
     if (!formData.postalCode?.trim()) errors.push("Postal Code is required");
 
