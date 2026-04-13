@@ -80,6 +80,16 @@ const splitToList = (value) => {
 const normalizeContactChannels = (payload) => {
   const data = { ...payload };
 
+  // Optional contact fields: normalize blank strings to null so model validators
+  // (e.g., isEmail) do not run against empty strings.
+  const contactPerson = String(data.contactPerson ?? '').trim();
+  const contactPersonEmail = String(data.contactPersonEmail ?? '').trim();
+  const contactPersonPhone = String(data.contactPersonPhone ?? '').trim();
+
+  data.contactPerson = contactPerson || null;
+  data.contactPersonEmail = contactPersonEmail || null;
+  data.contactPersonPhone = contactPersonPhone || null;
+
   data.ratesEmails = splitToList(data.ratesEmails);
   data.billingEmails = splitToList(data.billingEmails || data.billingEmail);
   data.disputeEmails = splitToList(data.disputeEmails || data.disputeEmail);
@@ -259,9 +269,6 @@ const validateAccountPayload = (data) => {
     'accountName',
     'email',
     'phone',
-    'addressLine1',
-    'city',
-    'postalCode',
     'country',
     'lastbillingdate',
   ];

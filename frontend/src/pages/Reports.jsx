@@ -92,33 +92,14 @@ import {
   FiBarChart2,
   FiTrendingUp,
   FiTrendingDown,
-  FiPieChart,
   FiGrid,
   FiList,
   FiRefreshCw,
-  FiEye,
-  FiClock,
   FiCalendar,
+  FiEye,
   FiFileText,
   FiUser,
 } from "react-icons/fi";
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  Legend,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-} from "recharts";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import {
@@ -149,9 +130,12 @@ const REPORT_TITLES = {
   5: "Vendor Traffic Report",
 };
 
-const PIE_COLORS = [
-  "#0088FE", "#00C49F", "#FFBB28", "#FF8042",
-  "#8884D8", "#82CA9D", "#FFC658", "#FF6B6B",
+const TRUNK_OPTIONS = [
+  { value: "all", label: "All Trunks" },
+  { value: "NCLI", label: "NCLI" },
+  { value: "CLI", label: "CLI" },
+  { value: "ORTP/TDM", label: "ORTP/TDM" },
+  { value: "CC", label: "CC" },
 ];
 
 const ROWS_PER_PAGE_OPTIONS = [50, 100, 250];
@@ -354,12 +338,12 @@ const Reports = () => {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [marginThreshold, setMarginThreshold] = useState(0);
-  const [chartType, setChartType] = useState("bar");
-  const [viewType, setViewType] = useState("table");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [selectedTrunk, setSelectedTrunk] = useState("all");
+  const [selectedOwner, setSelectedOwner] = useState("all");
   const [filters] = useState({ minASR: 0, maxASR: 100, minMargin: -100, maxMargin: 100 });
 
   const toast = useToast();
@@ -448,6 +432,7 @@ const Reports = () => {
     setPage(1);
     setSearchTerm("");
     setSortConfig({ key: null, direction: "asc" });
+    setSelectedOwner("all");
     if (index === 4) setIsVendorReport(false);
     else if (index === 5) setIsVendorReport(true);
     // tabs 0,1,2,3 keep the user's current vendor/customer choice
@@ -508,6 +493,7 @@ const Reports = () => {
         endMinute: endPayload.minute,
         accountId: selectedAccount,
         vendorReport: activeTab === 4 ? false : activeTab === 5 ? true : isVendorReport,
+        trunk: selectedTrunk,
         ownerName: selectedAccountObj?.ownerName ?? "",
       };
 
@@ -570,7 +556,7 @@ const Reports = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, accounts, dateRange, isVendorReport, selectedAccount, toast]);
+  }, [activeTab, accounts, dateRange, isVendorReport, selectedAccount, selectedTrunk, toast]);
 
   // BUG FIX: export filteredData (respects search/sort), not raw reportData
   const handleExport = useCallback(
@@ -715,6 +701,35 @@ const Reports = () => {
 
   // ── Account list for current mode ─────────────────────────────────────────
   const currentAccounts = isVendorReport ? accounts.vendors : accounts.customers;
+
+  const ownerOptions = useMemo(() => {
+    const uniqueOwners = [...new Set(
+      currentAccounts
+        .map((account) => String(account.ownerName || "").trim())
+        .filter(Boolean),
+    )].sort((a, b) => a.localeCompare(b));
+
+    return [
+      { value: "all", label: "All Owners" },
+      ...uniqueOwners.map((owner) => ({ value: owner, label: owner })),
+    ];
+  }, [currentAccounts]);
+
+  const ownerFilteredAccounts = useMemo(() => {
+    return currentAccounts
+      .filter((account) => {
+        if (selectedOwner === "all") return true;
+        return String(account.ownerName || "").trim() === selectedOwner;
+      })
+      .sort((a, b) => {
+        const ownerA = String(a.ownerName || "").trim();
+        const ownerB = String(b.ownerName || "").trim();
+        const ownerCompare = ownerA.localeCompare(ownerB);
+        if (ownerCompare !== 0) return ownerCompare;
+
+        return String(a.accountName || "").localeCompare(String(b.accountName || ""));
+      });
+  }, [currentAccounts, selectedOwner]);
 
   // ── Time picker helpers ────────────────────────────────────────────────────
   const setStartHour = useCallback((hour) => {
@@ -863,7 +878,12 @@ const Reports = () => {
               setIsVendorReport={setIsVendorReport}
               selectedAccount={selectedAccount}
               setSelectedAccount={setSelectedAccount}
-              accounts={currentAccounts}
+              selectedOwner={selectedOwner}
+              setSelectedOwner={setSelectedOwner}
+              ownerOptions={ownerOptions}
+              selectedTrunk={selectedTrunk}
+              setSelectedTrunk={setSelectedTrunk}
+              accounts={ownerFilteredAccounts}
               accountsLoading={accountsLoading}
               marginThreshold={marginThreshold}
               setMarginThreshold={setMarginThreshold}
@@ -904,6 +924,14 @@ const Reports = () => {
                       Generated on {new Date().toLocaleDateString()} | Data range:{" "}
                       {dateRange.startDate.toLocaleDateString()} to {dateRange.endDate.toLocaleDateString()}
                     </Text>
+                    <Badge
+                      colorScheme={selectedTrunk === "all" ? "gray" : "blue"}
+                      fontSize="xs"
+                      px={2}
+                      py={1}
+                    >
+                      Trunk: {selectedTrunk === "all" ? "All Trunks" : selectedTrunk}
+                    </Badge>
                   </VStack>
                   <HStack spacing={3} align="center" justify={{ base: "flex-start", md: "flex-end" }}>
                     <InputGroup w={{ base: "full", sm: "280px" }}>
@@ -948,18 +976,6 @@ const Reports = () => {
               </CardBody>
             </Card>
 
-            {/* ── Chart visualization ───────────────────────────────────── */}
-            {reportData.length > 0 && (
-              <ChartVisualization
-                reportData={reportData}
-                chartType={chartType}
-                setChartType={setChartType}
-                viewType={viewType}
-                setViewType={setViewType}
-                cardBg={cardBg}
-                borderColor={borderColor}
-              />
-            )}
           </>
         ) : (
           <MissingGateways />
@@ -973,7 +989,9 @@ const Reports = () => {
 
 const ReportControls = React.memo(({
   activeTab, isVendorReport, setIsVendorReport,
-  selectedAccount, setSelectedAccount, accounts, accountsLoading,
+  selectedAccount, setSelectedAccount,
+  selectedOwner, setSelectedOwner, ownerOptions,
+  selectedTrunk, setSelectedTrunk, accounts, accountsLoading,
   marginThreshold, setMarginThreshold, loading, dateRange, onGenerate, cardBg,
 }) => (
   <Box mb={4} p={4} bg={cardBg} shadow="lg" borderRadius="md">
@@ -987,7 +1005,7 @@ const ReportControls = React.memo(({
             </FormLabel>
             <RadioGroup
               value={isVendorReport ? "vendor" : "customer"}
-              onChange={(val) => { setIsVendorReport(val === "vendor"); setSelectedAccount("all"); }}
+              onChange={(val) => { setIsVendorReport(val === "vendor"); setSelectedOwner("all"); setSelectedAccount("all"); }}
             >
               <HStack spacing={6}>
                 <Radio value="customer">Customer</Radio>
@@ -996,6 +1014,25 @@ const ReportControls = React.memo(({
             </RadioGroup>
           </FormControl>
         )}
+
+        {/* Account selector */}
+        <FormControl maxW={{ base: "100%", lg: "220px" }}>
+          <FormLabel>Account Owner</FormLabel>
+          <Select
+            value={selectedOwner}
+            onChange={(e) => {
+              setSelectedOwner(e.target.value);
+              setSelectedAccount("all");
+            }}
+            isDisabled={accountsLoading}
+          >
+            {ownerOptions.map((ownerOption) => (
+              <option key={ownerOption.value} value={ownerOption.value}>
+                {ownerOption.label}
+              </option>
+            ))}
+          </Select>
+        </FormControl>
 
         {/* Account selector */}
         <FormControl>
@@ -1015,6 +1052,21 @@ const ReportControls = React.memo(({
                 value={isVendorReport ? account.vendorCode : account.customerCode}
               >
                 {account.customerCode ?? account.vendorCode} ({account.accountName})
+              </option>
+            ))}
+          </Select>
+        </FormControl>
+
+        <FormControl maxW={{ base: "100%", lg: "180px" }}>
+          <FormLabel>Trunk</FormLabel>
+          <Select
+            value={selectedTrunk}
+            onChange={(e) => setSelectedTrunk(e.target.value)}
+            isDisabled={loading}
+          >
+            {TRUNK_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </Select>
@@ -1549,111 +1601,5 @@ const VendorOnlyTableBody = React.memo(({ rows }) => (
   </>
 ));
 VendorOnlyTableBody.displayName = "VendorOnlyTableBody";
-
-// ─── ChartVisualization ────────────────────────────────────────────────────────
-
-const ChartVisualization = React.memo(({ reportData, chartType, setChartType, viewType, setViewType, cardBg, borderColor }) => {
-  const chartData = useMemo(
-    () =>
-      reportData.slice(0, 20).map((item) => ({
-        name: item.hour ?? item.customer ?? item.Customer ?? item.accountName ?? item.AccountID ?? "Unknown",
-        revenue: parseFloat(item.revenue ?? item.Revenue ?? item.TotalRevenue ?? 0),
-        cost: parseFloat(item.cost ?? item.Cost ?? 0),
-        margin: parseFloat(item.margin ?? item.Margin ?? item.TotalMargin ?? 0),
-        asr: parseFloat(item.asr ?? item.ASR ?? 0),
-        attempts: parseInt(item.attempts ?? item.Attempts ?? item.TotalAttempts ?? 0),
-      })),
-    [reportData],
-  );
-
-  const renderChart = () => {
-    const commonProps = {
-      data: chartData,
-      children: (
-        <>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} fontSize={12} />
-          <YAxis />
-          <Legend />
-        </>
-      ),
-    };
-
-    switch (chartType) {
-      case "bar":
-        return (
-          <BarChart {...commonProps}>
-            {commonProps.children}
-            <RechartsTooltip formatter={(v) => [formatCurrency(v), ""]} />
-            <Bar dataKey="revenue" name="Revenue" fill="#3182CE" />
-            <Bar dataKey="cost" name="Cost" fill="#E53E3E" />
-            <Bar dataKey="margin" name="Margin" fill="#38A169" />
-          </BarChart>
-        );
-      case "line":
-        return (
-          <LineChart {...commonProps}>
-            {commonProps.children}
-            <RechartsTooltip formatter={(v, n) => n === "asr" ? [`${v}%`, "ASR"] : [formatCurrency(v), n]} />
-            <Line type="monotone" dataKey="revenue" stroke="#3182CE" strokeWidth={2} dot={{ r: 4 }} />
-            <Line type="monotone" dataKey="margin" stroke="#38A169" strokeWidth={2} dot={{ r: 4 }} />
-          </LineChart>
-        );
-      case "area":
-        return (
-          <AreaChart {...commonProps}>
-            {commonProps.children}
-            <RechartsTooltip formatter={(v) => [formatCurrency(v), ""]} />
-            <Area type="monotone" dataKey="revenue" stroke="#3182CE" fill="#3182CE" fillOpacity={0.3} />
-            <Area type="monotone" dataKey="margin" stroke="#38A169" fill="#38A169" fillOpacity={0.3} />
-          </AreaChart>
-        );
-      case "pie": {
-        const pieData = chartData.slice(0, 8).map((d) => ({ name: d.name, value: d.revenue }));
-        return (
-          <PieChart>
-            <Pie data={pieData} cx="50%" cy="50%" outerRadius={150} dataKey="value" labelLine={false} label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}>
-              {pieData.map((_, idx) => <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />)}
-            </Pie>
-            <RechartsTooltip formatter={(v) => [formatCurrency(v), "Revenue"]} />
-            <Legend />
-          </PieChart>
-        );
-      }
-      default: return null;
-    }
-  };
-
-  return (
-    <Card bg={cardBg} border="1px" borderColor={borderColor} mt={6}>
-      <CardHeader>
-        <Flex justify="space-between" align="center">
-          <Heading size="md">Data Visualization</Heading>
-          <HStack spacing={3}>
-            <Select size="sm" w="150px" value={chartType} onChange={(e) => setChartType(e.target.value)}>
-              <option value="bar">Bar Chart</option>
-              <option value="line">Line Chart</option>
-              <option value="area">Area Chart</option>
-              <option value="pie">Pie Chart</option>
-            </Select>
-            <Select size="sm" w="150px" value={viewType} onChange={(e) => setViewType(e.target.value)}>
-              <option value="table">Table View</option>
-              <option value="chart">Chart View</option>
-              <option value="both">Both</option>
-            </Select>
-          </HStack>
-        </Flex>
-      </CardHeader>
-      <CardBody>
-        <Box height="400px">
-          <ResponsiveContainer width="100%" height="100%">
-            {renderChart()}
-          </ResponsiveContainer>
-        </Box>
-      </CardBody>
-    </Card>
-  );
-});
-ChartVisualization.displayName = "ChartVisualization";
 
 export default Reports;

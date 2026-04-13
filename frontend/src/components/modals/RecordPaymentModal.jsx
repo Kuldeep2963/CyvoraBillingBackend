@@ -19,6 +19,7 @@ import {
   Spinner,
   Text,
   Box,
+  HStack,
 } from "@chakra-ui/react";
 import { fetchLiteInvoices } from "../../utils/api";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../memoizedinput/memoizedinput";
@@ -31,7 +32,14 @@ const RecordPaymentModal = ({
   customers,
   onRecordPayment,
   isSubmitting = false,
+  mode = "customer",
+  title = "Record Payment",
+  lockEntitySelection = false,
+  showCreditNote = false,
+  creditNoteMax = 0,
+  currency = "USD",
 }) => {
+  const isVendorMode = mode === "vendor";
   const [customerInvoices, setCustomerInvoices] = useState([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
 
@@ -50,14 +58,18 @@ const RecordPaymentModal = ({
   const availableFunds = isPostpaidCustomer
     ? Number(selectedCustomer?.creditLimit || 0)
     : Number(selectedCustomer?.balance || 0);
+  const shouldShowCreditNote = isVendorMode || showCreditNote;
+  const vendorGrossAmount = Number(creditNoteMax || 0);
+  const vendorCreditNoteAmount = Number(paymentForm.creditNoteAmount || 0);
+  const vendorPayableAmount = Math.max(0, vendorGrossAmount - vendorCreditNoteAmount);
 
   useEffect(() => {
-    if (isOpen && paymentForm.customerId) {
+    if (!isVendorMode && isOpen && paymentForm.customerId) {
       loadCustomerInvoices(paymentForm.customerId);
     } else {
       setCustomerInvoices([]);
     }
-  }, [isOpen, paymentForm.customerId]);
+  }, [isOpen, paymentForm.customerId, isVendorMode]);
 
   const loadCustomerInvoices = async (customerId) => {
     setIsLoadingInvoices(true);
@@ -102,20 +114,35 @@ const RecordPaymentModal = ({
     }
   };
 
+  const handleCreditNoteChange = (value) => {
+    const numericValue = Number(value || 0);
+    const max = Number(creditNoteMax || 0);
+    const boundedCreditNote = Number.isNaN(numericValue)
+      ? 0
+      : Math.min(Math.max(numericValue, 0), max);
+    const payableAmount = Math.max(0, max - boundedCreditNote);
+
+    setPaymentForm({
+      ...paymentForm,
+      creditNoteAmount: String(value ?? ""),
+      amount: payableAmount.toFixed(2),
+    });
+  };
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside" closeOnOverlayClick={!isSubmitting}>
       <ModalOverlay />
       <ModalContent>
         <ModalHeader bg="blue.500" color="white" borderTopRadius="md">
-          <Heading size="md">Record Payment</Heading>
+          <Heading size="md">{title}</Heading>
         </ModalHeader>
         <ModalCloseButton color="white" />
         <ModalBody py={6} maxH="60vh" overflowY="auto">
           <VStack spacing={4} align="stretch">
             <FormControl isRequired>
-              <FormLabel>Customer</FormLabel>
+              <FormLabel>{isVendorMode ? "Vendor" : "Customer"}</FormLabel>
               <Select
-                placeholder="Select customer"
+                placeholder={isVendorMode ? "Select vendor" : "Select customer"}
                 value={paymentForm.customerId}
                 onChange={(e) =>
                   setPaymentForm({ 
@@ -126,12 +153,12 @@ const RecordPaymentModal = ({
                     amount: ""
                   })
                 }
-                isDisabled={isSubmitting}
+                isDisabled={isSubmitting || lockEntitySelection}
               >
                 {customers.map((c) => (
                   <option
                     key={c.accountId}
-                    value={c.customerCode || c.gatewayId || c.accountId}
+                    value={c.customerCode || c.vendorCode || c.gatewayId || c.accountId}
                   >
                     {c.accountName}
                   </option>
@@ -139,7 +166,7 @@ const RecordPaymentModal = ({
               </Select>
             </FormControl>
 
-            {paymentForm.customerId && (
+            {!isVendorMode && paymentForm.customerId && (
               <FormControl isRequired>
                 <FormLabel>Pay Using</FormLabel>
                 <Select
@@ -158,7 +185,7 @@ const RecordPaymentModal = ({
               </FormControl>
             )}
 
-            {paymentForm.customerId && paymentForm.paymentSource === "account_funds" && (
+            {!isVendorMode && paymentForm.customerId && paymentForm.paymentSource === "account_funds" && (
               <Alert status="info" borderRadius="md" fontSize="sm">
                 <AlertIcon />
                 {isPostpaidCustomer
@@ -167,7 +194,7 @@ const RecordPaymentModal = ({
               </Alert>
             )}
 
-            {paymentForm.customerId && (
+            {!isVendorMode && paymentForm.customerId && (
               <FormControl isRequired>
                 <FormLabel>
                   Select Invoice 
@@ -193,36 +220,36 @@ const RecordPaymentModal = ({
               </FormControl>
             )}
 
-            {/* {paymentForm.invoiceId && (
-              <Alert status="info" size="sm">
+            {isVendorMode && (
+              <Alert status="info" borderRadius="md" fontSize="sm">
                 <AlertIcon />
                 <Box>
-                  <Text fontSize="sm" fontWeight="bold">
-                    Recording payment for Invoice: {
-                      customerInvoices.find(inv => inv.id === paymentForm.invoiceId)?.invoiceNumber
-                    }
+                  <Text fontSize="xs">
+                    Payable amount: {currency} {Number(paymentForm.amount || 0).toFixed(2)}
                   </Text>
                 </Box>
               </Alert>
-            )} */}
+            )}
 
             <SimpleGrid columns={2} spacing={4}>
-              <FormControl isRequired>
-                <FormLabel>Amount</FormLabel>
-                <Input
-                  type="number"
-                  value={paymentForm.amount}
-                  onChange={(e) =>
-                    setPaymentForm({ ...paymentForm, amount: e.target.value })
-                  }
-                  isDisabled={isSubmitting || Boolean(paymentForm.invoiceId)}
-                />
-                {paymentForm.invoiceId && (
-                  <FormHelperText>
-                    Amount is locked to the selected invoice outstanding balance.
-                  </FormHelperText>
-                )}
-              </FormControl>
+              {!isVendorMode && (
+                <FormControl isRequired>
+                  <FormLabel>Amount</FormLabel>
+                  <Input
+                    type="number"
+                    value={paymentForm.amount}
+                    onChange={(e) =>
+                      setPaymentForm({ ...paymentForm, amount: e.target.value })
+                    }
+                    isDisabled={isSubmitting || Boolean(paymentForm.invoiceId)}
+                  />
+                  {paymentForm.invoiceId && (
+                    <FormHelperText>
+                      Amount is locked to the selected invoice outstanding balance.
+                    </FormHelperText>
+                  )}
+                </FormControl>
+              )}
               <FormControl isRequired>
                 <FormLabel>Payment Date</FormLabel>
                 <Input
@@ -239,7 +266,49 @@ const RecordPaymentModal = ({
               </FormControl>
             </SimpleGrid>
 
-            {paymentForm.paymentSource !== "account_funds" && (
+            {shouldShowCreditNote && (
+              <FormControl>
+                <FormLabel>Credit Note Amount</FormLabel>
+                <Input
+                  type="number"
+                  min={0}
+                  max={Number(creditNoteMax || 0)}
+                  step="0.01"
+                  value={paymentForm.creditNoteAmount ?? "0"}
+                  onChange={(e) => handleCreditNoteChange(e.target.value)}
+                  isDisabled={isSubmitting}
+                />
+              </FormControl>
+            )}
+
+            {isVendorMode && (
+              <Box bg="blue.50" borderRadius="md" p={4}>
+                <VStack align="stretch" spacing={2}>
+                  <HStack justify="space-between">
+                    <Text fontSize="sm" color="gray.600">Invoice Amount</Text>
+                    <Text fontSize="sm" fontWeight="semibold">
+                      {currency} {vendorGrossAmount.toFixed(2)}
+                    </Text>
+                  </HStack>
+                  <HStack justify="space-between">
+                    <Text fontSize="sm" color="gray.600">Credit Note</Text>
+                    <Text fontSize="sm" fontWeight="semibold" color={vendorCreditNoteAmount > 0 ? "orange.600" : "gray.700"}>
+                      {currency} {vendorCreditNoteAmount.toFixed(2)}
+                    </Text>
+                  </HStack>
+                  <Box borderTopWidth="1px" borderColor="blue.100" pt={2}>
+                    <HStack justify="space-between">
+                      <Text fontSize="sm" fontWeight="bold" color="gray.700">Actually Payable</Text>
+                      <Text fontSize="md" fontWeight="bold" color="blue.600">
+                        {currency} {vendorPayableAmount.toFixed(2)}
+                      </Text>
+                    </HStack>
+                  </Box>
+                </VStack>
+              </Box>
+            )}
+
+            {(isVendorMode || paymentForm.paymentSource !== "account_funds") && (
               <>
                 <FormControl isRequired>
                   <FormLabel>Payment Method</FormLabel>
@@ -314,7 +383,7 @@ const RecordPaymentModal = ({
             onClick={onRecordPayment}
             isLoading={isSubmitting}
             loadingText="Recording..."
-            isDisabled={!paymentForm.customerId || !paymentForm.amount || isSubmitting}
+            isDisabled={!paymentForm.customerId || !paymentForm.paymentDate || (!isVendorMode && !paymentForm.amount) || isSubmitting}
           >
             Record Payment
           </Button>

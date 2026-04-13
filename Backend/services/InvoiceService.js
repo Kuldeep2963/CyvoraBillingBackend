@@ -286,6 +286,23 @@ class InvoiceService {
       // Get country codes for mapping
       const countryCodes = await CountryCode.findAll({ raw: true });
 
+      const normalizedBillingPeriodStart = formatTime(billingPeriodStart);
+      const normalizedBillingPeriodEnd = formatTime(billingPeriodEnd, 23, true);
+      const invoiceAccountCode = isVendor ? account.vendorCode : account.customerCode;
+
+      const duplicateInvoice = await Invoice.findOne({
+        where: {
+          customerCode: invoiceAccountCode,
+          billingPeriodStart: normalizedBillingPeriodStart,
+          billingPeriodEnd: normalizedBillingPeriodEnd,
+        },
+        transaction,
+      });
+
+      if (duplicateInvoice) {
+        throw new Error('An invoice already exists for this billing period');
+      }
+
       // ✅ Build CDR WHERE conditions using authentication logic
       const authConditions = buildAccountConditions(account, isVendor);
       
@@ -295,7 +312,7 @@ class InvoiceService {
 
       const cdrWhere = {
         starttime: {
-          [Op.between]: [formatTime(billingPeriodStart), formatTime(billingPeriodEnd, 23, true)]
+          [Op.between]: [normalizedBillingPeriodStart, normalizedBillingPeriodEnd]
         },
         [Op.or]: authConditions
       };
@@ -407,8 +424,8 @@ class InvoiceService {
           asr: item.totalCalls > 0 ? parseFloat(((item.completedCalls / item.totalCalls) * 100).toFixed(2)) : 0,
           acd: item.completedCalls > 0 ? parseFloat((item.duration / item.completedCalls).toFixed(2)) : 0,
           taxable: true,
-          periodStart: formatTime(billingPeriodStart),
-          periodEnd: formatTime(billingPeriodEnd, 23, true),
+          periodStart: normalizedBillingPeriodStart,
+          periodEnd: normalizedBillingPeriodEnd,
           sortOrder: index
         };
       });
@@ -433,8 +450,8 @@ class InvoiceService {
         customerEmail: account.email,
         customerAddress: account.addressLine1 + (account.addressLine2 ? ', ' + account.addressLine2 : ''),
         customerPhone: account.phone,
-        billingPeriodStart: formatTime(billingPeriodStart),
-        billingPeriodEnd: formatTime(billingPeriodEnd, 23, true),
+        billingPeriodStart: normalizedBillingPeriodStart,
+        billingPeriodEnd: normalizedBillingPeriodEnd,
         invoiceDate,
         dueDate,
         subtotal: parseFloat(subtotal.toFixed(4)),

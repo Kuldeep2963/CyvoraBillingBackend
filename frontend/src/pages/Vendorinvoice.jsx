@@ -63,6 +63,7 @@ import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/
 import PageNavBar from "../components/PageNavBar";
 import DataTable from "../components/DataTable";
 import ConfirmDialog from "../components/ConfirmDialog";
+import RecordPaymentModal from "../components/modals/RecordPaymentModal";
 import { useNavigate } from "react-router-dom";
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
@@ -70,7 +71,7 @@ import {
   uploadVendorInvoice,
   previewVendorInvoiceUsage,
   fetchVendorInvoices,
-  markInvoiceAsPaid,
+  recordVendorInvoicePayment,
   deletevendorinvoice,
   fetchVendorInvoiceFiles,
   downloadVendorInvoiceFileBlob,
@@ -108,7 +109,6 @@ import {
 } from "react-icons/fi";
 
 const CURRENCY = ["USD", "EUR", "GBP", "INR", "AED", "SGD"];
-
 const fmtBytes = (b) => {
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
@@ -161,6 +161,40 @@ const pickFileIcon = (name = "") => {
   return FiFile;
 };
 
+const pad2 = (value) => String(value).padStart(2, "0");
+
+const toLocalDateInputValue = (value) => {
+  if (!value) return "";
+
+  const source = value instanceof Date ? value : new Date(String(value).slice(0, 10) + "T00:00:00");
+  if (Number.isNaN(source.getTime())) return "";
+
+  return `${source.getFullYear()}-${pad2(source.getMonth() + 1)}-${pad2(source.getDate())}`;
+};
+
+const getTodayInputValue = () => toLocalDateInputValue(new Date());
+
+const shiftDateInputValue = (value, days) => {
+  if (!value) return "";
+
+  const source = value instanceof Date ? new Date(value) : new Date(String(value).slice(0, 10) + "T00:00:00");
+  if (Number.isNaN(source.getTime())) return "";
+
+  source.setDate(source.getDate() + days);
+  return toLocalDateInputValue(source);
+};
+
+const getVendorBillingDefaults = (vendor) => {
+  const lastBillingDate = vendor?.vendorLastBillingDate || vendor?.lastbillingdate || "";
+  const nextBillingDate = vendor?.vendorNextBillingDate || vendor?.nextbillingdate || "";
+
+  return {
+    issueDate: getTodayInputValue(),
+    startDate: toLocalDateInputValue(lastBillingDate),
+    endDate: shiftDateInputValue(nextBillingDate, -1) || toLocalDateInputValue(nextBillingDate),
+  };
+};
+
 // ── Status badge helper ───────────────────────────────────────
 const StatusBadge = ({ status }) => {
   const map = {
@@ -202,6 +236,17 @@ const InvoicesTab = ({ onAddNew }) => {
   const [isEditFilesUploading, setIsEditFilesUploading] = useState(false);
   const [uploadTargetInvoice, setUploadTargetInvoice] = useState(null);
   const [isQuickUploading, setIsQuickUploading] = useState(false);
+  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [paymentTargetInvoice, setPaymentTargetInvoice] = useState(null);
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({
+    paymentDate: getTodayInputValue(),
+    paymentMethod: "bank_transfer",
+    transactionId: "",
+    referenceNumber: "",
+    notes: "",
+    creditNoteAmount: "0",
+  });
   const [editForm, setEditForm] = useState({
     invoiceNumber: "",
     issueDate: "",
@@ -533,24 +578,98 @@ const InvoicesTab = ({ onAddNew }) => {
 
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
 
-  const handleMarkAsPaid = async (id) => {
-    try {
-      await markInvoiceAsPaid(id);
+  const openRecordPaymentModal = (row) => {
+    setPaymentTargetInvoice(row);
+    setPaymentForm({
+      customerId: row?.vendorCode || row?.vendor?.vendorCode || row?.vendor?.id || "",
+      paymentSource: "new_payment",
+      invoiceId: "",
+      amount: Number((Number(row?.grandTotal || 0) - Number(row?.creditNoteAmount || 0)).toFixed(2)).toString(),
+      paymentDate: getTodayInputValue(),
+      paymentMethod: "bank_transfer",
+      transactionId: "",
+      referenceNumber: row?.invoiceNumber || "",
+      notes: "",
+      creditNoteAmount: Number(row?.creditNoteAmount || 0).toFixed(2),
+    });
+    setIsPaymentOpen(true);
+  };
+
+  const closeRecordPaymentModal = () => {
+    if (isRecordingPayment) return;
+    setIsPaymentOpen(false);
+    setPaymentTargetInvoice(null);
+    setPaymentForm({
+      customerId: "",
+      paymentSource: "new_payment",
+      invoiceId: "",
+      amount: "",
+      paymentDate: getTodayInputValue(),
+      paymentMethod: "bank_transfer",
+      transactionId: "",
+      referenceNumber: "",
+      notes: "",
+      creditNoteAmount: "0",
+    });
+  };
+
+  const handleRecordPayment = async () => {
+    if (!paymentTargetInvoice?.id) return;
+
+    const invoiceTotal = Number(paymentTargetInvoice.grandTotal || 0);
+    const creditNoteAmount = Number(paymentForm.creditNoteAmount || 0);
+
+    if (Number.isNaN(creditNoteAmount) || creditNoteAmount < 0) {
       toast({
-        title: "Invoice marked as paid",
+        title: "Invalid credit note",
+        description: "Credit note amount must be a non-negative number",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    if (creditNoteAmount > invoiceTotal) {
+      toast({
+        title: "Invalid credit note",
+        description: "Credit note amount cannot exceed invoice total",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    setIsRecordingPayment(true);
+    try {
+      await recordVendorInvoicePayment(paymentTargetInvoice.id, {
+        paymentDate: paymentForm.paymentDate,
+        paymentMethod: paymentForm.paymentMethod,
+        transactionId: paymentForm.transactionId || undefined,
+        referenceNumber: paymentForm.referenceNumber || undefined,
+        notes: paymentForm.notes || undefined,
+        creditNoteAmount,
+      });
+
+      toast({
+        title: "Payment recorded",
         status: "success",
         duration: 4000,
         isClosable: true,
       });
-      loadInvoices(); // Reload invoices to reflect the updated status
+      closeRecordPaymentModal();
+      loadInvoices();
     } catch (err) {
       toast({
-        title: "Failed to mark invoice as paid",
+        title: "Failed to record payment",
         description: err.message,
         status: "error",
         duration: 4000,
         isClosable: true,
       });
+    } finally {
+      setIsRecordingPayment(false);
     }
   };
 
@@ -597,6 +716,15 @@ const InvoicesTab = ({ onAddNew }) => {
       header: "Grand Total",
       render: (value, row) => (
         <Text fontSize="13px" fontWeight="700" color="gray.800">
+          {row.currency || "USD"} {Number(value || 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </Text>
+      ),
+    },
+    {
+      key: "creditNoteAmount",
+      header: "Credit Note",
+      render: (value, row) => (
+        <Text fontSize="13px" fontWeight="600" color={Number(value || 0) > 0 ? "orange.600" : "gray.500"}>
           {row.currency || "USD"} {Number(value || 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </Text>
       ),
@@ -676,7 +804,7 @@ const InvoicesTab = ({ onAddNew }) => {
               <>
                 <MenuItem icon={<FiEdit2 />} onClick={() => openEditModal(row)} fontSize="13px">Edit invoice</MenuItem>
                 <MenuItem icon={<FiTrash2 />} onClick={() => setDeleteInvoiceTarget(row)} fontSize="13px">Delete</MenuItem>
-                <MenuItem icon={<FiCheck />} onClick={() => handleMarkAsPaid(row.id)} fontSize="13px">Mark as paid</MenuItem>
+                <MenuItem icon={<FiDollarSign />} onClick={() => openRecordPaymentModal(row)} fontSize="13px">Record payment</MenuItem>
               </>
             )}
           </MenuList>
@@ -697,8 +825,6 @@ const InvoicesTab = ({ onAddNew }) => {
       />
 
       {/* Table card */}
-      <Card bg={cardBg} border="1px" borderColor={border} shadow="sm" borderRadius="12px">
-        <CardHeader pb={3}>
           <Flex align="center" justify="space-between" flexWrap="wrap" gap={3}>
             <HStack>
               <Box w={1} h={5} bg="blue.500" borderRadius="full" />
@@ -743,9 +869,7 @@ const InvoicesTab = ({ onAddNew }) => {
               </Button>
             </HStack>
           </Flex>
-        </CardHeader>
 
-        <CardBody p={3}>
           {error ? (
             <Flex direction="column" align="center" py={10} color="red.400">
               <FiAlertTriangle size={32} style={{ marginBottom: "8px", opacity: 0.6 }} />
@@ -762,7 +886,7 @@ const InvoicesTab = ({ onAddNew }) => {
               actions={false}
               compact
               striped
-              height="420px"
+              height="430px"
               serverPagination
               page={pagination.page || page}
               pageSize={pagination.limit || pageSize}
@@ -775,8 +899,6 @@ const InvoicesTab = ({ onAddNew }) => {
               isPaginationDisabled={isLoading}
             />
           )}
-        </CardBody>
-      </Card>
 
       <Modal isOpen={isFilesOpen} onClose={() => setIsFilesOpen(false)} size="xl" isCentered>
         <ModalOverlay />
@@ -972,6 +1094,26 @@ const InvoicesTab = ({ onAddNew }) => {
         </ModalContent>
       </Modal>
 
+      <RecordPaymentModal
+        isOpen={isPaymentOpen}
+        onClose={closeRecordPaymentModal}
+        paymentForm={paymentForm}
+        setPaymentForm={setPaymentForm}
+        customers={paymentTargetInvoice ? [{
+          accountId: paymentTargetInvoice?.vendor?.id || paymentTargetInvoice?.vendorId || paymentTargetInvoice?.id,
+          accountName: paymentTargetInvoice?.vendor?.accountName || paymentTargetInvoice?.vendorCode || paymentTargetInvoice?.vendorCode,
+          vendorCode: paymentTargetInvoice?.vendor?.vendorCode || paymentTargetInvoice?.vendorCode,
+        }] : []}
+        onRecordPayment={handleRecordPayment}
+        isSubmitting={isRecordingPayment}
+        mode="vendor"
+        title="Record Vendor Payment"
+        lockEntitySelection
+        showCreditNote
+        creditNoteMax={Number(paymentTargetInvoice?.grandTotal || 0)}
+        currency={paymentTargetInvoice?.currency || "USD"}
+      />
+
       <ConfirmDialog
         isOpen={!!deleteFileTarget}
         onClose={() => {
@@ -1032,7 +1174,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
   const [isCheckingUsage, setIsCheckingUsage] = useState(false);
 
   const [form, setForm] = useState({
-    vendorCode: "", invoiceNumber: "", issueDate: "",
+    vendorCode: "", invoiceNumber: "", issueDate: getTodayInputValue(),
     startDate: "", endDate: "", grandTotal: "", currency: "USD", totalSeconds: "",
   });
   const [errors, setErrors] = useState({});
@@ -1056,8 +1198,28 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
   }, [toast]);
 
   const handleField = (k, v) => {
-    setForm(p => ({ ...p, [k]: v }));
-    if (errors[k]) setErrors(p => ({ ...p, [k]: "" }));
+    if (k === "vendorCode") {
+      const selectedVendor = vendors.find((vendor) => String(vendor.vendorCode || vendor.accountId) === String(v));
+      const billingDefaults = selectedVendor ? getVendorBillingDefaults(selectedVendor) : { issueDate: getTodayInputValue(), startDate: "", endDate: "" };
+
+      setForm((p) => ({
+        ...p,
+        vendorCode: v,
+        ...billingDefaults,
+      }));
+    } else {
+      setForm(p => ({ ...p, [k]: v }));
+    }
+    if (errors[k] || k === "vendorCode") {
+      setErrors((p) => ({
+        ...p,
+        vendorCode: k === "vendorCode" ? "" : p.vendorCode,
+        issueDate: k === "vendorCode" ? "" : p.issueDate,
+        startDate: k === "vendorCode" ? "" : p.startDate,
+        endDate: k === "vendorCode" ? "" : p.endDate,
+        [k]: "",
+      }));
+    }
     if (["vendorCode", "startDate", "endDate", "grandTotal"].includes(k)) {
       setUsageComparison(null);
     }
@@ -1172,7 +1334,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
   };
 
   const handleReset = () => {
-    setForm({ vendorCode: "", invoiceNumber: "", issueDate: "", startDate: "", endDate: "", grandTotal: "", currency: "USD", totalSeconds: "" });
+    setForm({ vendorCode: "", invoiceNumber: "", issueDate: getTodayInputValue(), startDate: "", endDate: "", grandTotal: "", currency: "USD", totalSeconds: "" });
     setFiles([]); setErrors({}); setSubmitted(false); setUsageComparison(null);
   };
 
@@ -1189,7 +1351,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
             <Heading size="md" color="gray.800" mb={2}>Invoice Submitted!</Heading>
             <Text color="gray.500" fontSize="sm" mb={1}>Invoice <b>{form.invoiceNumber}</b></Text>
             <Text color="gray.500" fontSize="sm" mb={6}>
-              {selectedVendor?.name} · {files.length} file{files.length !== 1 ? "s" : ""} attached
+              {selectedVendor?.accountName || selectedVendor?.name} · {files.length} file{files.length !== 1 ? "s" : ""} attached
             </Text>
 
             {/* Display usage comparison if available */}
@@ -1515,7 +1677,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
               <Text fontSize="xs" fontWeight="600" color="whiteAlpha.800" letterSpacing="1px" mb={4} textTransform="uppercase">Invoice Summary</Text>
               <VStack spacing={3} align="stretch">
                 {[
-                  { label: "Vendor",     value: selectedVendor?.name || "—" },
+                  { label: "Vendor",     value: selectedVendor?.accountName || selectedVendor?.name || "—" },
                   { label: "Invoice #",  value: form.invoiceNumber || "—" },
                   { label: "Issue Date", value: form.issueDate ? new Date(form.issueDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—" },
                   { label: "Period",     value: form.startDate && form.endDate ? `${new Date(form.startDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })} – ${new Date(form.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : "—" },
@@ -1552,7 +1714,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
               <Text fontSize="xs" fontWeight="600" color="gray.400" letterSpacing="1px" mb={3} textTransform="uppercase">Completion</Text>
               <VStack spacing={2} align="stretch">
                 {[
-                  { label: "Vendor selected",   done: !!form.vendorId },
+                  { label: "Vendor selected",   done: !!form.vendorCode },
                   { label: "Invoice number",     done: !!form.invoiceNumber },
                   { label: "Issue date",         done: !!form.issueDate },
                   { label: "Billing period",     done: !!form.startDate && !!form.endDate },
@@ -1573,7 +1735,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
               </VStack>
               <Box mt={3}>
                 {(() => {
-                  const checks = [!!form.vendorId, !!form.invoiceNumber, !!form.issueDate, !!form.startDate && !!form.endDate, !!form.grandTotal, !!form.totalSeconds, files.length > 0 && files.every(f => f.done)];
+                  const checks = [!!form.vendorCode, !!form.invoiceNumber, !!form.issueDate, !!form.startDate && !!form.endDate, !!form.grandTotal, !!form.totalSeconds, files.length > 0 && files.every(f => f.done)];
                   const pct = Math.round(checks.filter(Boolean).length / checks.length * 100);
                   return (
                     <>

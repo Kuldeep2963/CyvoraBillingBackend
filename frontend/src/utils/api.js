@@ -1142,6 +1142,26 @@ export const markInvoiceAsPaid = async (id) => {
   }
 };
 
+export const recordVendorInvoicePayment = async (id, payload = {}) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/vendor-invoices/${id}/status`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({
+        status: 'paid',
+        ...payload,
+      }),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error recording payment for vendor invoice ${id}:`, error);
+    throw error;
+  }
+};
+
 export const fetchVendorInvoiceFiles = async (id) => {
   try {
     return await fetchWithTokenRefresh(`${API_BASE_URL}/vendor-invoices/${id}/files`, {

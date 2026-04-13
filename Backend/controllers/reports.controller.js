@@ -389,10 +389,40 @@ const buildAllAccountsWhereClause = async (timerangeLiteral, vendorReport) => {
   return where;
 };
 
+const normalizeTrunkFilter = (trunk) => {
+  const raw = String(trunk || '').trim().toUpperCase();
+  if (!raw || raw === 'ALL') return '';
+
+  if (raw === 'NCLI') return 'NCLI';
+  if (raw === 'CLI') return 'CLI';
+  if (raw === 'CC') return 'CC';
+  if (raw === 'ORTP/TDM' || raw === 'ORTP_TDM' || raw === 'ORTP-TDM' || raw === 'ORTPTDM') return 'ORTP/TDM';
+
+  return '';
+};
+
+const getTrunkWhereCondition = (trunk) => {
+  const normalized = normalizeTrunkFilter(trunk);
+  if (!normalized) return null;
+
+  const prefixByTrunk = {
+    NCLI: '10',
+    CLI: '20',
+    'ORTP/TDM': '30',
+    CC: '40',
+  };
+
+  const prefix = prefixByTrunk[normalized];
+  if (!prefix) return null;
+
+  return { calleee164: { [Op.like]: `${prefix}%` } };
+};
+
 /* ===================== HELPER: BUILD WHERE CLAUSE ===================== */
-const buildWhereClause = async (startDate, endDate, startHour, endHour, startMinute = 0, endMinute = 59, accountId, vendorReport) => {
+const buildWhereClause = async (startDate, endDate, startHour, endHour, startMinute = 0, endMinute = 59, accountId, vendorReport, trunk = 'all') => {
   const startTs = Number(formatTime(startDate, startHour, startMinute));
   const endTs = Number(formatTime(endDate, endHour, endMinute, true));
+  const trunkCondition = getTrunkWhereCondition(trunk);
 
   // Create the SQL CASE statement for time range filtering
   const timerangeLiteral = sequelize.literal(
@@ -401,7 +431,11 @@ const buildWhereClause = async (startDate, endDate, startHour, endHour, startMin
 
   // 🎯 OPTIMIZATION: Handle "all" accounts with authentication-based matching
   if (!accountId || accountId === 'all') {
-    return await buildAllAccountsWhereClause(timerangeLiteral, vendorReport);
+    const where = await buildAllAccountsWhereClause(timerangeLiteral, vendorReport);
+    if (trunkCondition) {
+      where[Op.and].push(trunkCondition);
+    }
+    return where;
   }
 
   // Original single-account logic
@@ -441,6 +475,10 @@ const buildWhereClause = async (startDate, endDate, startHour, endHour, startMin
     where[Op.and].push({ [Op.or]: conditions });
   }
 
+  if (trunkCondition) {
+    where[Op.and].push(trunkCondition);
+  }
+
   return where;
 };
 
@@ -457,6 +495,7 @@ exports.hourlyReport = async (req, res) => {
       endHour = 23,
       endMinute = 59,
       vendorReport = false,
+      trunk = 'all',
       ownerName = ''
     } = req.body;
 
@@ -468,6 +507,7 @@ exports.hourlyReport = async (req, res) => {
       endDate,
       time: `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')} - ${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`,
       accountId,
+      trunk,
       vendorReport,
       startTimeFormatted,
       endTimeFormatted
@@ -481,7 +521,8 @@ exports.hourlyReport = async (req, res) => {
       startMinute,
       endMinute,
       accountId,
-      vendorReport
+      vendorReport,
+      trunk
     );
 
     console.log(' Applied WHERE clause (time range):', {
@@ -597,14 +638,14 @@ exports.hourlyReport = async (req, res) => {
 /* ===================== MARGIN REPORT ===================== */
 exports.marginReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes(); // ✅ Using cache
 
     console.log('Margin Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, vendorReport
+      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
     });
 
-    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport);
+    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
 
     // Get all CDRs with country information
     const cdrs = await CDR.findAll({
@@ -717,14 +758,14 @@ exports.marginReport = async (req, res) => {
 /* ===================== CUSTOMER TRAFFIC REPORT (customer-to-vendor) ===================== */
 exports.customerTrafficReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes(); // ✅ Using cache
 
     console.log('Customer Traffic Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, vendorReport
+      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
     });
 
-    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport);
+    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
 
     // Get all CDRs grouped by individual numbers first
     const cdrs = await CDR.findAll({
@@ -856,14 +897,14 @@ exports.customerTrafficReport = async (req, res) => {
 /* ===================== CUSTOMER-ONLY TRAFFIC REPORT ===================== */
 exports.customerOnlyTrafficReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes();
 
     console.log('Customer‑only Traffic Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute
+      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk
     });
 
-    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, false);
+    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, false, trunk);
 
     const cdrs = await CDR.findAll({
       attributes: [
@@ -955,14 +996,14 @@ exports.customerOnlyTrafficReport = async (req, res) => {
 /* ===================== VENDOR-ONLY TRAFFIC REPORT ===================== */
 exports.vendorTrafficReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes();
 
     console.log('Vendor‑only Traffic Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute
+      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk
     });
 
-    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, true);
+    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, true, trunk);
 
     const cdrs = await CDR.findAll({
       attributes: [
@@ -1057,14 +1098,14 @@ exports.vendorTrafficReport = async (req, res) => {
 /* ===================== NEGATIVE MARGIN REPORT ===================== */
 exports.negativeMarginReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes(); // ✅ Using cache
 
     console.log('Negative Margin Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, vendorReport
+      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
     });
 
-    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport);
+    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
 
     // Get all CDRs grouped by individual numbers first
     const cdrs = await CDR.findAll({

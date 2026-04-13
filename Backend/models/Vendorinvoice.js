@@ -37,6 +37,11 @@ const VendorInvoice = sequelize.define('VendorInvoice', {
     type: DataTypes.DECIMAL(15, 2),
     allowNull: false
   },
+  creditNoteAmount: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: false,
+    defaultValue: 0
+  },
   currency: {
     type: DataTypes.STRING(3),
     defaultValue: 'USD',

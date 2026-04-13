@@ -34,6 +34,46 @@ const formatTime = (date, hour = 0, isEnd = false) => {
   return d.getTime().toString();
 };
 
+const addDaysAsDateOnly = (dateValue, days) => {
+  if (!dateValue && dateValue !== 0) return null;
+
+  const numericDate = Number(dateValue);
+  const baseDate = !isNaN(numericDate) ? new Date(numericDate) : new Date(dateValue);
+  if (isNaN(baseDate.getTime())) return null;
+
+  baseDate.setDate(baseDate.getDate() + days);
+  return baseDate.toISOString().split('T')[0];
+};
+
+const syncInvoiceBillingDates = async (account, invoiceType, billedThroughDate, transaction) => {
+  if (!account || !billedThroughDate) return;
+
+  const nextBillingDate = BillingAutomationService.calculateNextBillingDate(
+    billedThroughDate,
+    account.billingCycle,
+  );
+
+  const updates = {};
+
+  if (invoiceType === 'vendor') {
+    updates.vendorLastBillingDate = billedThroughDate;
+    updates.vendorNextBillingDate = nextBillingDate;
+    if (String(account.accountRole || '').toLowerCase() !== 'both') {
+      updates.lastbillingdate = billedThroughDate;
+      updates.nextbillingdate = nextBillingDate;
+    }
+  } else {
+    updates.customerLastBillingDate = billedThroughDate;
+    updates.customerNextBillingDate = nextBillingDate;
+    updates.lastbillingdate = billedThroughDate;
+    updates.nextbillingdate = nextBillingDate;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await account.update(updates, { transaction });
+  }
+};
+
 /* ===================== HELPER: GET COUNTRY FROM NUMBER ===================== */
 const getCountryFromNumber = (number, countryCodes) => {
   if (!number) return "Unknown";
@@ -325,6 +365,26 @@ exports.generateInvoice = async (req, res) => {
       });
     }
 
+    const normalizedBillingPeriodStart = formatTime(billingPeriodStart);
+    const normalizedBillingPeriodEnd = formatTime(billingPeriodEnd, 23, true);
+
+    const duplicateInvoice = await Invoice.findOne({
+      where: {
+        customerCode: account.customerCode,
+        billingPeriodStart: normalizedBillingPeriodStart,
+        billingPeriodEnd: normalizedBillingPeriodEnd,
+      },
+      transaction,
+    });
+
+    if (duplicateInvoice) {
+      await transaction.rollback();
+      return res.status(409).json({
+        success: false,
+        error: "An invoice already exists for this customer and billing period",
+      });
+    }
+
     // Get country codes for mapping
     const countryCodes = await CountryCode.findAll({ raw: true });
 
@@ -341,8 +401,8 @@ exports.generateInvoice = async (req, res) => {
     const cdrWhere = {
       starttime: {
         [Op.between]: [
-          formatTime(billingPeriodStart),
-          formatTime(billingPeriodEnd, 23, true),
+          normalizedBillingPeriodStart,
+          normalizedBillingPeriodEnd,
         ],
       },
       [Op.or]: authConditions,
@@ -495,8 +555,8 @@ exports.generateInvoice = async (req, res) => {
               ? parseFloat((item.duration / item.completedCalls).toFixed(2))
               : 0,
           taxable: true,
-          periodStart: formatTime(billingPeriodStart),
-          periodEnd: formatTime(billingPeriodEnd, 23, true),
+          periodStart: normalizedBillingPeriodStart,
+          periodEnd: normalizedBillingPeriodEnd,
           sortOrder: index,
         };
       });
@@ -527,8 +587,8 @@ exports.generateInvoice = async (req, res) => {
           account.addressLine1 +
           (account.addressLine2 ? ", " + account.addressLine2 : ""),
         customerPhone: account.phone,
-        billingPeriodStart: formatTime(billingPeriodStart),
-        billingPeriodEnd: formatTime(billingPeriodEnd, 23, true),
+        billingPeriodStart: normalizedBillingPeriodStart,
+        billingPeriodEnd: normalizedBillingPeriodEnd,
         invoiceDate,
         dueDate,
         subtotal: parseFloat(subtotal.toFixed(4)),
@@ -556,6 +616,9 @@ exports.generateInvoice = async (req, res) => {
         { transaction },
       );
     }
+
+    const billedThroughDate = addDaysAsDateOnly(billingPeriodEnd, 1);
+    await syncInvoiceBillingDates(account, "customer", billedThroughDate, transaction);
 
     await transaction.commit();
 
@@ -1720,6 +1783,7 @@ exports.recordPayment = async (req, res) => {
         referenceNumber,
         allocatedAmount: parseFloat(totalAllocated),
         unappliedAmount: parseFloat(amount - totalAllocated),
+        creditNoteAmount: 0,
         notes:
           paymentSource === "account_funds"
             ? notes
@@ -1869,6 +1933,8 @@ exports.getAllPayments = async (req, res) => {
   try {
     const {
       customerId,
+      partyType,
+      paymentDirection,
       search,
       startDate,
       endDate,
@@ -1929,8 +1995,13 @@ exports.getAllPayments = async (req, res) => {
       }
     }
 
-    where.partyType = "customer";
-    where.paymentDirection = "inbound";
+    if (partyType) {
+      where.partyType = String(partyType).trim().toLowerCase();
+    }
+
+    if (paymentDirection) {
+      where.paymentDirection = String(paymentDirection).trim().toLowerCase();
+    }
 
     if (startDate && endDate) {
       where.paymentDate = {

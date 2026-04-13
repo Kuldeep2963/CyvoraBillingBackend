@@ -24,7 +24,7 @@ import {
   Td,
   Icon,
 } from "@chakra-ui/react";
-import { FiDollarSign, FiCalendar, FiUser, FiCreditCard, FiHash, FiInfo } from "react-icons/fi";
+import { FiDollarSign, FiCalendar, FiUser, FiCreditCard, FiHash, FiInfo, FiArrowDown, FiArrowUp } from "react-icons/fi";
 import { format } from "date-fns";
 
 const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
@@ -61,10 +61,20 @@ const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
                 <Box>
                   <HStack color="gray.500" mb={1}>
                     <Icon as={FiUser} />
-                    <Text fontSize="xs" fontWeight="bold" textTransform="uppercase">Customer</Text>
+                    <Text fontSize="xs" fontWeight="bold" textTransform="uppercase">Party</Text>
                   </HStack>
                   <Text fontWeight="bold">{payment.customerName}</Text>
                   <Text fontSize="sm" color="gray.600">{payment.customerGatewayId}</Text>
+                </Box>
+
+                <Box>
+                  <HStack color="gray.500" mb={1}>
+                    <Icon as={String(payment.paymentDirection).toLowerCase() === 'outbound' ? FiArrowDown : FiArrowUp} />
+                    <Text fontSize="xs" fontWeight="bold" textTransform="uppercase">Flow</Text>
+                  </HStack>
+                  <Badge colorScheme={String(payment.paymentDirection).toLowerCase() === 'outbound' ? 'red' : 'green'} variant="subtle" textTransform="capitalize">
+                    {payment.paymentDirection || 'inbound'}
+                  </Badge>
                 </Box>
                 
                 <Box>
@@ -101,7 +111,7 @@ const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
             <Divider />
 
             <Box bg="gray.50" p={4} borderRadius="md">
-              <SimpleGrid columns={3} spacing={4}>
+              <SimpleGrid columns={Number(payment.creditNoteAmount || 0) > 0 ? 4 : 3} spacing={4}>
                 <VStack align="center">
                   <Text fontSize="xs" color="gray.500" fontWeight="bold">Total Amount</Text>
                   <Text fontSize="xl" fontWeight="bold" color="blue.600">
@@ -120,6 +130,14 @@ const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
                     ${parseFloat(payment.unappliedAmount).toFixed(4)}
                   </Text>
                 </VStack>
+                {Number(payment.creditNoteAmount || 0) > 0 && (
+                  <VStack align="center">
+                    <Text fontSize="xs" color="gray.500" fontWeight="bold">Credit Note</Text>
+                    <Text fontSize="xl" fontWeight="bold" color="orange.500">
+                      ${parseFloat(payment.creditNoteAmount).toFixed(4)}
+                    </Text>
+                  </VStack>
+                )}
               </SimpleGrid>
             </Box>
 

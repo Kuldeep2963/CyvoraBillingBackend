@@ -16,6 +16,8 @@ import {
   FiDollarSign,
   FiSearch,
   FiDownload,
+  FiArrowDown,
+  FiArrowUp,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
 import RecordPaymentModal from "../components/modals/RecordPaymentModal";
@@ -57,6 +59,16 @@ const Payments = () => {
     invoiceId: "",
   });
   const toast = useToast();
+
+  const getPaymentFlowMeta = (payment) => {
+    const direction = String(payment?.paymentDirection || "inbound").toLowerCase();
+    return {
+      direction,
+      label: direction === "outbound" ? "Outbound" : "Inbound",
+      colorScheme: direction === "outbound" ? "red" : "green",
+      icon: direction === "outbound" ? FiArrowUp : FiArrowDown,
+    };
+  };
 
   useEffect(() => {
     loadCustomers();
@@ -167,9 +179,12 @@ const Payments = () => {
           "yyyy-MM-dd",
         ),
         Amount: parseFloat(p.amount).toFixed(2),
+        Direction: String(p.paymentDirection || "inbound").toUpperCase(),
+        Party: String(p.partyType || "customer").toUpperCase(),
         Method: p.paymentMethod,
         Allocated: parseFloat(p.allocatedAmount).toFixed(2),
         Unapplied: parseFloat(p.unappliedAmount).toFixed(2),
+        "Credit Note": parseFloat(p.creditNoteAmount || 0).toFixed(2),
         "Transaction ID": p.transactionId || "",
         "Reference #": p.referenceNumber || "",
       }));
@@ -208,14 +223,27 @@ const Payments = () => {
           <Text fontWeight="bold" color="blue.600">
             {value}
           </Text>
-          {/* <Text fontSize="xs" color="gray.500">
-            Receipt: {row.receiptNumber}
-          </Text> */}
+          <Text fontSize="xs" color="gray.500">
+            {String(row.partyType || "customer").toUpperCase()}
+          </Text>
         </VStack>
       ),
     },
     {
-      header: "Customer",
+      header: "Flow",
+      key: "paymentDirection",
+      render: (_, row) => {
+        const flow = getPaymentFlowMeta(row);
+        return (
+          <Badge colorScheme={flow.colorScheme} variant="subtle" textTransform="capitalize" display="inline-flex" alignItems="center" gap={1}>
+            <Box as={flow.icon} />
+            {flow.label}
+          </Badge>
+        );
+      },
+    },
+    {
+      header: "Party",
       maxWidth: "200px",
       key: "customerName",
       render: (value, row) => (
@@ -242,6 +270,17 @@ const Payments = () => {
           color={parseFloat(value) > 0 ? "green.500" : "black"}
         >
           ${parseFloat(value).toFixed(4)}
+        </Text>
+      ),
+    },
+    {
+      header: "Credit Note",
+      key: "creditNoteAmount",
+      type: "currency",
+      isNumeric: true,
+      render: (value) => (
+        <Text fontWeight="medium" color={Number(value || 0) > 0 ? "orange.500" : "gray.500"}>
+          ${Number(value || 0).toFixed(4)}
         </Text>
       ),
     },
@@ -325,7 +364,7 @@ const Payments = () => {
         <PageNavBar
         mb={2}
           title="Payment Records"
-          description="Manage and track all customer payments"
+          description="Manage and track inbound and outbound payments"
           rightContent={
             <Flex gap={3}>
               <Button
@@ -439,7 +478,7 @@ const Payments = () => {
             </InputLeftElement>
             <Input
               pl={8}
-              placeholder="Search by payment, customer..."
+              placeholder="Search by payment, party..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />

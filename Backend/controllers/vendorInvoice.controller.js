@@ -9,6 +9,7 @@ const fs = require('fs');
 const { normalizeStoredPath, toStoredRelativePath } = require('../config/storage');
 const H = require('../utils/reportHelper');
 const EmailService = require('../services/EmailService');
+const BillingAutomationService = require('../services/BillingAutomationService');
 
 const parseStoredFilePaths = (rawValue) => {
   if (!rawValue) return [];
@@ -64,6 +65,45 @@ const removeFileSafe = async (storedPathOrAbsolutePath) => {
 const cleanupUploadedFiles = async (files) => {
   const filePaths = Array.isArray(files) ? files.map((file) => file?.path).filter(Boolean) : [];
   await Promise.allSettled(filePaths.map((filePath) => removeFileSafe(filePath)));
+};
+
+const addDaysAsDateOnly = (dateValue, days) => {
+  if (!dateValue && dateValue !== 0) return null;
+
+  const numericDate = Number(dateValue);
+  const baseDate = !isNaN(numericDate) ? new Date(numericDate) : new Date(dateValue);
+  if (isNaN(baseDate.getTime())) return null;
+
+  baseDate.setDate(baseDate.getDate() + days);
+  return baseDate.toISOString().split('T')[0];
+};
+
+const buildVendorBillingUpdates = (account, billedThroughDate) => {
+  const nextBillingDate = BillingAutomationService.calculateNextBillingDate(
+    billedThroughDate,
+    account.billingCycle,
+  );
+
+  const updates = {
+    vendorLastBillingDate: billedThroughDate,
+    vendorNextBillingDate: nextBillingDate,
+  };
+
+  if (String(account.accountRole || '').toLowerCase() !== 'both') {
+    updates.lastbillingdate = billedThroughDate;
+    updates.nextbillingdate = nextBillingDate;
+  }
+
+  return updates;
+};
+
+const parsePaymentDate = (value) => {
+  if (!value) return Date.now();
+
+  const numericDate = Number(value);
+  const date = !isNaN(numericDate) ? new Date(numericDate) : new Date(value);
+  if (isNaN(date.getTime())) return Date.now();
+  return date.getTime();
 };
 
 const generatePaymentNumber = async () => {
@@ -307,7 +347,7 @@ exports.createVendorInvoice = async (req, res) => {
     const normalizedInvoiceNumber = String(invoiceNumber || '').trim();
     const normalizedVendorCode = String(vendorCode || '').trim();
     const normalizedCurrency = String(currency || 'USD').trim() || 'USD';
-    const normalizedIssueDate = String(issueDate || '').trim();
+    const normalizedIssueDate = String(issueDate || '').trim() || new Date().toISOString().split('T')[0];
     const normalizedStartDate = String(startDate || '').trim();
     const normalizedEndDate = String(endDate || '').trim();
     const normalizedGrandTotal = Number(grandTotal);
@@ -353,6 +393,24 @@ exports.createVendorInvoice = async (req, res) => {
     finalVendorId = account.id;
     finalVendorCode = account.vendorCode;
 
+    const duplicateBillingPeriodInvoice = await VendorInvoice.findOne({
+      where: {
+        vendorCode: finalVendorCode,
+        startDate: normalizedStartDate,
+        endDate: normalizedEndDate,
+      },
+      transaction,
+    });
+
+    if (duplicateBillingPeriodInvoice) {
+      await transaction.rollback();
+      await cleanupUploadedFiles(uploadedFiles);
+      return res.status(409).json({
+        message: 'A vendor invoice already exists for this billing period',
+        field: 'startDate',
+      });
+    }
+
     const filePaths = uploadedFiles
       .map((file) => toStoredRelativePath(path.resolve(file.path)))
       .filter(Boolean);
@@ -391,15 +449,8 @@ exports.createVendorInvoice = async (req, res) => {
       isDisputed: shouldRaiseDispute,
     }, { transaction });
 
-    // Update account balance/credit limit.
-    // Vendor invoices are allowed even when the remaining credit limit is insufficient;
-    // postpaid creditLimit can temporarily go below zero until payment is recorded.
-    if (account.billingType === 'postpaid') {
-      await account.decrement('creditLimit', { by: normalizedGrandTotal, transaction });
-    } else {
-      // Prepaid vendor accounts are allowed to go negative after invoice generation.
-      await account.decrement('balance', { by: normalizedGrandTotal, transaction });
-    }
+    const billedThroughDate = addDaysAsDateOnly(normalizedEndDate, 1);
+    await account.update(buildVendorBillingUpdates(account, billedThroughDate), { transaction });
 
     await transaction.commit();
 
@@ -774,7 +825,9 @@ exports.updateVendorInvoice = async (req, res) => {
 
     const duplicate = await VendorInvoice.findOne({
       where: {
-        invoiceNumber: nextValues.invoiceNumber,
+        vendorCode: invoice.vendorCode,
+        startDate: nextValues.startDate,
+        endDate: nextValues.endDate,
         id: { [Op.ne]: invoice.id },
       },
       transaction,
@@ -782,21 +835,20 @@ exports.updateVendorInvoice = async (req, res) => {
 
     if (duplicate) {
       await transaction.rollback();
-      return res.status(409).json({ message: 'Invoice number already exists' });
+      return res.status(409).json({ message: 'A vendor invoice already exists for this billing period' });
     }
 
-    const oldGrandTotal = Number(invoice.grandTotal) || 0;
-    const delta = nextValues.grandTotal - oldGrandTotal;
+    const duplicateInvoiceNumber = await VendorInvoice.findOne({
+      where: {
+        invoiceNumber: nextValues.invoiceNumber,
+        id: { [Op.ne]: invoice.id },
+      },
+      transaction,
+    });
 
-    if (delta !== 0 && invoice.vendorId) {
-      const account = await Account.findByPk(invoice.vendorId, { transaction });
-      if (account) {
-        if (account.billingType === 'postpaid') {
-          await account.decrement('creditLimit', { by: delta, transaction });
-        } else {
-          await account.decrement('balance', { by: delta, transaction });
-        }
-      }
+    if (duplicateInvoiceNumber) {
+      await transaction.rollback();
+      return res.status(409).json({ message: 'Invoice number already exists' });
     }
 
     await invoice.update(nextValues, { transaction });
@@ -818,71 +870,123 @@ exports.updateVendorInvoice = async (req, res) => {
 };
 
 exports.updateVendorInvoiceStatus = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const {
+      status,
+      paymentMethod,
+      paymentDate,
+      transactionId,
+      referenceNumber,
+      notes,
+      creditNoteAmount,
+    } = req.body || {};
 
-    const invoice = await VendorInvoice.findByPk(id);
+    const invoice = await VendorInvoice.findByPk(id, { transaction });
     if (!invoice) {
+      await transaction.rollback();
       return res.status(404).json({ message: 'Vendor invoice not found' });
     }
 
-    const prevStatus = invoice.status;
-    invoice.status = status;
-    await invoice.save();
-
-    // mirror credit-limit restoration for postpaid vendors when they pay
-    if (prevStatus !== 'paid' && status === 'paid') {
-      const account = await Account.findByPk(invoice.vendorId);
-      if (account && account.billingType === 'postpaid') {
-        const orig = parseFloat(account.originalCreditLimit) || 0;
-        let newLimit = parseFloat(account.creditLimit) + Number(invoice.grandTotal);
-        if (orig && newLimit > orig) newLimit = orig;
-        await account.update({ creditLimit: newLimit });
-      }
-
-      const existingPayment = await Payment.findOne({
-        where: {
-          vendorInvoiceId: invoice.id,
-          partyType: 'vendor',
-          paymentDirection: 'outbound'
-        }
-      });
-
-      if (!existingPayment) {
-        const paymentNumber = await generatePaymentNumber();
-
-        await Payment.create({
-          paymentNumber,
-          receiptNumber: `VND-${paymentNumber.split('-').slice(1).join('-')}`,
-          customerGatewayId: account?.gatewayId || invoice.vendorCode || String(invoice.vendorId || invoice.id),
-          customerCode: invoice.vendorCode,
-          customerName: account?.accountName || invoice.vendorCode,
-          partyType: 'vendor',
-          paymentDirection: 'outbound',
-          amount: parseFloat(invoice.grandTotal),
-          currency: invoice.currency || account?.currency || 'USD',
-          paymentDate: Date.now(),
-          paymentMethod: 'bank_transfer',
-          transactionId: `VENDOR-PAY-${invoice.invoiceNumber}`,
-          referenceNumber: invoice.invoiceNumber,
-          allocatedAmount: parseFloat(invoice.grandTotal),
-          unappliedAmount: 0,
-          notes: `Auto-recorded vendor payment for invoice ${invoice.invoiceNumber}`,
-          vendorInvoiceId: invoice.id,
-          recordedDate: Date.now()
-        });
-      }
+    if (String(invoice.status).toLowerCase() === 'paid') {
+      await transaction.rollback();
+      return res.status(409).json({ message: 'Payment already recorded for this vendor invoice' });
     }
 
+    if (status && String(status).toLowerCase() !== 'paid') {
+      invoice.status = status;
+      await invoice.save({ transaction });
+      await transaction.commit();
+      return res.status(200).json({
+        message: 'Vendor invoice status updated successfully',
+        invoice,
+      });
+    }
+
+    if (!paymentMethod) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'paymentMethod is required to record vendor payment' });
+    }
+
+    const normalizedCreditNoteAmount = Number(creditNoteAmount || 0);
+    if (Number.isNaN(normalizedCreditNoteAmount) || normalizedCreditNoteAmount < 0) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'creditNoteAmount must be a non-negative number' });
+    }
+
+    const invoiceGrandTotal = Number(invoice.grandTotal || 0);
+    if (normalizedCreditNoteAmount > invoiceGrandTotal) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'creditNoteAmount cannot exceed the invoice grand total' });
+    }
+
+    const existingPayment = await Payment.findOne({
+      where: {
+        vendorInvoiceId: invoice.id,
+        partyType: 'vendor',
+        paymentDirection: 'outbound',
+      },
+      transaction,
+    });
+
+    if (existingPayment) {
+      await transaction.rollback();
+      return res.status(409).json({ message: 'Payment already exists for this vendor invoice' });
+    }
+
+    const account = await Account.findByPk(invoice.vendorId, { transaction });
+    const payableAmount = parseFloat((invoiceGrandTotal - normalizedCreditNoteAmount).toFixed(4));
+    const normalizedPaymentDate = parsePaymentDate(paymentDate);
+
+    invoice.status = 'paid';
+    invoice.creditNoteAmount = parseFloat(normalizedCreditNoteAmount.toFixed(2));
+    await invoice.save({ transaction });
+
+    const paymentNumber = await generatePaymentNumber();
+    const computedNotes = notes
+      ? `${notes}${normalizedCreditNoteAmount > 0 ? ` | Credit note applied: ${normalizedCreditNoteAmount.toFixed(2)}` : ''}`
+      : `Vendor payment for invoice ${invoice.invoiceNumber}${normalizedCreditNoteAmount > 0 ? ` (Credit note: ${normalizedCreditNoteAmount.toFixed(2)})` : ''}`;
+
+    await Payment.create({
+      paymentNumber,
+      receiptNumber: `VND-${paymentNumber.split('-').slice(1).join('-')}`,
+      customerGatewayId: account?.gatewayId || invoice.vendorCode || String(invoice.vendorId || invoice.id),
+      customerCode: invoice.vendorCode,
+      customerName: account?.accountName || invoice.vendorCode,
+      partyType: 'vendor',
+      paymentDirection: 'outbound',
+      amount: payableAmount,
+      currency: invoice.currency || account?.currency || 'USD',
+      paymentDate: normalizedPaymentDate,
+      paymentMethod,
+      transactionId: transactionId || `VENDOR-PAY-${invoice.invoiceNumber}`,
+      referenceNumber: referenceNumber || invoice.invoiceNumber,
+      allocatedAmount: payableAmount,
+      unappliedAmount: 0,
+      creditNoteAmount: parseFloat(normalizedCreditNoteAmount.toFixed(2)),
+      notes: computedNotes,
+      vendorInvoiceId: invoice.id,
+      recordedBy: req.user?.id || null,
+      recordedDate: Date.now(),
+    }, { transaction });
+
+    await transaction.commit();
+
     res.status(200).json({
-      message: 'Vendor invoice status updated successfully',
-      invoice
+      success: true,
+      message: 'Vendor payment recorded successfully',
+      invoice,
+      payment: {
+        amount: payableAmount,
+        creditNoteAmount: parseFloat(normalizedCreditNoteAmount.toFixed(2)),
+      },
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Error updating vendor invoice status:', error);
     res.status(500).json({
-      message: 'Failed to update vendor invoice status',
+      message: 'Failed to record vendor payment',
       error: error.message
     });
   }
@@ -897,23 +1001,6 @@ exports.deleteVendorInvoice = async (req, res) => {
     const invoice = await VendorInvoice.findByPk(id);
     if (!invoice) {
       return res.status(404).json({ message: 'Vendor invoice not found' });
-    }
-
-    // restore any funds/credit that were deducted when the invoice was created
-    if (invoice.vendorId) {
-      const account = await Account.findByPk(invoice.vendorId, { transaction });
-      if (account) {
-        const amount = Number(invoice.grandTotal) || 0;
-        if (account.billingType === 'postpaid') {
-          const orig = parseFloat(account.originalCreditLimit) || 0;
-          let newLimit = parseFloat(account.creditLimit) + amount;
-          if (orig && newLimit > orig) newLimit = orig;
-          await account.update({ creditLimit: newLimit }, { transaction });
-        } else {
-          let newBal = parseFloat(account.balance) + amount;
-          await account.update({ balance: newBal }, { transaction });
-        }
-      }
     }
 
     await Payment.destroy({

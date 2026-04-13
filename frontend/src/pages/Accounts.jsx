@@ -512,8 +512,6 @@ const Accounts = () => {
     }
 
     if (!formData.phone?.trim()) errors.push("Phone is required");
-    if (!formData.city?.trim()) errors.push("City is required");
-    if (!formData.postalCode?.trim()) errors.push("Postal Code is required");
 
     // Validate customer/vendor codes based on role
     if (

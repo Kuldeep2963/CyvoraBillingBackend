@@ -683,9 +683,9 @@ const CreateAccountModal = ({
     if (!formData.accountName?.trim())         errors.push("Account name is required");
     if (!formData.email?.trim())               errors.push("Email is required");
     if (formData.email && !emailRx.test(formData.email)) errors.push("Invalid email format");
-    if (!formData.contactPersonEmail?.trim())  errors.push("Contact person email is required");
-    else if (!emailRx.test(formData.contactPersonEmail)) errors.push("Contact person email is invalid");
-    if (!formData.contactPersonPhone?.trim())  errors.push("Contact person phone is required");
+    if (formData.contactPersonEmail?.trim() && !emailRx.test(formData.contactPersonEmail)) {
+      errors.push("Contact person email is invalid");
+    }
 
     validateEmailList(formData.ratesEmails,   "Rates emails",   true);
     validateEmailList(formData.billingEmails,  "Billing emails", true);
@@ -694,8 +694,6 @@ const CreateAccountModal = ({
 
     if (users.length > 0 && !formData.accountOwner) errors.push("Account owner is required");
     if (!formData.phone?.trim())               errors.push("Phone is required");
-    if (!formData.city?.trim())                errors.push("City is required");
-    if (!formData.postalCode?.trim())          errors.push("Postal Code is required");
     if (!formData.billingStartDate)            errors.push("Billing Start Date is required");
 
     // FIX: Validate that a country was actually selected (not just typed)
@@ -1008,7 +1006,7 @@ const CreateAccountModal = ({
                             />
                           </FormControl>
 
-                          <FormControl isRequired>
+                          <FormControl>
                             <FormLabel>Contact Person</FormLabel>
                             <Input
                               value={formData.contactPerson}
@@ -1018,7 +1016,7 @@ const CreateAccountModal = ({
                             />
                           </FormControl>
 
-                          <FormControl isRequired>
+                          <FormControl>
                             <FormLabel>Contact Person Email</FormLabel>
                             <Input
                               value={formData.contactPersonEmail}
@@ -1028,7 +1026,7 @@ const CreateAccountModal = ({
                             />
                           </FormControl>
 
-                          <FormControl isRequired>
+                          <FormControl>
                             <FormLabel>Contact Person Phone</FormLabel>
                             <Input
                               value={formData.contactPersonPhone}
@@ -1230,7 +1228,7 @@ const CreateAccountModal = ({
                           </FormControl>
 
                           <SimpleGrid columns={2} spacing={4} w="full">
-                            <FormControl isRequired>
+                            <FormControl>
                               <FormLabel>City</FormLabel>
                               <Input
                                 value={formData.city}
@@ -1248,7 +1246,7 @@ const CreateAccountModal = ({
                                 isDisabled={isViewMode}
                               />
                             </FormControl>
-                            <FormControl isRequired>
+                            <FormControl>
                               <FormLabel>Postal Code</FormLabel>
                               <Input
                                 value={formData.postalCode}

@@ -23,6 +23,27 @@ import {
 import { FiFileText } from "react-icons/fi";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../memoizedinput/memoizedinput";
 
+const pad2 = (value) => String(value).padStart(2, "0");
+
+const toLocalDateInputValue = (value) => {
+  if (!value) return "";
+
+  const source = value instanceof Date ? value : new Date(String(value).slice(0, 10) + "T00:00:00");
+  if (Number.isNaN(source.getTime())) return "";
+
+  return `${source.getFullYear()}-${pad2(source.getMonth() + 1)}-${pad2(source.getDate())}`;
+};
+
+const shiftDateInputValue = (value, days) => {
+  if (!value) return "";
+
+  const source = value instanceof Date ? new Date(value) : new Date(String(value).slice(0, 10) + "T00:00:00");
+  if (Number.isNaN(source.getTime())) return "";
+
+  source.setDate(source.getDate() + days);
+  return toLocalDateInputValue(source);
+};
+
 const GenerateInvoiceModal = ({
   isOpen,
   onClose,
@@ -54,11 +75,16 @@ const GenerateInvoiceModal = ({
   const handleAccountChange = (selectionValue) => {
     const selectedAccount = getSelectedAccount(selectionValue);
 
+    const customerLastBillingDate = selectedAccount?.customerLastBillingDate || selectedAccount?.lastbillingdate || "";
+    const customerNextBillingDate = selectedAccount?.customerNextBillingDate || selectedAccount?.nextbillingdate || "";
+    const periodStart = toLocalDateInputValue(customerLastBillingDate);
+    const periodEnd = shiftDateInputValue(customerNextBillingDate, -1) || toLocalDateInputValue(customerNextBillingDate);
+
     setGenerateForm({
       ...generateForm,
       customerId: selectionValue,
-      periodStart: selectedAccount?.lastbillingdate || generateForm.periodStart,
-      periodEnd: selectedAccount?.nextbillingdate || generateForm.periodEnd,
+      periodStart: periodStart || generateForm.periodStart,
+      periodEnd: periodEnd || generateForm.periodEnd,
     });
   };
 
