@@ -85,10 +85,12 @@ const normalizeContactChannels = (payload) => {
   const contactPerson = String(data.contactPerson ?? '').trim();
   const contactPersonEmail = String(data.contactPersonEmail ?? '').trim();
   const contactPersonPhone = String(data.contactPersonPhone ?? '').trim();
+  const phone = String(data.phone ?? '').trim();
 
   data.contactPerson = contactPerson || null;
   data.contactPersonEmail = contactPersonEmail || null;
   data.contactPersonPhone = contactPersonPhone || null;
+  data.phone = phone;
 
   data.ratesEmails = splitToList(data.ratesEmails);
   data.billingEmails = splitToList(data.billingEmails || data.billingEmail);
@@ -288,7 +290,6 @@ const validateAccountPayload = (data) => {
     'accountId',
     'accountName',
     'email',
-    'phone',
     'country',
     'lastbillingdate',
   ];
@@ -428,7 +429,7 @@ router.get('/vendor/:vendorCode', async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
-    const { role, status, owner, search, query, page = 1, limit = 50 } = req.query;
+    const { role, billingType, status, owner, search, query, page = 1, limit = 50 } = req.query;
     const parsedPage = Math.max(1, parseInt(page, 10) || 1);
     const parsedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
 
@@ -442,6 +443,10 @@ router.get('/', async (req, res) => {
       } else {
         where.accountRole = role;
       }
+    }
+
+    if (billingType && billingType !== 'all') {
+      where.billingType = billingType;
     }
 
     if (status && status !== 'all') {

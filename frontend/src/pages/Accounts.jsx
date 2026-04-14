@@ -155,7 +155,7 @@ const Accounts = () => {
   const [cdrStats, setCdrStats] = useState(DEFAULT_CDR_STATS);
   const [loading, setLoading] = useState(false);
   const [roleFilter, setRoleFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [billingTypeFilter, setBillingTypeFilter] = useState("all");
   const [ownerFilter, setOwnerFilter] = useState("all");
   const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
   const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
@@ -178,9 +178,9 @@ const Accounts = () => {
     { value: "hybrid", label: "Hybrid" },
   ];
 
-  const statusOptions = [
-    { value: "active", label: "Active", color: "green" },
-    { value: "inactive", label: "Inactive", color: "gray" },
+  const billingTypeOptions = [
+    { value: "prepaid", label: "Prepaid", color: "green" },
+    { value: "postpaid", label: "Postpaid", color: "orange" },
   ];
 
   const billingCycles = [
@@ -209,7 +209,7 @@ const Accounts = () => {
 
   useEffect(() => {
     loadCustomers();
-  }, [debouncedSearch, roleFilter, statusFilter, ownerFilter, page, pageSize]);
+  }, [debouncedSearch, roleFilter, billingTypeFilter, ownerFilter, page, pageSize]);
 
   useEffect(() => {
     if (selectedCustomer) {
@@ -238,7 +238,7 @@ const Accounts = () => {
     try {
       const customersData = await fetchCustomers({
         role: roleFilter,
-        status: statusFilter,
+        billingType: billingTypeFilter,
         owner: ownerFilter,
         query: debouncedSearch,
         page,
@@ -511,8 +511,6 @@ const Accounts = () => {
       errors.push("Invalid email format");
     }
 
-    if (!formData.phone?.trim()) errors.push("Phone is required");
-
     // Validate customer/vendor codes based on role
     if (
       (formData.accountRole === "customer" ||
@@ -624,19 +622,19 @@ const Accounts = () => {
     //   ),
     // },
     {
-      key: "active",
-      header: "Status",
+      key: "billingType",
+      header: "Billing Type",
       // minWidth: "90px",
-      render: (value, row) => {
-        const status = statusOptions.find((s) => s.value === row.accountStatus);
+      render: (value) => {
+        const billingType = billingTypeOptions.find((b) => b.value === value);
         return (
           <Badge
             borderRadius={"full"}
             px={2}
-            colorScheme={status?.color || (value ? "green" : "red")}
+            colorScheme={billingType?.color || "gray"}
             variant="subtle"
           >
-            {status?.label || (value ? "Active" : "Inactive")}
+            {billingType?.label || "-"}
           </Badge>
         );
       },
@@ -820,16 +818,16 @@ const Accounts = () => {
             // borderRadius={"md"}
             size="sm"
             width={{ base: "100%", md: "150px" }}
-            value={statusFilter}
+            value={billingTypeFilter}
             onChange={(e) => {
-              setStatusFilter(e.target.value);
+              setBillingTypeFilter(e.target.value);
               setPage(1);
             }}
           >
-            <option value="all">All Status</option>
-            {statusOptions.map((status) => (
-              <option key={status.value} value={status.value}>
-                {status.label}
+            <option value="all">All Billing Types</option>
+            {billingTypeOptions.map((billingType) => (
+              <option key={billingType.value} value={billingType.value}>
+                {billingType.label}
               </option>
             ))}
           </Select>

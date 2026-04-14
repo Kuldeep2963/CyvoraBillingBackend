@@ -693,24 +693,23 @@ const CreateAccountModal = ({
     validateEmailList(formData.nocEmails,      "NOC emails",     true);
 
     if (users.length > 0 && !formData.accountOwner) errors.push("Account owner is required");
-    if (!formData.phone?.trim())               errors.push("Phone is required");
     if (!formData.billingStartDate)            errors.push("Billing Start Date is required");
 
     // FIX: Validate that a country was actually selected (not just typed)
     if (!formData.countryCode)                 errors.push("Country is required — please select from the list");
 
     if (formData.accountRole === "customer" || formData.accountRole === "both") {
+      const customerAuthValues = normalizeAuthValues(formData.customerauthenticationValue);
       if (!formData.customerauthenticationType)
         errors.push("Customer authentication type is required");
-      if (!Array.isArray(formData.customerauthenticationValue) ||
-          formData.customerauthenticationValue.length === 0)
+      if (customerAuthValues.length === 0)
         errors.push("Customer authentication value is required");
     }
     if (formData.accountRole === "vendor" || formData.accountRole === "both") {
+      const vendorAuthValues = normalizeAuthValues(formData.vendorauthenticationValue);
       if (!formData.vendorauthenticationType)
         errors.push("Vendor authentication type is required");
-      if (!Array.isArray(formData.vendorauthenticationValue) ||
-          formData.vendorauthenticationValue.length === 0)
+      if (vendorAuthValues.length === 0)
         errors.push("Vendor authentication value is required");
     }
 
@@ -753,6 +752,8 @@ const CreateAccountModal = ({
         billingEmail:   firstEmailFromList(nBilling)  || formData.billingEmail  || "",
         disputeEmail:   firstEmailFromList(nDispute)  || formData.disputeEmail  || "",
         nocEmail:       firstEmailFromList(nNoc)      || formData.nocEmail      || "",
+        customerauthenticationValue: normalizeAuthValues(formData.customerauthenticationValue),
+        vendorauthenticationValue:   normalizeAuthValues(formData.vendorauthenticationValue),
         documents:      normalizeDocuments(formData.documents),
         lastbillingdate: formData.lastbillingdate || null,
         nextbillingdate: formData.nextbillingdate || null,
@@ -1158,7 +1159,7 @@ const CreateAccountModal = ({
                             />
                           </FormControl>
 
-                          <FormControl isRequired>
+                          <FormControl >
                             <FormLabel>Primary Phone</FormLabel>
                             <Input
                               value={formData.phone}
@@ -1570,7 +1571,7 @@ const CreateAccountModal = ({
                                   onChange={(e) =>
                                     setFormData((fd) => ({
                                       ...fd,
-                                      customerauthenticationValue: normalizeAuthValues(e.target.value),
+                                      customerauthenticationValue: e.target.value,
                                     }))
                                   }
                                   placeholder={
@@ -1617,7 +1618,7 @@ const CreateAccountModal = ({
                                   onChange={(e) =>
                                     setFormData((fd) => ({
                                       ...fd,
-                                      vendorauthenticationValue: normalizeAuthValues(e.target.value),
+                                      vendorauthenticationValue: e.target.value,
                                     }))
                                   }
                                   placeholder={
