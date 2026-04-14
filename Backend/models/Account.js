@@ -272,14 +272,14 @@ const Account = sequelize.define('Account', {
   },
   
   country: {
-    type: DataTypes.STRING(2),
+    type: DataTypes.STRING(10),
     allowNull: false,
     defaultValue: 'US'
   },
   
   countryCode: {
-    type: DataTypes.STRING(2),
-    comment: 'ISO country code'
+    type: DataTypes.STRING(10),
+    comment: 'Country code or calling code'
   },
   
   // Billing Configuration (CRITICAL)

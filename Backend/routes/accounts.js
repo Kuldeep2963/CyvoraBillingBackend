@@ -162,13 +162,13 @@ const normalizeCountryFields = (payload) => {
   const rawCountry = String(data.country ?? '').trim();
   const rawCountryCode = String(data.countryCode ?? '').trim();
 
-  // accounts.country is VARCHAR(2), so persist ISO code there.
-  // Prefer explicit countryCode; fallback to country when it is already 2 chars.
-  const isoCode = rawCountryCode || (rawCountry.length === 2 ? rawCountry : '');
+  // Keep the selected country text/code intact. Some country calling codes
+  // are longer than 2-3 characters (for example, 998 for Uzbekistan).
+  const countryValue = rawCountryCode || rawCountry;
 
-  if (isoCode) {
-    data.country = isoCode.toUpperCase();
-    data.countryCode = isoCode.toUpperCase();
+  if (countryValue) {
+    data.country = countryValue;
+    data.countryCode = rawCountryCode || rawCountry;
   }
 
   return data;

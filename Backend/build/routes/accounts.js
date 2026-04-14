@@ -149,13 +149,13 @@ const normalizeAuthFields = (payload) => {
   data.customerauthenticationValue = normalizeAuthValues(data.customerauthenticationValue);
   data.vendorauthenticationValue = normalizeAuthValues(data.vendorauthenticationValue);
 
-  return data;
-};
+  // Keep the selected country text/code intact. Some country calling codes
+  // are longer than 2-3 characters (for example, 998 for Uzbekistan).
+  const countryValue = rawCountryCode || rawCountry;
 
-const normalizeDocuments = (input) => {
-  let parsed = input;
-
-  if (typeof parsed === 'string') {
+  if (countryValue) {
+    data.country = countryValue;
+    data.countryCode = rawCountryCode || rawCountry;
     try {
       parsed = JSON.parse(parsed);
     } catch (_error) {
