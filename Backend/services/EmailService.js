@@ -118,22 +118,45 @@ class EmailService {
         throw new Error('Invalid recipient email format');
       }
 
+      const smtpUser = String(process.env.EMAIL_USER || '').trim();
+      const configuredFrom = String(process.env.EMAIL_FROM || '').trim();
+      const fromAddress = configuredFrom || smtpUser;
+
+      if (!fromAddress) {
+        throw new Error('Email sender is not configured. Set EMAIL_FROM or EMAIL_USER.');
+      }
+
       const templatePath = path.join(__dirname, '../templates/email', `${templateName}.ejs`);
       const html = await ejs.renderFile(templatePath, data);
 
       const deliveryResults = [];
       for (const recipient of recipients) {
         const mailOptions = {
-          from: process.env.EMAIL_FROM,
+          from: fromAddress,
           to: recipient,
           subject,
           html,
           attachments,
+          // Ensure the SMTP RCPT TO is always the intended recipient.
+          envelope: {
+            from: smtpUser || fromAddress,
+            to: [recipient],
+          },
         };
+
+        if (configuredFrom && smtpUser && configuredFrom.toLowerCase() !== smtpUser.toLowerCase()) {
+          mailOptions.replyTo = configuredFrom;
+        }
 
         const info = await this.transporter.sendMail(mailOptions);
         deliveryResults.push(info);
-        console.log('Email sent to %s: %s', recipient, info.messageId);
+        console.log(
+          'Email send result -> to: %s | accepted: %s | rejected: %s | id: %s',
+          recipient,
+          JSON.stringify(info.accepted || []),
+          JSON.stringify(info.rejected || []),
+          info.messageId
+        );
       }
 
       return deliveryResults.length === 1 ? deliveryResults[0] : deliveryResults;

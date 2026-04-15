@@ -20,7 +20,7 @@ const Account = sequelize.define('Account', {
   
   
   accountStatus: {
-    type: DataTypes.ENUM('active', 'inactive', 'suspended', 'pending'),
+    type: DataTypes.ENUM('active', 'inactive'),
     defaultValue: 'active',
     allowNull: false
   },

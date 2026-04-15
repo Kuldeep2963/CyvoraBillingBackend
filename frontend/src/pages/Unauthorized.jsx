@@ -7,26 +7,26 @@ import {
   Icon,
   Container,
   useColorModeValue,
-  Divider,
   HStack,
-  Badge
+  ScaleFade
 } from "@chakra-ui/react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { FaLock, FaHome, FaArrowLeft, FaExclamationTriangle } from "react-icons/fa";
+// Swapped to Feather Icons (fi) for a much cleaner, minimal look
+import { FiLock, FiHome, FiArrowLeft, FiLogOut } from "react-icons/fi";
 
 const Unauthorized = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
 
-  // Dynamic colors based on color mode
+  // Minimal, sophisticated color palette
   const bgColor = useColorModeValue('white', 'gray.800');
-  const borderColor = useColorModeValue('gray.200', 'gray.700');
-  const textColor = useColorModeValue('gray.600', 'gray.400');
-  const iconColor = useColorModeValue('red.500', 'red.300');
-
-  // Get the attempted path from location state or default to previous page
+  const borderColor = useColorModeValue('gray.100', 'gray.700');
+  const mutedText = useColorModeValue('gray.500', 'gray.400');
+  const headingColor = useColorModeValue('gray.800', 'white');
+  const iconBg = useColorModeValue('gray.50', 'gray.700');
+  
   const attemptedPath = location.state?.from?.pathname || 'this page';
 
   const handleGoBack = () => {
@@ -43,147 +43,103 @@ const Unauthorized = () => {
   };
 
   return (
-    <Container maxW="lg" py={6}>
-      <Box
-        p={8}
-        bg={bgColor}
-        borderRadius="xl"
-        boxShadow="xl"
-        border="1px"
-        borderColor={borderColor}
-        textAlign="center"
-      >
-        <VStack spacing={4}>
-          {/* Lock Icon with Animation */}
-          <Box position="relative">
-            <Icon 
-              as={FaLock} 
-              w={20} 
-              h={20} 
-              color={iconColor}
-              opacity={0.8}
-            />
-            <Icon
-              as={FaExclamationTriangle}
-              position="absolute"
-              top={0}
-              right={0}
-              color="yellow.500"
-              boxSize={6}
-            />
-          </Box>
-
-          {/* Main Heading */}
-          <VStack spacing={2}>
-            <Heading 
-              color={iconColor}
-              fontSize="4xl"
-              fontWeight="bold"
-            >
-              403
-            </Heading>
-            <Heading 
-              size="lg"
-              bgGradient="linear(to-r, red.500, orange.500)"
-              bgClip="text"
-            >
-              Access Denied
-            </Heading>
-          </VStack>
-
-          {/* User Info (if logged in) */}
-          {user && (
-            <Badge 
-              colorScheme="blue" 
-              px={3} 
-              py={1} 
+    <Container maxW="md" py={12}>
+      {/* ScaleFade provides a smooth, subtle entry animation */}
+      <ScaleFade initialScale={0.95} in={true}>
+        <Box
+          p={8}
+          bg={bgColor}
+          borderRadius="2xl"
+          boxShadow="sm"
+          border="1px solid"
+          borderColor={borderColor}
+          textAlign="center"
+        >
+          <VStack spacing={6}>
+            
+            {/* Minimal Icon Container */}
+            <Box 
+              p={4} 
+              bg={iconBg} 
               borderRadius="full"
-              fontSize="sm"
+              color={mutedText}
             >
-              Logged in as: {user.email || user.username}
-            </Badge>
-          )}
+              <Icon as={FiLock} w={8} h={8} strokeWidth={1.5} />
+            </Box>
 
-          {/* Error Messages */}
-          <VStack spacing={3} textAlign="center">
-            <Text color={textColor} fontSize="lg">
-              You don't have permission to view <strong>{attemptedPath}</strong>.
-            </Text>
-            
-            <Text color={textColor} fontSize="md">
-              This might be because:
-            </Text>
-            
-            <VStack align="start" spacing={2} pl={4}>
-              <Text color={textColor} fontSize="sm">
-                • Your account doesn't have the required role
-              </Text>
-              <Text color={textColor} fontSize="sm">
-                • You need additional permissions
-              </Text>
-              <Text color={textColor} fontSize="sm">
-                • The resource is restricted to specific users
+            {/* Clean Typography */}
+            <VStack spacing={2}>
+              <Heading size="md" color={headingColor} fontWeight="600">
+                Access Restricted
+              </Heading>
+              <Text color={mutedText} fontSize="sm" px={4}>
+                You don't have the necessary permissions to view <strong>{attemptedPath}</strong>. 
+                Please contact your administrator if you believe this is a mistake.
               </Text>
             </VStack>
 
+            {/* Optional: Minimal User Context */}
             {user && (
-              <Text color={textColor} fontSize="sm" fontStyle="italic" mt={2}>
-                Current role: {user.role || 'Standard User'}
-              </Text>
-            )}
-          </VStack>
-
-          <Divider />
-
-          {/* Action Buttons */}
-          <VStack spacing={3} w="full">
-            <Button
-              leftIcon={<Icon as={FaHome} />}
-              colorScheme="blue"
-              size="lg"
-              w="full"
-              onClick={() => navigate('/dashboard')}
-            >
-              Go to Dashboard
-            </Button>
-
-            <HStack w="full" spacing={3}>
-              <Button
-                leftIcon={<Icon as={FaArrowLeft} />}
-                variant="outline"
-                colorScheme="blue"
-                flex={1}
-                onClick={handleGoBack}
+              <Box 
+                bg={iconBg} 
+                px={4} 
+                py={2} 
+                borderRadius="md" 
+                w="full"
+                fontSize="xs"
+                color={mutedText}
               >
-                Go Back
+                Signed in as <strong>{user.email || user.username}</strong> 
+                {user.role && ` • ${user.role}`}
+              </Box>
+            )}
+
+            {/* Restructured, Industry-Standard Buttons */}
+            <VStack spacing={3} w="full" pt={2}>
+              <Button
+                leftIcon={<Icon as={FiHome} />}
+                colorScheme="blue"
+                variant="solid"
+                size="md"
+                w="full"
+                onClick={() => navigate('/dashboard')}
+                fontWeight="500"
+              >
+                Return to Dashboard
               </Button>
 
-              {user && (
+              <HStack w="full" spacing={3}>
                 <Button
-                  variant="ghost"
-                  colorScheme="red"
+                  leftIcon={<Icon as={FiArrowLeft} />}
+                  variant="outline"
+                  size="md"
                   flex={1}
-                  onClick={handleLogout}
+                  onClick={handleGoBack}
+                  fontWeight="500"
+                  color={mutedText}
                 >
-                  Logout
+                  Go Back
                 </Button>
-              )}
-            </HStack>
-          </VStack>
 
-          {/* Contact Support Link */}
-          <Text fontSize="sm" color={textColor}>
-            Need help?{' '}
-            <Button
-              variant="link"
-              colorScheme="blue"
-              onClick={() => window.location.href = 'mailto:kt639539@gmail.com'}
-            >
-              Contact Support
-            </Button>
-          </Text>
-        </VStack>
-      </Box>
+                {user && (
+                  <Button
+                    leftIcon={<Icon as={FiLogOut} />}
+                    variant="ghost"
+                    size="md"
+                    flex={1}
+                    onClick={handleLogout}  
+                    fontWeight="500"
+                    color={mutedText}
+                    _hover={{ bg: 'red.50', color: 'red.500' }}
+                  >
+                    Logout
+                  </Button>
+                )}
+              </HStack>
+            </VStack>
+          </VStack>
+        </Box>
+      </ScaleFade>
     </Container>
   );
 };

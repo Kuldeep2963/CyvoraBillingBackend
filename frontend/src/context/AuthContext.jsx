@@ -8,6 +8,15 @@ export const AuthProvider = ({ children }) => {
   const [refreshToken, setRefreshToken] = useState(sessionStorage.getItem('refreshToken')||localStorage.getItem('refreshToken'));
   const [loading, setLoading] = useState(true);
 
+  const clearStoredAuth = () => {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
+    sessionStorage.removeItem('accessToken');
+    sessionStorage.removeItem('refreshToken');
+    sessionStorage.removeItem('user');
+  };
+
   useEffect(() => {
     const savedUser = sessionStorage.getItem('user')||localStorage.getItem('user');
     if (savedUser && accessToken) {
@@ -71,24 +80,40 @@ export const AuthProvider = ({ children }) => {
       // Determine which storage was used
       const storage = localStorage.getItem('accessToken') ? localStorage : sessionStorage;
       storage.setItem('accessToken', data.accessToken);
+      if (data.refreshToken) {
+        storage.setItem('refreshToken', data.refreshToken);
+        setRefreshToken(data.refreshToken);
+      }
       
       setAccessToken(data.accessToken);
       setUser(data.user);
       return data.accessToken;
     } catch (error) {
       console.error('Token refresh error:', error);
-      logout();
+      await logout();
       throw error;
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-    sessionStorage.removeItem('accessToken');
-    sessionStorage.removeItem('refreshToken');
-    sessionStorage.removeItem('user');
+  const logout = async () => {
+    const token = sessionStorage.getItem('accessToken') || localStorage.getItem('accessToken');
+
+    try {
+      if (token) {
+        await fetch(`${import.meta.env.VITE_API_URL || '/api'}/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      }
+    } catch (error) {
+      // Clear client auth even if backend logout fails.
+      console.warn('Backend logout request failed:', error);
+    }
+
+    clearStoredAuth();
     setAccessToken(null);
     setRefreshToken(null);
     setUser(null);

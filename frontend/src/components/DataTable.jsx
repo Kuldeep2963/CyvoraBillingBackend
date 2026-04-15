@@ -159,6 +159,8 @@ const DataTable = ({
     );
   };
 
+  const getColumnWidth = (column) => column.width || column.maxWidth || column.minWidth || 'auto';
+
   return (
     <Box 
       className="app-table-shell"
@@ -217,7 +219,9 @@ const DataTable = ({
                 <Th 
                   className="app-table-header-cell"
                   key={column.key} 
-                  minWidth={column.minWidth || "auto"}
+                  width={getColumnWidth(column)}
+                  minWidth={column.minWidth || column.width || column.maxWidth || "auto"}
+                  maxWidth={column.maxWidth || column.width || undefined}
                   isNumeric={column.isNumeric}
                 >
                   <Flex className="app-table-column-title" align="center" justify={column.isNumeric ? "flex-end" : "flex-start"}>
@@ -280,7 +284,15 @@ const DataTable = ({
                 >
                   {columns.map((column) => (
                     <Td className="app-table-cell" key={`${item.id}-${column.key}`} minWidth={column.minWidth || "auto"}>
-                      {renderCell(item, column)}
+                        <Box
+                          width={getColumnWidth(column)}
+                          maxWidth={column.maxWidth || column.width || undefined}
+                          overflow={column.maxWidth || column.width ? 'hidden' : 'visible'}
+                          textOverflow={column.maxWidth || column.width ? 'ellipsis' : 'clip'}
+                          whiteSpace={column.maxWidth || column.width ? 'normal' : 'normal'}
+                        >
+                          {renderCell(item, column)}
+                        </Box>
                     </Td>
                   ))}
                   {actions && (

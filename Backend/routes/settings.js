@@ -216,10 +216,15 @@ router.post('/country-codes/upload', handleCountryCodeUpload, async (req, res) =
 router.get('/country-codes', async (req, res) => {
   try {
     const search = String(req.query?.search || '').trim();
+    const parsedPage = Number(req.query?.page);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0
+      ? Math.floor(parsedPage)
+      : 1;
     const parsedLimit = Number(req.query?.limit);
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
       ? Math.min(parsedLimit, 100)
       : 50;
+    const offset = (page - 1) * limit;
 
     const where = search
       ? {
@@ -230,7 +235,7 @@ router.get('/country-codes', async (req, res) => {
         }
       : undefined;
 
-    const countryCodes = await CountryCode.findAll({
+    const { rows, count } = await CountryCode.findAndCountAll({
       attributes: ['code', 'country_name'],
       where,
       order: [
@@ -238,12 +243,19 @@ router.get('/country-codes', async (req, res) => {
         ['code', 'ASC'],
       ],
       limit,
+      offset,
       raw: true,
     });
 
+    const total = Number(count) || 0;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
     return res.json({
-      countryCodes,
-      total: countryCodes.length,
+      countryCodes: rows,
+      total,
+      page,
+      limit,
+      totalPages,
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });

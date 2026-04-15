@@ -18,13 +18,6 @@ import {
   Spinner,
   Stack,
   Switch,
-  Table,
-  Tbody,
-  Td,
-  Th,
-  Thead,
-  Tr,
-  TableContainer,
   Tab,
   TabList,
   TabPanel,
@@ -52,6 +45,7 @@ import {
 } from '../utils/api';
 import { formatNotificationTime } from '../utils/notificationTime';
 import PageNavBar from '../components/PageNavBar';
+import DataTable from '../components/DataTable';
 
 const DEFAULT_SETTINGS = {
   systemName: 'CDR Billing System',
@@ -307,6 +301,10 @@ const CountryCodesTab = ({ loadNotifications }) => {
   const [loadingCountryCodes, setLoadingCountryCodes]     = useState(false);
   const [countryCodesLoaded, setCountryCodesLoaded]       = useState(false);
   const [countryCodeSearch, setCountryCodeSearch]         = useState('');
+  const [debouncedCountryCodeSearch, setDebouncedCountryCodeSearch] = useState('');
+  const [countryCodesPage, setCountryCodesPage]           = useState(1);
+  const [countryCodesPageSize, setCountryCodesPageSize]   = useState(25);
+  const [countryCodesTotal, setCountryCodesTotal]         = useState(0);
   const [singleCountryCode, setSingleCountryCode]         = useState('');
   const [singleCountryName, setSingleCountryName]         = useState('');
   const [addingCountryCode, setAddingCountryCode]         = useState(false);
@@ -317,23 +315,40 @@ const CountryCodesTab = ({ loadNotifications }) => {
     return () => { isMounted.current = false; };
   }, []);
 
-  const filteredCountryCodes = useMemo(() => {
-    const query = countryCodeSearch.trim().toLowerCase();
-    if (!query) return countryCodes;
-    return countryCodes.filter((item) => {
-      const code        = String(item?.code        || '').toLowerCase();
-      const countryName = String(item?.country_name || '').toLowerCase();
-      return code.includes(query) || countryName.includes(query);
-    });
-  }, [countryCodes, countryCodeSearch]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedCountryCodeSearch(countryCodeSearch.trim());
+      setCountryCodesPage(1);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [countryCodeSearch]);
 
   const handleFetchCountryCodes = useCallback(async () => {
     setLoadingCountryCodes(true);
     try {
-      const response = await fetchCountryCodes();
+      const response = await fetchCountryCodes({
+        search: debouncedCountryCodeSearch,
+        page: countryCodesPage,
+        limit: countryCodesPageSize,
+      });
       if (!isMounted.current) return;
-      setCountryCodes(Array.isArray(response?.countryCodes) ? response.countryCodes : []);
+      const nextCountryCodes = Array.isArray(response?.countryCodes) ? response.countryCodes : [];
+      const nextTotal = Number(response?.total || 0);
+      const nextTotalPages = Math.max(1, Number(response?.totalPages || 1));
+      const requestedPage = Number(response?.page || countryCodesPage);
+      const nextPage = Math.min(Math.max(1, requestedPage), nextTotalPages);
+
+      setCountryCodes(nextCountryCodes);
+      setCountryCodesTotal(nextTotal);
       setCountryCodesLoaded(true);
+
+      if (nextPage !== requestedPage) {
+        setCountryCodesPage(nextPage);
+        return;
+      }
+
+      setCountryCodesPage(nextPage);
     } catch (error) {
       if (!isMounted.current) return;
       toast({
@@ -346,7 +361,12 @@ const CountryCodesTab = ({ loadNotifications }) => {
     } finally {
       if (isMounted.current) setLoadingCountryCodes(false);
     }
-  }, [toast]);
+  }, [countryCodesPage, countryCodesPageSize, debouncedCountryCodeSearch, toast]);
+
+  useEffect(() => {
+    if (!countryCodesLoaded) return;
+    handleFetchCountryCodes();
+  }, [countryCodesLoaded, handleFetchCountryCodes]);
 
   const handleUploadCountryCodes = async () => {
     if (!countryCodeFile) {
@@ -444,7 +464,6 @@ const CountryCodesTab = ({ loadNotifications }) => {
     try {
       await deleteCountryCode(code);
       if (!isMounted.current) return;
-      setCountryCodes((prev) => prev.filter((row) => String(row?.code || '') !== code));
       toast({
         title: 'Country code deleted',
         description: `${code} removed successfully.`,
@@ -453,6 +472,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
         isClosable: true,
       });
       await loadNotifications(true);
+      if (countryCodesLoaded) await handleFetchCountryCodes();
     } catch (error) {
       if (!isMounted.current) return;
       toast({
@@ -466,6 +486,47 @@ const CountryCodesTab = ({ loadNotifications }) => {
       if (isMounted.current) setDeletingCountryCode('');
     }
   };
+
+  const handlePageChange = useCallback((nextPage) => {
+    setCountryCodesPage(nextPage);
+  }, []);
+
+  const handlePageSizeChange = useCallback((nextPageSize) => {
+    setCountryCodesPageSize(nextPageSize);
+    setCountryCodesPage(1);
+  }, []);
+
+  const countryCodeColumns = [
+    {
+      key: 'code',
+      header: 'Code',
+      width: '120px',
+      render: (value) => <Text fontWeight="600">{value}</Text>,
+    },
+    {
+      key: 'country_name',
+      header: 'Country Name',
+      minWidth: '240px',
+      render: (value) => <Text>{value}</Text>,
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      width: '120px',
+      render: (_value, item) => (
+        <Button
+          size="xs"
+          colorScheme="red"
+          variant="ghost"
+          onClick={() => handleDeleteCountryCode(item)}
+          isLoading={deletingCountryCode === String(item.code)}
+          isDisabled={Boolean(deletingCountryCode) && deletingCountryCode !== String(item.code)}
+        >
+          Delete
+        </Button>
+      ),
+    },
+  ];
 
   return (
     <Card>
@@ -565,8 +626,8 @@ const CountryCodesTab = ({ loadNotifications }) => {
           </HStack>
 
           {countryCodesLoaded && (
-            <Box borderWidth="1px" borderRadius="md" overflow="hidden">
-              <Box p={3} flexDirection="row" borderBottomWidth="1px" bg="gray.50">
+            <Box>
+              <Box p={3} borderWidth="1px" borderBottomWidth={0} borderTopRadius="md" bg="gray.50">
                 <Input
                   bg="gray.200"
                   placeholder="Search by code or country name"
@@ -574,50 +635,23 @@ const CountryCodesTab = ({ loadNotifications }) => {
                   onChange={(e) => setCountryCodeSearch(e.target.value)}
                 />
                 <Text mt={2} fontSize="sm" color="gray.600">
-                  Showing {filteredCountryCodes.length} of {countryCodes.length} record(s)
+                  Showing {countryCodes.length} of {countryCodesTotal} record(s)
                 </Text>
               </Box>
-              <TableContainer maxH="300px" overflowY="auto" maxW="600px" mt={3}>
-                <Table size="sm" variant="simple" colorScheme="gray">
-                  <Thead position="sticky" top={0} bg="gray.200" zIndex={1}>
-                    <Tr>
-                      <Th color="gray.700">Code</Th>
-                      <Th color="gray.700">Country</Th>
-                      <Th color="gray.700">Action</Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {filteredCountryCodes.length === 0 ? (
-                      <Tr>
-                        <Td colSpan={3} textAlign="center" color="gray.500">
-                          {countryCodes.length === 0
-                            ? 'No country codes found.'
-                            : 'No matching country codes found.'}
-                        </Td>
-                      </Tr>
-                    ) : (
-                      filteredCountryCodes.map((item, idx) => (
-                        <Tr key={`${item.code}-${item.country_name}-${idx}`}>
-                          <Td>{item.code}</Td>
-                          <Td>{item.country_name}</Td>
-                          <Td>
-                            <Button
-                              size="xs"
-                              colorScheme="red"
-                              variant="ghost"
-                              onClick={() => handleDeleteCountryCode(item)}
-                              isLoading={deletingCountryCode === String(item.code)}
-                              isDisabled={Boolean(deletingCountryCode) && deletingCountryCode !== String(item.code)}
-                            >
-                              Delete
-                            </Button>
-                          </Td>
-                        </Tr>
-                      ))
-                    )}
-                  </Tbody>
-                </Table>
-              </TableContainer>
+              <DataTable
+                columns={countryCodeColumns}
+                data={countryCodes}
+                actions={false}
+                compact
+                serverPagination
+                page={countryCodesPage}
+                pageSize={countryCodesPageSize}
+                total={countryCodesTotal}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+                isPaginationDisabled={loadingCountryCodes}
+                height="320px"
+              />
             </Box>
           )}
         </VStack>

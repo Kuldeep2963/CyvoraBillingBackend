@@ -481,7 +481,10 @@ router.get('/', async (req, res) => {
       where,
       limit: parsedLimit,
       offset,
-      order: [['createdAt', 'DESC']]
+      order: [
+        [Sequelize.fn('LOWER', Sequelize.col('accountName')), 'ASC'],
+        ['id', 'ASC'],
+      ]
     });
 
     // Manually fetch and attach owner information

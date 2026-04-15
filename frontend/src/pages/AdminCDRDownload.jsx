@@ -37,7 +37,7 @@ import {
 } from "react-icons/fi";
 import PageNavBar from "../components/PageNavBar";
 import { downloadCDRCSV, fetchReportAccounts } from "../utils/api";
-import { toDateTimeLocalInput } from "../utils/dateInput";
+import { fromDateTimeUtcInput, toDateTimeUtcInput } from "../utils/dateInput";
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -48,8 +48,8 @@ const AdminCDRDownload = () => {
   const now = useMemo(() => new Date(), []);
   const oneDayBack = useMemo(() => new Date(now.getTime() -   60 * 1000), [now]);
 
-  const [startTime, setStartTime] = useState(() => toDateTimeLocalInput(oneDayBack));
-  const [endTime, setEndTime] = useState(() => toDateTimeLocalInput(now));
+  const [startTime, setStartTime] = useState(() => toDateTimeUtcInput(oneDayBack));
+  const [endTime, setEndTime] = useState(() => toDateTimeUtcInput(now));
   const [selectedAccountId, setSelectedAccountId] = useState("all");
   const [cdrSide, setCdrSide] = useState("all");
   const [customerOptions, setCustomerOptions] = useState([]);
@@ -166,8 +166,8 @@ const AdminCDRDownload = () => {
       return;
     }
 
-    const startMs = new Date(startTime).getTime();
-    const endMs = new Date(endTime).getTime();
+    const startMs = fromDateTimeUtcInput(startTime);
+    const endMs = fromDateTimeUtcInput(endTime);
 
     if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
       toast({
@@ -224,8 +224,8 @@ const AdminCDRDownload = () => {
   // ── Derived display values ────────────────────────────────────────────────
   const dateRangeInfo = useMemo(() => {
     if (!startTime || !endTime) return "Not selected";
-    const start = new Date(startTime);
-    const end = new Date(endTime);
+    const start = new Date(`${startTime}:00Z`);
+    const end = new Date(`${endTime}:00Z`);
     if (isNaN(start) || isNaN(end) || end <= start) return "Invalid range";
     const diffHours = (end - start) / 36e5;
     const diffDays = diffHours / 24;
@@ -454,7 +454,7 @@ const AdminCDRDownload = () => {
                           gap={2}
                         >
                           <Icon as={FiCalendar} boxSize={4} />
-                          Start Date and Time
+                          Start Date and Time (UTC)
                         </FormLabel>
                         <Input
                           type="datetime-local"
@@ -478,7 +478,7 @@ const AdminCDRDownload = () => {
                           gap={2}
                         >
                           <Icon as={FiClock} boxSize={4} />
-                          End Date and Time
+                          End Date and Time (UTC)
                         </FormLabel>
                         <Input
                           type="datetime-local"

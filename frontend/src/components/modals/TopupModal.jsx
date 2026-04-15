@@ -7,6 +7,8 @@ import {
   ModalFooter,
   ModalBody,
   ModalCloseButton,
+  Stack,
+  Badge,
   Button,
   VStack,
   FormControl,
@@ -130,8 +132,26 @@ const TopupModal = ({
     <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside" closeOnOverlayClick={!isLoading}>
       <ModalOverlay />
       <ModalContent>
-        <ModalHeader bg="blue.500" color="white" borderTopRadius="md">
-          <Heading size="md">Account Topup</Heading>
+        <ModalHeader bg="blue.500" color="white" borderTopRadius="md" pr={12}>
+          <Stack spacing={1}>
+            <Heading size="md">Account Topup</Heading>
+            {account && (
+              <Stack direction={{ base: "column", md: "row" }} spacing={2} align={{ base: "flex-start", md: "center" }}>
+                <Text fontSize="sm" color="blue.50" fontWeight="600">
+                  {account.accountName}
+                </Text>
+                <Badge colorScheme="cyan" variant="subtle" borderRadius="full" px={2} textTransform="none">
+                  {account.accountRole || "Account"}
+                </Badge>
+                <Badge colorScheme={account.billingType === "postpaid" ? "orange" : "green"} variant="subtle" borderRadius="full" px={2} textTransform="none">
+                  {account.billingType === "postpaid" ? "Postpaid" : "Prepaid"}
+                </Badge>
+                <Text fontSize="sm" color="blue.50">
+                  Balance: ${parseFloat(account.balance || 0).toFixed(2)}
+                </Text>
+              </Stack>
+            )}
+          </Stack>
         </ModalHeader>
         <ModalCloseButton color="white" isDisabled={isLoading} />
         <ModalBody py={6} maxH="70vh" overflowY="auto">
@@ -141,20 +161,6 @@ const TopupModal = ({
                 <AlertIcon />
                 {error}
               </Alert>
-            )}
-
-            {account && (
-              <Box bg="blue.50" p={4} borderRadius="md">
-                <Text fontSize="sm" color="gray.600">
-                  <strong>Account:</strong>   {account.accountName}
-                </Text>
-                <Text fontSize="sm" color="gray.600">
-                  <strong>Current Balance:</strong> ${parseFloat(account.balance || 0).toFixed(2)}
-                </Text>
-                <Text fontSize="sm" color="gray.600">
-                  <strong>Account Type:</strong> Prepaid
-                </Text>
-              </Box>
             )}
 
             <FormControl isRequired>

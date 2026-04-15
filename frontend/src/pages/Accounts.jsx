@@ -155,6 +155,7 @@ const Accounts = () => {
   const [cdrStats, setCdrStats] = useState(DEFAULT_CDR_STATS);
   const [loading, setLoading] = useState(false);
   const [roleFilter, setRoleFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [billingTypeFilter, setBillingTypeFilter] = useState("all");
   const [ownerFilter, setOwnerFilter] = useState("all");
   const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
@@ -176,6 +177,11 @@ const Accounts = () => {
     { value: "prepaid", label: "Prepaid" },
     { value: "postpaid", label: "Postpaid" },
     { value: "hybrid", label: "Hybrid" },
+  ];
+
+  const statusOptions = [
+    { value: "active", label: "Active", color: "green" },
+    { value: "inactive", label: "Inactive", color: "gray" },
   ];
 
   const billingTypeOptions = [
@@ -209,7 +215,7 @@ const Accounts = () => {
 
   useEffect(() => {
     loadCustomers();
-  }, [debouncedSearch, roleFilter, billingTypeFilter, ownerFilter, page, pageSize]);
+  }, [debouncedSearch, roleFilter, statusFilter, billingTypeFilter, ownerFilter, page, pageSize]);
 
   useEffect(() => {
     if (selectedCustomer) {
@@ -238,6 +244,7 @@ const Accounts = () => {
     try {
       const customersData = await fetchCustomers({
         role: roleFilter,
+        status: statusFilter,
         billingType: billingTypeFilter,
         owner: ownerFilter,
         query: debouncedSearch,
@@ -563,7 +570,7 @@ const Accounts = () => {
     {
       key: "accountOwner",
       header: "Account Owner",
-      minWidth: "150px",
+      minWidth: "120px",
       render: (value, row) => {
         if (row.owner) {
           return `${row.owner.first_name} ${row.owner.last_name}`;
@@ -577,7 +584,7 @@ const Accounts = () => {
     {
       key: "accountRole",
       header: "Account Type",
-      minWidth: "130px",
+      minWidth: "100px",
       render: (value) => {
         const role = accountRoleOptions.find((r) => r.value === value);
         return (
@@ -590,10 +597,10 @@ const Accounts = () => {
     {
       key: "accountName",
       header: "Account Name",
-      // minWidth: "200px",
+      maxWidth: "200px",
       render: (value, row) => (
         <Box>
-          <Text fontWeight="medium" fontSize="sm" noOfLines={1}>
+          <Text fontWeight="medium" fontSize="sm" noOfLines={2}>
             {value}
           </Text>
           <HStack spacing={1} mt={1}>
@@ -611,30 +618,38 @@ const Accounts = () => {
         </Box>
       ),
     },
+    
     // {
-    //   key: "email",
-    //   header: "Email",
-    //   // minWidth: "150px",
-    //   render: (value) => (
-    //     <Text fontSize="sm" isTruncated fontWeight={"medium"}>
-    //       {value}
-    //     </Text>
-    //   ),
+    //   key: "active",
+    //   header: "Status",
+    //   render: (value, row) => {
+    //     const status = statusOptions.find((s) => s.value === row.accountStatus);
+    //     return (
+    //       <Badge
+    //         borderRadius={"full"}
+    //         px={2}
+    //         colorScheme={status?.color || (value ? "green" : "red")}
+    //         variant="subtle"
+    //       >
+    //         {status?.label || (value ? "Active" : "Inactive")}
+    //       </Badge>
+    //     );
+    //   },
     // },
     {
       key: "billingType",
-      header: "Billing Type",
-      // minWidth: "90px",
+      header: "Billing",
+      minWidth: "80px",
       render: (value) => {
-        const billingType = billingTypeOptions.find((b) => b.value === value);
+        const billing = billingTypeOptions.find((b) => b.value === value);
         return (
           <Badge
             borderRadius={"full"}
             px={2}
-            colorScheme={billingType?.color || "gray"}
+            colorScheme={billing?.color || "gray"}
             variant="subtle"
           >
-            {billingType?.label || "-"}
+            {billing?.label || "-"}
           </Badge>
         );
       },
@@ -672,13 +687,13 @@ const Accounts = () => {
     {
       key: "lastbillingdate",
       header: "Last Billing",
-      minWidth: "120px",
+      maxWidth: "100px",
       render: (value) => value || "-",
     },
     {
       key: "nextbillingdate",
       header: "Next Billing",
-      minWidth: "130px",
+      maxWidth: "100px",
       render: (value) => value || "-",
     },
   ];
@@ -705,8 +720,9 @@ const Accounts = () => {
                   variant="solid"
                   onClick={handleBulkUploadClick}
                   size="sm"
+                  isDisabled={true}
                 >
-                  Bulk Upload
+                  Bulk Upload 
                 </Button>
               )}
               <Button
@@ -818,6 +834,23 @@ const Accounts = () => {
             // borderRadius={"md"}
             size="sm"
             width={{ base: "100%", md: "150px" }}
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All Status</option>
+            {statusOptions.map((status) => (
+              <option key={status.value} value={status.value}>
+                {status.label}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            size="sm"
+            width={{ base: "100%", md: "170px" }}
             value={billingTypeFilter}
             onChange={(e) => {
               setBillingTypeFilter(e.target.value);

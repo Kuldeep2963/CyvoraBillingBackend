@@ -95,6 +95,7 @@ import {
   FiGrid,
   FiList,
   FiRefreshCw,
+  FiClock,
   FiCalendar,
   FiEye,
   FiFileText,

@@ -51,6 +51,9 @@ const refreshAccessToken = async () => {
     // Determine which storage was used
     const storage = localStorage.getItem('accessToken') ? localStorage : sessionStorage;
     storage.setItem('accessToken', data.accessToken);
+    if (data.refreshToken) {
+      storage.setItem('refreshToken', data.refreshToken);
+    }
 
     return data.accessToken;
   } catch (error) {
@@ -1323,11 +1326,14 @@ export const uploadCountryCodes = async (formData) => {
   }
 };
 
-export const fetchCountryCodes = async ({ search = '', limit = 50 } = {}) => {
+export const fetchCountryCodes = async ({ search = '', page = 1, limit = 50 } = {}) => {
   try {
     const params = new URLSearchParams();
     if (String(search).trim()) {
       params.set('search', String(search).trim());
+    }
+    if (Number.isFinite(Number(page)) && Number(page) > 0) {
+      params.set('page', String(Math.floor(Number(page))));
     }
     if (Number.isFinite(Number(limit)) && Number(limit) > 0) {
       params.set('limit', String(Math.min(Number(limit), 100)));

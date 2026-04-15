@@ -659,8 +659,7 @@ const CreateAccountModal = ({
   const statusOptions = [
     { value: "active",    label: "Active"    },
     { value: "inactive",  label: "Inactive"  },
-    { value: "suspended", label: "Suspended" },
-    { value: "pending",   label: "Pending"   },
+    
   ];
   const authTypeOptions = [
     { value: "ip",     label: "IP Address",   description: "Match by source IP"    },
