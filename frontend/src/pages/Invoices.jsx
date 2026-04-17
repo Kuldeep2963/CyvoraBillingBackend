@@ -110,6 +110,7 @@ const DEFAULT_PAYMENT_FORM = {
 
 // Max concurrent API calls for bulk operations
 const BULK_CONCURRENCY = 5;
+const NON_SENDABLE_INVOICE_STATUSES = new Set(["cancelled", "void"]);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -645,43 +646,40 @@ const Invoices = () => {
     });
   }, [toast, loadData]);
 
-  const handleSendBulkEmail = useCallback(() => {
-    const unsent = invoices.filter((inv) => ["generated", "pending"].includes(inv.status));
-    if (unsent.length === 0) {
-      toast({ title: "No invoices to send", description: "All invoices have already been sent or are in a status that doesn't allow sending", status: "info", duration: 3000, isClosable: true });
-      return;
-    }
-    openConfirm({
-      title:       "Send Bulk Emails",
-      message:     `Are you sure you want to send ${unsent.length} invoices?`,
-      confirmText: `Send ${unsent.length} Invoices`,
-      type:        "info",
-      onConfirm:   async () => {
-        const toastId = "bulk-email-toast";
-        toast({ id: toastId, title: "Sending bulk emails", description: `Processing ${unsent.length} invoices...`, status: "info", duration: null, isClosable: false });
-        await executeBulkSend(unsent.map((i) => i.id), toastId);
-      },
-    });
-  }, [invoices, openConfirm, toast, executeBulkSend]);
-
   const handleSendSelectedInvoices = useCallback(() => {
     if (selectedInvoiceIds.length === 0) {
       toast({ title: "No invoices selected", status: "warning", duration: 3000, isClosable: true });
       return;
     }
+
+    const selectedInvoices = invoices.filter((inv) => selectedInvoiceIds.includes(inv.id));
+    const sendableInvoices = selectedInvoices.filter((inv) => !NON_SENDABLE_INVOICE_STATUSES.has(String(inv.status || "").toLowerCase()));
+    const skipped = selectedInvoices.length - sendableInvoices.length;
+
+    if (sendableInvoices.length === 0) {
+      toast({
+        title: "No sendable invoices selected",
+        description: "Selected invoices are cancelled/void or otherwise not eligible for send.",
+        status: "info",
+        duration: 4000,
+        isClosable: true,
+      });
+      return;
+    }
+
     openConfirm({
       title:       "Send Selected Invoices",
-      message:     `Are you sure you want to send ${selectedInvoiceIds.length} selected invoices?`,
-      confirmText: `Send ${selectedInvoiceIds.length} Invoices`,
+      message:     `Are you sure you want to send ${sendableInvoices.length} selected invoices?${skipped > 0 ? ` ${skipped} selected invoice${skipped !== 1 ? "s" : ""} will be skipped due to status.` : ""}`,
+      confirmText: `Send ${sendableInvoices.length} Invoices`,
       type:        "info",
       onConfirm:   async () => {
         const toastId = "selected-email-toast";
-        toast({ id: toastId, title: "Sending selected invoices", description: `Processing ${selectedInvoiceIds.length} invoices...`, status: "info", duration: null, isClosable: false });
-        await executeBulkSend(selectedInvoiceIds, toastId);
+        toast({ id: toastId, title: "Sending selected invoices", description: `Processing ${sendableInvoices.length} invoices...`, status: "info", duration: null, isClosable: false });
+        await executeBulkSend(sendableInvoices.map((inv) => inv.id), toastId);
         setSelectedInvoiceIds([]);
       },
     });
-  }, [selectedInvoiceIds, openConfirm, toast, executeBulkSend]);
+  }, [selectedInvoiceIds, invoices, openConfirm, toast, executeBulkSend]);
 
   // BUG FIX: uses ConfirmDialog; Promise.allSettled for partial-failure handling
   const handleDeleteSelected = useCallback(() => {
@@ -904,13 +902,14 @@ const Invoices = () => {
                 >
                   Record Payment
                 </MenuItem>
-                <MenuItem icon={<FiEdit />} fontSize="13px" onClick={() => handleViewInvoice(row)}>
-                  Edit Invoice
-                </MenuItem>
+                {/* <MenuItem icon={<FiEdit />} fontSize="13px" onClick={() => handleViewInvoice(row)}>
+                  View details
+                </MenuItem> */}
                 <MenuDivider />
-                <MenuItem icon={<FiTrash2 />} fontSize="13px" color="red.500" onClick={() => handleDeleteInvoice(row)}>
+                { row.status !== "paid" &&
+                (<MenuItem icon={<FiTrash2 />} fontSize="13px" color="red.500" onClick={() => handleDeleteInvoice(row)}>
                   Delete Invoice
-                </MenuItem>
+                </MenuItem>)}
               </MenuList>
             </Menu>
           </HStack>
@@ -929,6 +928,24 @@ const Invoices = () => {
         description="Manage customer invoices, track payments, and generate reports"
         rightContent={
           <Flex gap={3}>
+            
+            {selectedInvoiceIds.length != 0 && (<Menu>
+              <MenuButton
+                as={Button}
+                colorScheme="blue"
+                leftIcon={<FiSettings />}
+                variant="solid"
+                size="sm"
+              >
+                Actions
+              </MenuButton>
+              <MenuList>
+                <MenuItem icon={<FiSend />} onClick={handleSendSelectedInvoices} color={"gray.600"}>Send Selected Invoices</MenuItem>
+                <MenuItem icon={<FiDownload />} onClick={handleDownloadSelected} color={"gray.600"}>Download Selected</MenuItem>
+                {/* <MenuItem icon={<FiEdit />}   onClick={handleRegenerateSelected}>Regenerate Selected</MenuItem> */}
+                <MenuItem icon={<FiTrash2 />} onClick={handleDeleteSelected} color="red.500">Delete Selected</MenuItem>
+              </MenuList>
+            </Menu>)}
             <Menu>
               <MenuButton
                 as={Button}
@@ -953,29 +970,7 @@ const Invoices = () => {
                 </MenuItem>
               </MenuList>
             </Menu>
-
-            <Menu>
-              <MenuButton as={Button} colorScheme="blue" leftIcon={<FiSettings />} variant="solid" size="sm">
-                Actions
-              </MenuButton>
-              <MenuList>
-                <MenuItem icon={<FiCreditCard />} onClick={() => setIsPaymentModalOpen(true)}>Record Payment</MenuItem>
-                <MenuDivider />
-                <MenuItem icon={<FiMail />} onClick={handleSendBulkEmail}>Send Bulk Email</MenuItem>
-                <MenuItem icon={<FiSend />} onClick={handleSendSelectedInvoices}>Send Selected Invoices</MenuItem>
-                <MenuDivider />
-                <MenuItem icon={<FiDownload />} onClick={handleDownloadSelected}>Download Selected</MenuItem>
-                <MenuItem icon={<FiFile />} onClick={handleExportToSage}>
-                  <Box>
-                    <Text>Sage Export</Text>
-                    <Text fontSize="xs" color="gray.500">Export to accounting software</Text>
-                  </Box>
-                </MenuItem>
-                <MenuDivider />
-                <MenuItem icon={<FiEdit />}   onClick={handleRegenerateSelected}>Regenerate Selected</MenuItem>
-                <MenuItem icon={<FiTrash2 />} onClick={handleDeleteSelected} color="red.500">Delete Selected</MenuItem>
-              </MenuList>
-            </Menu>
+            
           </Flex>
         }
       />

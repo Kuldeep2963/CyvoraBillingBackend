@@ -283,8 +283,9 @@ const DataTable = ({
                   bg={striped && index % 2 === 0 ? stripedBg : 'transparent'}
                 >
                   {columns.map((column) => (
-                    <Td className="app-table-cell" key={`${item.id}-${column.key}`} minWidth={column.minWidth || "auto"}>
+                    <Td  className="app-table-cell" key={`${item.id}-${column.key}`} minWidth={column.minWidth || "auto"}>
                         <Box
+                          
                           width={getColumnWidth(column)}
                           maxWidth={column.maxWidth || column.width || undefined}
                           overflow={column.maxWidth || column.width ? 'hidden' : 'visible'}
@@ -301,7 +302,7 @@ const DataTable = ({
                       width="140px" 
                       textAlign="right"
                     >
-                      <Flex justify="flex-end" align="center">
+                      <Flex justify="center" align="center">
                         {/* allow consumer to insert extra elements (buttons, badges,
                             etc.) before the menu */}
                         {rowActions && rowActions(item)}

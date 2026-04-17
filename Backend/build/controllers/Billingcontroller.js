@@ -960,8 +960,8 @@ exports.sendInvoiceEmail = async (req, res) => {
       pdfBuffer,
     );
 
-    // Update status to 'sent' if it was 'generated' or 'pending'
-    if (["generated", "pending"].includes(invoice.status)) {
+    // Keep paid invoices as paid; all other statuses become sent after successful delivery.
+    if (String(invoice.status || "").toLowerCase() !== "paid") {
       await invoice.update({ status: "sent" });
     }
 

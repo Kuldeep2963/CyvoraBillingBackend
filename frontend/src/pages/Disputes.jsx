@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Modal,
+  ModalBody,
+  ModalCloseButton,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  ModalOverlay,
   Box,
   Badge,
   Button,
@@ -22,7 +29,7 @@ import {
 import { FiAlertTriangle, FiRefreshCw, FiSearch } from "react-icons/fi";
 import PageNavBar from "../components/PageNavBar";
 import DataTable from "../components/DataTable";
-import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
+import { MemoizedInput as Input } from "../components/memoizedinput/memoizedinput";
 import { fetchVendorInvoices } from "../utils/api";
 
 const formatAmount = (value) =>
@@ -45,16 +52,11 @@ const formatDate = (value) => {
 const statusColor = (status) => {
   switch (String(status || "").toLowerCase()) {
     case "paid":
-    case "approved":
       return "green";
     case "pending":
-      return "orange";
-    case "processing":
-      return "blue";
-    case "rejected":
-      return "red";
-    default:
       return "gray";
+    case "disputed":
+      return "red";
   }
 };
 
@@ -68,8 +70,8 @@ export default function Disputes() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedRow, setSelectedRow] = useState(null);
 
   const loadDisputes = async () => {
     setIsLoading(true);
@@ -77,16 +79,12 @@ export default function Disputes() {
       const params = {
         page,
         limit: pageSize,
-        isDisputed: true,
+        status: "disputed",
       };
 
       const search = searchTerm.trim();
       if (search) {
         params.search = search;
-      }
-
-      if (statusFilter !== "all") {
-        params.status = statusFilter;
       }
 
       const response = await fetchVendorInvoices(params);
@@ -114,7 +112,7 @@ export default function Disputes() {
   useEffect(() => {
     loadDisputes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, statusFilter]);
+  }, [page, pageSize]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -166,26 +164,28 @@ export default function Disputes() {
         isNumeric: true,
         render: (value) => <Text textAlign="right">${formatAmount(value)}</Text>,
       },
-      {
-        key: "totalSeconds",
-        header: "Seconds",
-        minWidth: "120px",
-        isNumeric: true,
-        render: (value) => <Text textAlign="right">{Number(value || 0).toLocaleString()}</Text>,
-      },
+     
       {
         key: "status",
         header: "Status",
         minWidth: "120px",
+        justifyContent: "center",
         render: (value) => <Badge colorScheme={statusColor(value)}>{value || "pending"}</Badge>,
       },
       {
-        key: "isDisputed",
-        header: "Disputed",
+        key: "dispute",
+        header: "Dispute",
         minWidth: "120px",
-        render: (value) => (
-          <Badge colorScheme={value ? "red" : "gray"}>{value ? "disputed" : "No"}</Badge>
-        ),
+        render: (_, row) => {
+          const details = row.disputeDetails || {};
+          const disputedAmount = Number(details.disputedAmount || 0);
+          const disputedPercentage = Number(details.disputedPercentage || 0);
+          return (
+            <Text fontSize="sm" color="red.600" fontWeight="600">
+              ${formatAmount(disputedAmount)} ({disputedPercentage.toFixed(2)}%)
+            </Text>
+          );
+        },
       },
     ],
     []
@@ -214,24 +214,6 @@ export default function Disputes() {
           />
         </InputGroup>
 
-        <Select
-          maxW="220px"
-          size="sm"
-          value={statusFilter}
-          onChange={(e) => {
-            setPage(1);
-            setStatusFilter(e.target.value);
-          }}
-        >
-          <option value="all">All Statuses</option>
-          <option value="pending">Pending</option>
-          <option value="processing">Processing</option>
-          <option value="approved">Approved</option>
-          <option value="paid">Paid</option>
-          <option value="rejected">Rejected</option>
-        </Select>
-
-        
       </Flex>
 
       {rows.length === 0 && !isLoading ? (
@@ -243,7 +225,8 @@ export default function Disputes() {
         <DataTable
           columns={columns}
           data={rows}
-          actions={false}
+          actions
+          onView={(row) => setSelectedRow(row)}
           serverPagination
           page={page}
           pageSize={pageSize}
@@ -258,6 +241,63 @@ export default function Disputes() {
           height="calc(100vh - 250px)"
         />
       )}
+
+      <Modal isOpen={Boolean(selectedRow)} onClose={() => setSelectedRow(null)} isCentered size="lg">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader borderTopRadius={"md"} color={"white"} bg={"blue.500"}>Dispute Details</ModalHeader>
+          <ModalCloseButton  color={"white"}/>
+          <ModalBody>
+            {selectedRow ? (
+              <VStack align="stretch" spacing={3}>
+                <SimpleGrid columns={2} spacing={3}>
+                  <Box>
+                    <Text fontSize="xs" color="gray.500">Invoice</Text>
+                    <Text fontSize="sm" fontWeight="600">{selectedRow.invoiceNumber || "-"}</Text>
+                  </Box>
+                  <Box>
+                    <Text fontSize="xs" color="gray.500">Vendor</Text>
+                    <Text fontSize="sm" fontWeight="600">{selectedRow.vendor?.accountName || selectedRow.vendorCode || "-"}</Text>
+                  </Box>
+                  <Box>
+                    <Text fontSize="xs" color="gray.500">Status</Text>
+                    <Badge colorScheme={statusColor(selectedRow.status)}>{selectedRow.status || "pending"}</Badge>
+                  </Box>
+                  <Box>
+                    <Text fontSize="xs" color="gray.500">Period</Text>
+                    <Text fontSize="sm">{formatDate(selectedRow.startDate)} - {formatDate(selectedRow.endDate)}</Text>
+                  </Box>
+                </SimpleGrid>
+
+                <Box borderWidth="1px" borderColor={borderColor} borderRadius="md" p={3}>
+                  <Text fontSize="xs" color="gray.500" mb={2}>Dispute Breakdown</Text>
+                  <VStack align="stretch" spacing={1}>
+                    <Flex justify="space-between">
+                      <Text fontSize="sm" color="gray.600">Invoice Amount</Text>
+                      <Text fontSize="sm" fontWeight="600">${formatAmount(selectedRow.grandTotal || 0)}</Text>
+                    </Flex>
+                    <Flex justify="space-between">
+                      <Text fontSize="sm" color="gray.600">Actual amount</Text>
+                      <Text fontSize="sm" fontWeight="600">${formatAmount(selectedRow.disputeDetails?.actualAmount || 0)}</Text>
+                    </Flex>
+                    <Flex justify="space-between">
+                      <Text fontSize="sm" color="gray.600">Disputed amount</Text>
+                      <Text fontSize="sm" fontWeight="600" color="red.600">${formatAmount(selectedRow.disputeDetails?.disputedAmount || 0)}</Text>
+                    </Flex>
+                    <Flex justify="space-between">
+                      <Text fontSize="sm" color="gray.600">Disputed percentage</Text>
+                      <Text fontSize="sm" fontWeight="600" color="red.600">{Number(selectedRow.disputeDetails?.disputedPercentage || 0).toFixed(2)}%</Text>
+                    </Flex>
+                  </VStack>
+                </Box>
+              </VStack>
+            ) : null}
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={() => setSelectedRow(null)}>Close</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
         
     </Box>
   );

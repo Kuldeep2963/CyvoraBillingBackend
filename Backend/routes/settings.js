@@ -229,8 +229,8 @@ router.get('/country-codes', async (req, res) => {
     const where = search
       ? {
           [Op.or]: [
-            { code: { [Op.iLike]: `%${search}%` } },
-            { country_name: { [Op.iLike]: `%${search}%` } },
+            { code: { [Op.iLike]: `${search}%` } },
+            { country_name: { [Op.iLike]: `${search}%` } },
           ],
         }
       : undefined;

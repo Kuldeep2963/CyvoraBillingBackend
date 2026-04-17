@@ -46,14 +46,6 @@ import {
   AlertIcon,
   AlertTitle,
   AlertDescription,
-  Grid,
-  GridItem,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-  PopoverBody,
-  PopoverArrow,
-  PopoverCloseButton,
   NumberInput,
   NumberInputField,
   NumberInputStepper,
@@ -193,22 +185,11 @@ const formatDateAsYmd = (date) => `${date.getFullYear()}-${pad2(date.getMonth() 
 const utcSelectionToBackendPayload = (date, hour, minute) => {
   if (!date) return { date: null, hour: 0, minute: 0 };
 
-  const utcMillis = Date.UTC(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
+  // Preserve the selected calendar day while treating hour/minute as explicit UTC input.
+  return {
+    date: formatDateAsYmd(date),
     hour,
     minute,
-    0,
-    0,
-  );
-
-  const localEquivalent = new Date(utcMillis - new Date(utcMillis).getTimezoneOffset() * 60000);
-
-  return {
-    date: formatDateAsYmd(localEquivalent),
-    hour: localEquivalent.getHours(),
-    minute: localEquivalent.getMinutes(),
   };
 };
 
@@ -256,32 +237,36 @@ const LoadingState = () => (
   </Center>
 );
 
-const EmptyState = () => (
-  <Alert
-    bg="gray.200"
-    status="info"
-    borderRadius="md"
-    variant="subtle"
-    flexDirection="column"
-    alignItems="center"
-    justifyContent="center"
+const EmptyState = ({ onGenerateReport }) => (
+  <VStack
+    spacing={5}
+    p={12}
+    bg="gray.50"
+    border="2px dashed"
+    borderColor="gray.300"
+    borderRadius="xl"
     textAlign="center"
+    w="full"
   >
-    <HStack spacing={4} align="center">
-      <AlertIcon boxSize="30px" mr={0} />
-      <AlertTitle mb={1} fontSize="lg">No Report Data</AlertTitle>
-    </HStack>
-    <AlertDescription maxWidth="lg" fontSize="sm">
-      Generate a report to view analytics and insights from your CDR data.
-    </AlertDescription>
-  </Alert>
+    <Box p={4} bg="white" borderRadius="full" shadow="sm">
+      <Icon as={FiBarChart2} boxSize={8} color="blue.500" />
+    </Box>
+    
+    <VStack spacing={2}>
+      <Heading size="md" color="gray.700">
+        No Report Data Yet
+      </Heading>
+      <Text color="gray.500" maxW="md" fontSize="sm">
+        You haven't generated any reports yet. Create your first report to start viewing analytics and insights from your CDR data.
+      </Text>
+    </VStack>
+  </VStack>
 );
-
 // ─── Table column definitions ─────────────────────────────────────────────────
 
 // Each tab renders a different table. Column configs are static.
 const HOURLY_COLUMNS = [
-  { label: "Time Range", key: "hour" },
+  { label: "Hour", key: "hour" },
   { label: "Account Owner", key: "accountOwner" },
   { label: "Attempts", key: "attempts", isNumeric: true },
   { label: "Completed", key: "completed", isNumeric: true },
@@ -851,8 +836,6 @@ const Reports = () => {
                     minute={dateRange.startMinute}
                     onHourChange={setStartHour}
                     onMinuteChange={setStartMinute}
-                    activeHour={dateRange.startHour}
-                    activeMinute={dateRange.startMinute}
                   />
                   <TimePickerButton
                     label="To Time (UTC)"
@@ -860,8 +843,6 @@ const Reports = () => {
                     minute={dateRange.endMinute}
                     onHourChange={setEndHour}
                     onMinuteChange={setEndMinute}
-                    activeHour={dateRange.endHour}
-                    activeMinute={dateRange.endMinute}
                   />
                 </>
               )}
@@ -1182,79 +1163,35 @@ ReportSummaryCards.displayName = "ReportSummaryCards";
 
 // ─── TimePickerButton ─────────────────────────────────────────────────────────
 
-const MINUTE_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
-
-const TimePickerButton = React.memo(({ label, hour, minute, onHourChange, onMinuteChange, activeHour, activeMinute }) => (
+const TimePickerButton = React.memo(({ label, hour, minute, onHourChange, onMinuteChange }) => (
   <WrapItem>
-    <Popover placement="bottom">
-      <PopoverTrigger>
-        <Box>
-          <FormLabel fontSize="sm" display="flex" alignItems="center" gap={2} mb={2}>
-            <FiClock />{label}
-          </FormLabel>
-          <Button
-            size="sm"
-            variant="outline"
-            borderColor="gray.300"
-            bg="white"
-            _hover={{ borderColor: "blue.400", bg: "blue.50" }}
-            w="120px"
-            fontWeight="bold"
-            color="gray.800"
-          >
-            {hour.toString().padStart(2, "0")}:{minute.toString().padStart(2, "0")}
-          </Button>
-        </Box>
-      </PopoverTrigger>
-      <PopoverContent w="280px">
-        <PopoverArrow />
-        <PopoverCloseButton />
-        <PopoverBody p={4}>
-          <VStack spacing={4}>
-            <Box w="full">
-              <Text fontSize="xs" fontWeight="bold" mb={2}>Hour</Text>
-              <Grid templateColumns="repeat(6, 1fr)" gap={2}>
-                {Array.from({ length: 24 }, (_, h) => (
-                  <GridItem key={h}>
-                    <Button
-                      size="sm"
-                      variant={activeHour === h ? "solid" : "outline"}
-                      colorScheme={activeHour === h ? "blue" : "gray"}
-                      w="100%"
-                      onClick={() => onHourChange(h)}
-                      fontSize="xs"
-                      fontWeight="bold"
-                    >
-                      {h.toString().padStart(2, "0")}
-                    </Button>
-                  </GridItem>
-                ))}
-              </Grid>
-            </Box>
-            <Box w="full">
-              <Text fontSize="xs" fontWeight="bold" mb={2}>Minute</Text>
-              <Grid templateColumns="repeat(6, 1fr)" gap={2}>
-                {MINUTE_OPTIONS.map((m) => (
-                  <GridItem key={m}>
-                    <Button
-                      size="sm"
-                      variant={activeMinute === m ? "solid" : "outline"}
-                      colorScheme={activeMinute === m ? "blue" : "gray"}
-                      w="100%"
-                      onClick={() => onMinuteChange(m)}
-                      fontSize="xs"
-                      fontWeight="bold"
-                    >
-                      {m.toString().padStart(2, "0")}
-                    </Button>
-                  </GridItem>
-                ))}
-              </Grid>
-            </Box>
-          </VStack>
-        </PopoverBody>
-      </PopoverContent>
-    </Popover>
+    <Box>
+      <FormLabel fontSize="sm" display="flex" alignItems="center" gap={2} mb={2}>
+        <FiClock />{label}
+      </FormLabel>
+      <InputGroup w="170px">
+        <InputLeftElement pointerEvents="none" color="gray.500">
+        </InputLeftElement>
+        <Input
+          type="time"
+          value={`${pad2(hour)}:${pad2(minute)}`}
+          step={60}
+          size="sm"
+          pl={9}
+          bg="white"
+          borderColor="gray.300"
+          _hover={{ borderColor: "blue.400" }}
+          _focus={{ borderColor: "blue.500", boxShadow: "0 0 0 1px var(--chakra-colors-blue-500)" }}
+          onChange={(e) => {
+            const [nextHour, nextMinute] = (e.target.value || "").split(":").map((value) => Number(value));
+            if (!Number.isInteger(nextHour) || !Number.isInteger(nextMinute)) return;
+            if (nextHour < 0 || nextHour > 23 || nextMinute < 0 || nextMinute > 59) return;
+            onHourChange(nextHour);
+            onMinuteChange(nextMinute);
+          }}
+        />
+      </InputGroup>
+    </Box>
   </WrapItem>
 ));
 TimePickerButton.displayName = "TimePickerButton";

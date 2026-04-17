@@ -745,7 +745,7 @@ const Accounts = () => {
           templateColumns={{
             base: "1fr",
             md: "repeat(2, 1fr)",
-            lg: "repeat(4, 1fr)",
+            lg: "repeat(5, 1fr)",
           }}
           gap={4}
         >
@@ -757,15 +757,15 @@ const Accounts = () => {
             },
             {
               label: "Customers",
-              value: customers.filter((c) =>
-                ["customer", "both"].includes(c.accountRole),
-              ).length,
+              value: customers.filter((c) => c.accountRole === "customer").length,
             },
             {
               label: "Vendors",
-              value: customers.filter((c) =>
-                ["vendor", "both"].includes(c.accountRole),
-              ).length,
+              value: customers.filter((c) => c.accountRole === "vendor").length,
+            },
+            {
+              label: "Bilateral",
+              value: customers.filter((c) => c.accountRole === "both").length,
             },
           ].map(({ label, value }) => (
             <Box
@@ -814,14 +814,14 @@ const Accounts = () => {
             // borderRadius={"md"}
             // bg={"white"}
             size="sm"
-            width={{ base: "100%", md: "150px" }}
+            width={{ base: "100%", md: "170px" }}
             value={roleFilter}
             onChange={(e) => {
               setRoleFilter(e.target.value);
               setPage(1);
             }}
           >
-            <option value="all">All Roles</option>
+            <option value="all">All Account Type</option>
             {accountRoleOptions.map((role) => (
               <option key={role.value} value={role.value}>
                 {role.label}

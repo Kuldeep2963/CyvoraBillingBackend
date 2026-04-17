@@ -61,8 +61,28 @@ const getCountryCodes = async () => {
 const formatTime = (date, hour, minute = 0, isEnd = false) => {
   if (!date) return null;
 
+  const parsedHour = Number(hour);
+  const parsedMinute = Number(minute);
+  const safeHour = Number.isFinite(parsedHour) ? parsedHour : 0;
+  const safeMinute = Number.isFinite(parsedMinute) ? parsedMinute : 0;
+
   // Parse the date - handle both string dates and timestamps
   const numericDate = Number(date);
+
+  // Parse date-only values as UTC midnight to avoid server-local timezone drift.
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [year, month, day] = date.split('-').map((value) => Number(value));
+    return Date.UTC(
+      year,
+      month - 1,
+      day,
+      safeHour,
+      safeMinute,
+      isEnd ? 59 : 0,
+      isEnd ? 999 : 0
+    );
+  }
+
   let d;
   
   if (!isNaN(numericDate) && numericDate > 0) {
@@ -77,10 +97,10 @@ const formatTime = (date, hour, minute = 0, isEnd = false) => {
 
   if (isEnd) {
     // For end range: go to end of that minute (59 seconds, 999 milliseconds)
-    d.setHours(hour, minute, 59, 999);
+    d.setUTCHours(safeHour, safeMinute, 59, 999);
   } else {
     // For start range: go to start of that minute (00 seconds, 000 milliseconds)
-    d.setHours(hour, minute, 0, 0);
+    d.setUTCHours(safeHour, safeMinute, 0, 0);
   }
   
   // Return Unix timestamp in milliseconds as a number (database field is bigint)
@@ -550,25 +570,31 @@ exports.hourlyReport = async (req, res) => {
 
     console.log(`Processed ${rows.length} raw hour groups`);
 
-    // Safety aggregation in Node: guarantees one row per hour (0..23)
+    const utcTodayYmd = new Date().toISOString().slice(0, 10);
+    const startDateYmd = String(startDate || '').slice(0, 10);
+    const endDateYmd = String(endDate || '').slice(0, 10);
+    const isSingleUtcToday = startDateYmd === utcTodayYmd && endDateYmd === utcTodayYmd;
+    const maxHour = isSingleUtcToday ? new Date().getUTCHours() : 23;
+
+    // Safety aggregation in Node: guarantees one row per hour for expected buckets.
     const hourlyMap = new Map();
+
+    for (let h = 0; h <= maxHour; h += 1) {
+      hourlyMap.set(h, {
+        hour: h,
+        attempts: 0,
+        completed: 0,
+        failed: 0,
+        duration: 0,
+        revenue: 0,
+        cost: 0
+      });
+    }
 
     for (const r of rows) {
       const hourRaw = String(r.hour ?? '').trim();
       const h = Number.parseInt(hourRaw, 10);
-      if (Number.isNaN(h) || h < 0 || h > 23) continue;
-
-      if (!hourlyMap.has(h)) {
-        hourlyMap.set(h, {
-          hour: h,
-          attempts: 0,
-          completed: 0,
-          failed: 0,
-          duration: 0,
-          revenue: 0,
-          cost: 0
-        });
-      }
+      if (Number.isNaN(h) || h < 0 || h > maxHour || !hourlyMap.has(h)) continue;
 
       const agg = hourlyMap.get(h);
       agg.attempts += Number(r.attempts || 0);
@@ -582,11 +608,8 @@ exports.hourlyReport = async (req, res) => {
     const data = Array.from(hourlyMap.values())
       .sort((a, b) => a.hour - b.hour)
       .map((r) => {
-        const start = `${String(r.hour).padStart(2, '0')}:00`;
-        const end = `${String((r.hour + 1) % 24).padStart(2, '0')}:00`;
-
         return {
-          hour: `${start} - ${end}`,
+          hour: r.hour,
           accountOwner: ownerName,
           attempts: r.attempts,
           completed: r.completed,
@@ -598,20 +621,6 @@ exports.hourlyReport = async (req, res) => {
           margin: parseFloat((r.revenue - r.cost).toFixed(4))
         };
       });
-
-    if (data.length === 0) {
-      return res.json({
-        success: true,
-        data: [],
-        summary: {
-          totalAttempts: 0,
-          totalCompleted: 0,
-          totalRevenue: 0,
-          avgASR: 0
-        },
-        message: 'No CDR records found for the selected criteria'
-      });
-    }
 
     const totalAttempts = data.reduce((sum, r) => sum + r.attempts, 0);
     const totalCompleted = data.reduce((sum, r) => sum + r.completed, 0);
@@ -1569,6 +1578,18 @@ exports.exportSOA = async (req, res) => {
     }
 
     const { accountName, customerCode, vendorCode } = account;
+    const normalizedRole = String(account.accountRole || '').toLowerCase();
+    const includeCustomer = normalizedRole
+      ? ['customer', 'both'].includes(normalizedRole)
+      : Boolean(customerCode);
+    const includeVendor = normalizedRole
+      ? ['vendor', 'both'].includes(normalizedRole)
+      : Boolean(vendorCode);
+    const vendorPaymentDirection = normalizedRole === 'vendor' ? 'inbound' : 'outbound';
+
+    if (!includeCustomer && !includeVendor) {
+      return res.status(400).json({ error: 'Account role does not support SOA generation' });
+    }
 
     // Dates for filtering
     const normalizedStartDate = String(startDate || '').trim();
@@ -1585,59 +1606,68 @@ exports.exportSOA = async (req, res) => {
     const startYmd = normalizedStartDate;
     const endYmd = normalizedEndDate;
 
-    // 1. Fetch Customer Invoices (Invoices we issue to them)
-    const customerInvoices = await Invoice.findAll({
-      where: {
-        customerCode: customerCode,
-        invoiceDate: { [Op.between]: [startTs, endTs] }
-      },
-      order: [['invoiceDate', 'ASC']],
-      raw: true
-    });
+    const vendorInvoiceWhere = { vendorCode };
+    const vendorDateConditions = [];
+    if (endYmd) {
+      vendorDateConditions.push({ startDate: { [Op.lte]: endYmd } });
+    }
+    if (startYmd) {
+      vendorDateConditions.push({ endDate: { [Op.gte]: startYmd } });
+    }
+    if (vendorDateConditions.length > 0) {
+      vendorInvoiceWhere[Op.and] = vendorDateConditions;
+    }
 
-    // 2. Fetch Customer Payments (Payments from them to us)
-    const customerPayments = await Payment.findAll({
-      where: {
-        customerCode: customerCode,
-        partyType: 'customer',
-        paymentDirection: 'inbound',
-        paymentDate: { [Op.between]: [startTs, endTs] }
-      },
-      order: [['paymentDate', 'ASC']],
-      raw: true
-    });
-
-    // 3. Fetch Vendor Invoices (Invoices they issue to us - from VendorInvoice table)
-    const vendorInvoices = await VendorInvoice.findAll({
-      where: {
-        vendorCode: vendorCode,
-        [Op.and]: [
-          { startDate: { [Op.lte]: endYmd } },
-          { endDate: { [Op.gte]: startYmd } },
-        ],
-      },
-      order: [['createdAt', 'ASC']],
-      raw: true
-    });
-
-    // 4. Fetch Vendor Payments (Payments from us to them)
-    const vendorPayments = await Payment.findAll({
-      where: {
-        customerCode: vendorCode,
-        partyType: 'vendor',
-        paymentDirection: 'outbound',
-        paymentDate: { [Op.between]: [startTs, endTs] }
-      },
-      order: [['paymentDate', 'ASC']],
-      raw: true
-    });
+    const [customerInvoices, customerPayments, vendorInvoices, vendorPayments] = await Promise.all([
+      includeCustomer && customerCode
+        ? Invoice.findAll({
+            where: {
+              customerCode,
+              invoiceDate: { [Op.between]: [startTs, endTs] }
+            },
+            order: [['invoiceDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeCustomer && customerCode
+        ? Payment.findAll({
+            where: {
+              customerCode,
+              partyType: 'customer',
+              paymentDirection: 'inbound',
+              paymentDate: { [Op.between]: [startTs, endTs] }
+            },
+            order: [['paymentDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeVendor && vendorCode
+        ? VendorInvoice.findAll({
+            where: vendorInvoiceWhere,
+            order: [['createdAt', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeVendor && vendorCode
+        ? Payment.findAll({
+            where: {
+              customerCode: vendorCode,
+              partyType: 'vendor',
+              paymentDirection: vendorPaymentDirection,
+              paymentDate: { [Op.between]: [startTs, endTs] }
+            },
+            order: [['paymentDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+    ]);
 
     // 5. Derive dispute rows from disputed vendor invoices
     const disputes = vendorInvoices
-      .filter((invoice) => Boolean(invoice.isDisputed))
+      .filter((invoice) => String(invoice.status || '').toLowerCase() === 'disputed')
       .map((invoice) => ({
         invoiceNumber: invoice.invoiceNumber,
-        disputeAmount: Number(invoice.grandTotal || 0),
+        disputeAmount: Number(invoice.disputeDetails?.disputedAmount || invoice.grandTotal || 0),
         status: 'open',
       }));
 
@@ -1662,36 +1692,50 @@ exports.exportSOA = async (req, res) => {
     // Left Group: Customer Usage (Cyvoratech Pvt Ltd. INVOICE)
     worksheet.mergeCells('A4:C4');
     const leftInvoiceHeader = worksheet.getCell('A4');
-    leftInvoiceHeader.value = 'Cyvoratech Pvt Ltd. INVOICE';
+    leftInvoiceHeader.value = includeCustomer ? 'Cyvoratech Pvt Ltd. INVOICE' : '';
     leftInvoiceHeader.font = { bold: true };
     leftInvoiceHeader.alignment = { horizontal: 'center' };
 
     worksheet.mergeCells('F4:G4');
     const leftPaymentHeader = worksheet.getCell('F4');
-    leftPaymentHeader.value = `${accountName} PAYMENT`;
+    leftPaymentHeader.value = includeCustomer ? `${accountName} PAYMENT` : '';
     leftPaymentHeader.font = { bold: true };
     leftPaymentHeader.alignment = { horizontal: 'center' };
 
     // Right Group: Vendor Usage (Account INVOICE)
     worksheet.mergeCells('I4:K4');
     const rightInvoiceHeader = worksheet.getCell('I4');
-    rightInvoiceHeader.value = `${accountName} INVOICE`;
+    rightInvoiceHeader.value = includeVendor ? `${accountName} INVOICE` : '';
     rightInvoiceHeader.font = { bold: true };
     rightInvoiceHeader.alignment = { horizontal: 'center' };
 
     worksheet.mergeCells('N4:O4');
     const rightPaymentHeader = worksheet.getCell('N4');
-    rightPaymentHeader.value = `Cyvoratech Pvt Ltd. PAYMENT`;
+    rightPaymentHeader.value = includeVendor
+      ? (vendorPaymentDirection === 'inbound' ? `${accountName} PAYMENT` : 'Cyvoratech Pvt Ltd. PAYMENT')
+      : '';
     rightPaymentHeader.font = { bold: true };
     rightPaymentHeader.alignment = { horizontal: 'center' };
 
     // --- COLUMN HEADERS (Row 5) ---
-    const headers = {
-      1: 'INVOICE NO', 2: 'PERIOD COVERED', 3: 'AMOUNT', 4: 'PENDING DISPUTE',
-      6: 'DATE', 7: `${accountName} PAYMENT`, 8: 'BALANCE',
-      9: 'INVOICE NO', 10: 'PERIOD COVERED', 11: 'AMOUNT', 12: 'PENDING DISPUTE',
-      14: 'DATE', 15: `Cyvoratech Pvt Ltd. PAYMENT`
-    };
+    const headers = {};
+    if (includeCustomer) {
+      headers[1] = 'INVOICE NO';
+      headers[2] = 'PERIOD COVERED';
+      headers[3] = 'AMOUNT';
+      headers[4] = 'PENDING DISPUTE';
+      headers[6] = 'DATE';
+      headers[7] = `${accountName} PAYMENT`;
+      headers[8] = 'BALANCE';
+    }
+    if (includeVendor) {
+      headers[9] = 'INVOICE NO';
+      headers[10] = 'PERIOD COVERED';
+      headers[11] = 'AMOUNT';
+      headers[12] = 'PENDING DISPUTE';
+      headers[14] = 'DATE';
+      headers[15] = vendorPaymentDirection === 'inbound' ? `${accountName} PAYMENT` : 'Cyvoratech Pvt Ltd. PAYMENT';
+    }
 
     const headerRow = worksheet.getRow(5);
     Object.entries(headers).forEach(([col, val]) => {
@@ -1720,7 +1764,7 @@ exports.exportSOA = async (req, res) => {
       const row = worksheet.getRow(currentRow);
       
       // Customer Invoices
-      if (customerInvoices[i]) {
+      if (includeCustomer && customerInvoices[i]) {
         row.getCell(1).value = customerInvoices[i].invoiceNumber;
         row.getCell(2).value = `${fmtDate(customerInvoices[i].billingPeriodStart)}-${fmtDate(customerInvoices[i].billingPeriodEnd)}`;
         row.getCell(3).value = Number(customerInvoices[i].totalAmount);
@@ -1736,7 +1780,7 @@ exports.exportSOA = async (req, res) => {
       }
 
       // Customer Payments
-      if (customerPayments[i]) {
+      if (includeCustomer && customerPayments[i]) {
         row.getCell(6).value = fmtDate(customerPayments[i].paymentDate);
         row.getCell(7).value = Number(customerPayments[i].amount);
         row.getCell(7).numFmt = '#,##0.0000';
@@ -1744,7 +1788,7 @@ exports.exportSOA = async (req, res) => {
       }
 
       // Vendor Invoices
-      if (vendorInvoices[i]) {
+      if (includeVendor && vendorInvoices[i]) {
         row.getCell(9).value = vendorInvoices[i].invoiceNumber;
         row.getCell(10).value = `${vendorInvoices[i].startDate || ''}-${vendorInvoices[i].endDate || ''}`;
         row.getCell(11).value = Number(vendorInvoices[i].grandTotal || 0);
@@ -1755,7 +1799,7 @@ exports.exportSOA = async (req, res) => {
       }
 
       // Vendor Payments
-      if (vendorPayments[i]) {
+      if (includeVendor && vendorPayments[i]) {
         row.getCell(14).value = fmtDate(vendorPayments[i].paymentDate);
         row.getCell(15).value = Number(vendorPayments[i].amount);
         row.getCell(15).numFmt = '#,##0.0000';
@@ -1841,61 +1885,87 @@ exports.sendSOAEmail = async (req, res) => {
     }
 
     const { accountName, customerCode, vendorCode } = account;
+    const normalizedRole = String(account.accountRole || '').toLowerCase();
+    const includeCustomer = normalizedRole
+      ? ['customer', 'both'].includes(normalizedRole)
+      : Boolean(customerCode);
+    const includeVendor = normalizedRole
+      ? ['vendor', 'both'].includes(normalizedRole)
+      : Boolean(vendorCode);
+    const vendorPaymentDirection = normalizedRole === 'vendor' ? 'inbound' : 'outbound';
+
+    if (!includeCustomer && !includeVendor) {
+      return res.status(400).json({ error: 'Account role does not support SOA generation' });
+    }
 
     // Dates for filtering
     const start = startDate ? new Date(startDate).getTime() : 0;
     const end = endDate ? new Date(endDate).getTime() : Date.now();
 
-    // 1. Fetch Customer Invoices (Invoices we issue to them)
-    const customerInvoices = await Invoice.findAll({
-      where: {
-        customerCode: customerCode,
-        invoiceDate: { [Op.between]: [start, end] }
-      },
-      order: [['invoiceDate', 'ASC']],
-      raw: true
-    });
+    const normalizedStartDate = String(startDate || '').trim();
+    const normalizedEndDate = String(endDate || '').trim();
+    const vendorInvoiceWhere = { vendorCode };
+    const vendorDateConditions = [];
+    if (normalizedEndDate) {
+      vendorDateConditions.push({ startDate: { [Op.lte]: normalizedEndDate } });
+    }
+    if (normalizedStartDate) {
+      vendorDateConditions.push({ endDate: { [Op.gte]: normalizedStartDate } });
+    }
+    if (vendorDateConditions.length > 0) {
+      vendorInvoiceWhere[Op.and] = vendorDateConditions;
+    }
 
-    // 2. Fetch Customer Payments (Payments from them to us)
-    const customerPayments = await Payment.findAll({
-      where: {
-        customerCode: customerCode,
-        partyType: 'customer',
-        paymentDirection: 'inbound',
-        paymentDate: { [Op.between]: [start, end] }
-      },
-      order: [['paymentDate', 'ASC']],
-      raw: true
-    });
-
-    // 3. Fetch Vendor Invoices (Invoices they issue to us - from VendorInvoice table)
-    const vendorInvoices = await VendorInvoice.findAll({
-      where: {
-        vendorCode: vendorCode,
-        createdAt: { [Op.between]: [new Date(start), new Date(end)] }
-      },
-      order: [['createdAt', 'ASC']],
-      raw: true
-    });
-
-    // 4. Fetch Vendor Payments (Payments from us to them)
-    const vendorPayments = await Payment.findAll({
-      where: {
-        customerCode: vendorCode,
-        partyType: 'vendor',
-        paymentDirection: 'outbound',
-        paymentDate: { [Op.between]: [start, end] }
-      },
-      order: [['paymentDate', 'ASC']],
-      raw: true
-    });
+    const [customerInvoices, customerPayments, vendorInvoices, vendorPayments] = await Promise.all([
+      includeCustomer && customerCode
+        ? Invoice.findAll({
+            where: {
+              customerCode,
+              invoiceDate: { [Op.between]: [start, end] }
+            },
+            order: [['invoiceDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeCustomer && customerCode
+        ? Payment.findAll({
+            where: {
+              customerCode,
+              partyType: 'customer',
+              paymentDirection: 'inbound',
+              paymentDate: { [Op.between]: [start, end] }
+            },
+            order: [['paymentDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeVendor && vendorCode
+        ? VendorInvoice.findAll({
+            where: vendorInvoiceWhere,
+            order: [['createdAt', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeVendor && vendorCode
+        ? Payment.findAll({
+            where: {
+              customerCode: vendorCode,
+              partyType: 'vendor',
+              paymentDirection: vendorPaymentDirection,
+              paymentDate: { [Op.between]: [start, end] }
+            },
+            order: [['paymentDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+    ]);
 
     // 5. Derive dispute rows from disputed vendor invoices
     const disputes = vendorInvoices
-      .filter((invoice) => Boolean(invoice.isDisputed))
+      .filter((invoice) => String(invoice.status || '').toLowerCase() === 'disputed')
       .map((invoice) => ({
         invoiceNumber: invoice.invoiceNumber,
-        disputeAmount: Number(invoice.grandTotal || 0),
+        disputeAmount: Number(invoice.disputeDetails?.disputedAmount || invoice.grandTotal || 0),
         status: 'open',
       }));
 
@@ -1924,7 +1994,7 @@ exports.sendSOAEmail = async (req, res) => {
       totals: {
         customerRevenue: customerInvoices.reduce((sum, inv) => sum + Number(inv.totalAmount || 0), 0),
         customerPayments: customerPayments.reduce((sum, pay) => sum + Number(pay.amount || 0), 0),
-        vendorCosts: vendorInvoices.reduce((sum, inv) => sum + Number(inv.totalAmount || 0), 0),
+        vendorCosts: vendorInvoices.reduce((sum, inv) => sum + Number(inv.grandTotal || 0), 0),
         vendorPayments: vendorPayments.reduce((sum, pay) => sum + Number(pay.amount || 0), 0)
       }
     };

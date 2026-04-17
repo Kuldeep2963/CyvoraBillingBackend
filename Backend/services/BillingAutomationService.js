@@ -55,12 +55,10 @@ class BillingAutomationService {
     const updates = {
       [lastField]: billedThroughDate,
       [nextField]: nextBillingDate,
+      // Keep legacy cursors in sync for compatibility with older flows/UI.
+      lastbillingdate: billedThroughDate,
+      nextbillingdate: nextBillingDate,
     };
-
-    if (invoiceType === 'customer' || String(account.accountRole || '').toLowerCase() !== 'both') {
-      updates.lastbillingdate = billedThroughDate;
-      updates.nextbillingdate = nextBillingDate;
-    }
 
     return updates;
   }

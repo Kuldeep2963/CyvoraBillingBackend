@@ -30,6 +30,17 @@
             <p>Please review the invoice details shared in this email. If you need a copy in another format, contact the billing team.</p>
             
             <p>Thank you for choosing our services!</p>
+            <p>Best regards,<br>
+            <strong>CDR Billing System Team</strong></p>
+            <% if (logoSrc) { %>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top: 10px;">
+                <tr>
+                    <td style="text-align: left;">
+                        <img src="<%= logoSrc %>" alt="Cyvora" style="max-width: 120px; width: 120px; height: auto; display: block;" />
+                    </td>
+                </tr>
+            </table>
+            <% } %>
         </div>
         <div class="footer">
             <p>&copy; <%= new Date().getFullYear() %> CDR Billing System. All rights reserved.</p>

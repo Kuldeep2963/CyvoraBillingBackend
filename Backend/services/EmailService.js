@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const ejs = require('ejs');
+const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
@@ -111,6 +112,28 @@ class EmailService {
     );
   }
 
+  getLogoAsset() {
+    const logoCandidates = [
+      path.resolve(process.cwd(), 'frontend/public/Cyvora.png'),
+      path.resolve(process.cwd(), '../frontend/public/Cyvora.png'),
+      path.resolve(__dirname, '../../frontend/public/Cyvora.png'),
+      path.resolve(__dirname, '../../../frontend/public/Cyvora.png'),
+      path.resolve(__dirname, '../../../../frontend/public/Cyvora.png'),
+    ];
+
+    const logoPath = logoCandidates.find((candidate) => fs.existsSync(candidate));
+    if (!logoPath) return { logoSrc: '', attachment: null };
+
+    return {
+      logoSrc: 'cid:cyvora-logo',
+      attachment: {
+        filename: path.basename(logoPath),
+        path: logoPath,
+        cid: 'cyvora-logo',
+      },
+    };
+  }
+
   async sendEmail(to, subject, templateName, data, attachments = []) {
     try {
       const recipients = this.normalizeRecipients(to);
@@ -126,8 +149,14 @@ class EmailService {
         throw new Error('Email sender is not configured. Set EMAIL_FROM or EMAIL_USER.');
       }
 
+      const { logoSrc, attachment: logoAttachment } = this.getLogoAsset();
+
       const templatePath = path.join(__dirname, '../templates/email', `${templateName}.ejs`);
-      const html = await ejs.renderFile(templatePath, data);
+      const templateData = {
+        ...(data || {}),
+        logoSrc,
+      };
+      const html = await ejs.renderFile(templatePath, templateData);
 
       const deliveryResults = [];
       for (const recipient of recipients) {
@@ -136,7 +165,7 @@ class EmailService {
           to: recipient,
           subject,
           html,
-          attachments,
+          attachments: logoAttachment ? [...attachments, logoAttachment] : attachments,
           // Ensure the SMTP RCPT TO is always the intended recipient.
           envelope: {
             from: smtpUser || fromAddress,

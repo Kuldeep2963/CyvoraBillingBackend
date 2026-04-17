@@ -10,7 +10,6 @@ import {
   Grid,
   GridItem,
   Heading,
-  Input,
   Spinner,
   Stat,
   StatHelpText,
@@ -21,15 +20,29 @@ import {
 } from "@chakra-ui/react";
 import { SearchIcon } from "@chakra-ui/icons";
 import { MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
+import DateRangePicker from "../components/formats/DateRangepicker";
 import PageNavBar from "../components/PageNavBar";
 import { fetchAccountExposure, fetchReportAccounts } from "../utils/api";
-import { toDateInput } from "../utils/dateInput";
 
 const formatAmount = (amount) =>
   Number(amount || 0).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
   });
+
+const parseDateString = (value) => {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatDateToYMD = (date) => {
+  if (!date) return "";
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 const formatDuration = (seconds) => {
   const total = Number(seconds || 0);
@@ -65,7 +78,7 @@ const MetricsCard = ({ title, metrics, badgeText, badgeScheme }) => (
       </Flex>
     </CardHeader>
     <CardBody pt={2}>
-      <Grid templateColumns="repeat(2, minmax(0,1fr))" gap={4}>
+      <Grid templateColumns="repeat(4, minmax(0,1fr))" gap={4}>
         <Box>
           <Text fontSize="xs" color="gray.600" textTransform="uppercase" letterSpacing="0.04em">Attempts</Text>
           <Text fontSize="lg" fontWeight="bold">{Number(metrics?.attempts || 0).toLocaleString()}</Text>
@@ -97,8 +110,8 @@ const AccountExposure = () => {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [selectedAccountKey, setSelectedAccountKey] = useState("");
   const [selectedAccount, setSelectedAccount] = useState(null);
-  const [startDate, setStartDate] = useState(toDateInput(yesterday));
-  const [endDate, setEndDate] = useState(toDateInput(today));
+  const [startDate, setStartDate] = useState(formatDateToYMD(yesterday));
+  const [endDate, setEndDate] = useState(formatDateToYMD(today));
   const [loadingExposure, setLoadingExposure] = useState(false);
   const [exposure, setExposure] = useState(null);
 
@@ -305,29 +318,18 @@ const AccountExposure = () => {
                   })}
                 </Select>
 
-                <Input
-                size={"sm"}
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
+                <DateRangePicker
+                  value={{
+                    startDate: parseDateString(startDate),
+                    endDate: parseDateString(endDate),
+                  }}
+                  onChange={(range) => {
+                    setStartDate(formatDateToYMD(range?.startDate));
+                    setEndDate(formatDateToYMD(range?.endDate));
                     setExposure(null);
                   }}
-                  minW="160px"
-                  maxW="180px"
-                />
-
-                <Input
-
-                  size="sm"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => {
-                    setEndDate(e.target.value);
-                    setExposure(null);
-                  }}
-                  minW="160px"
-                  maxW="180px"
+                  placeholder="Select date range"
+                  inputProps={{ minW: "260px", maxW: "320px", size: "sm" }}
                 />
 
                 <Button
@@ -376,7 +378,7 @@ const AccountExposure = () => {
                 </CardBody>
               </Card>
 
-              <Grid templateColumns={{ base: "1fr", md: "1fr 1fr", xl: "repeat(4, 1fr)" }} gap={4} mb={4}>
+              <Grid templateColumns={{ base: "1fr", md: "1fr 1fr", xl: netBadge.scheme === "red" ? "repeat(3, 1fr)" : netBadge.scheme === "green" ? "repeat(3, 1fr)" : "repeat(2, 1fr)" }} gap={4} mb={4}>
                 <GridItem>
                   <ExposureStatCard
                     label="Customer Expense"
@@ -393,22 +395,26 @@ const AccountExposure = () => {
                     help="Derived from vendor-side CDR cost"
                   />
                 </GridItem>
-                <GridItem>
-                  <ExposureStatCard
-                    label="Total Receivable"
-                      value={exposureBreakdown.totalReceivable}
-                    color="green.600"
-                      help="Shown only when customer expense is higher than vendor expense"
-                  />
-                </GridItem>
-                <GridItem>
-                  <ExposureStatCard
-                    label="Total Payable"
-                      value={exposureBreakdown.totalPayable}
-                    color="red.600"
-                      help="Shown only when vendor expense is higher than customer expense"
-                  />
-                </GridItem>
+                {netBadge.scheme === "green" && (
+                  <GridItem>
+                    <ExposureStatCard
+                      label="Total Receivable"
+                        value={exposureBreakdown.totalReceivable}
+                      color="green.600"
+                        help="Customer expense is higher than vendor expense"
+                    />
+                  </GridItem>
+                )}
+                {netBadge.scheme === "red" && (
+                  <GridItem>
+                    <ExposureStatCard
+                      label="Total Payable"
+                        value={exposureBreakdown.totalPayable}
+                      color="red.600"
+                        help="Vendor expense is higher than customer expense"
+                    />
+                  </GridItem>
+                )}
               </Grid>
 
               <Card mb={4} borderWidth="1px" borderColor="gray.200" borderRadius="10px">

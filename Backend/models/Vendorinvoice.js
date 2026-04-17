@@ -57,13 +57,13 @@ const VendorInvoice = sequelize.define('VendorInvoice', {
     comment: 'Stored as JSON array of file paths'
   },
   status: {
-    type: DataTypes.ENUM('pending', 'approved', 'rejected', 'processing', 'paid', 'processed', 'error'),
+    type: DataTypes.ENUM('pending', 'paid', 'disputed'),
     defaultValue: 'pending'
   },
-  isDisputed: {
-    type: DataTypes.BOOLEAN,
-    allowNull: false,
-    defaultValue: false
+  disputeDetails: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: null
   }
 }, {
   tableName: 'vendor_invoices',

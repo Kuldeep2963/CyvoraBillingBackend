@@ -319,7 +319,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
     const timer = setTimeout(() => {
       setDebouncedCountryCodeSearch(countryCodeSearch.trim());
       setCountryCodesPage(1);
-    }, 400);
+    }, 500);
 
     return () => clearTimeout(timer);
   }, [countryCodeSearch]);

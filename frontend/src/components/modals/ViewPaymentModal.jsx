@@ -61,7 +61,7 @@ const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
                 <Box>
                   <HStack color="gray.500" mb={1}>
                     <Icon as={FiUser} />
-                    <Text fontSize="xs" fontWeight="bold" textTransform="uppercase">Party</Text>
+                    <Text fontSize="xs" fontWeight="bold" textTransform="uppercase">Account Name</Text>
                   </HStack>
                   <Text fontWeight="bold">{payment.customerName}</Text>
                   <Text fontSize="sm" color="gray.600">{payment.customerGatewayId}</Text>

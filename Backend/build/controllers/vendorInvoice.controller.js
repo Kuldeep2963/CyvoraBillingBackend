@@ -190,7 +190,15 @@ exports.getVendorInvoices = async (req, res) => {
     }
 
     if (status) {
-      whereClause.status = String(status).trim();
+      const normalizedStatus = String(status).trim().toLowerCase();
+      const allowedStatuses = new Set(['pending', 'paid', 'disputed', 'approved', 'rejected', 'processing', 'processed', 'error']);
+      if (!allowedStatuses.has(normalizedStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid status filter',
+        });
+      }
+      whereClause.status = normalizedStatus;
     }
 
     const include = [
@@ -525,18 +533,34 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
+    const normalizedStatus = status == null ? '' : String(status).trim().toLowerCase();
 
     const invoice = await VendorInvoice.findByPk(id);
     if (!invoice) {
       return res.status(404).json({ message: 'Vendor invoice not found' });
     }
 
+    if (normalizedStatus && !['pending', 'disputed', 'paid'].includes(normalizedStatus)) {
+      return res.status(400).json({ message: 'Invalid vendor invoice status' });
+    }
+
+    const currentStatus = String(invoice.status || '').toLowerCase();
+    if (currentStatus === 'disputed' && normalizedStatus === 'pending') {
+      console.warn('Blocked vendor invoice status downgrade (disputed -> pending)', {
+        invoiceId: invoice.id,
+        actorId: req.user?.id || null,
+      });
+      return res.status(409).json({
+        message: 'Disputed vendor invoices cannot be moved back to pending automatically',
+      });
+    }
+
     const prevStatus = invoice.status;
-    invoice.status = status;
+    invoice.status = normalizedStatus || invoice.status;
     await invoice.save();
 
     // mirror credit-limit restoration for postpaid vendors when they pay
-    if (prevStatus !== 'paid' && status === 'paid') {
+    if (prevStatus !== 'paid' && normalizedStatus === 'paid') {
       const account = await Account.findByPk(invoice.vendorId);
       if (account && account.billingType === 'postpaid') {
         const orig = parseFloat(account.originalCreditLimit) || 0;

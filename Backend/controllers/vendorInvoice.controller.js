@@ -79,22 +79,56 @@ const addDaysAsDateOnly = (dateValue, days) => {
 };
 
 const buildVendorBillingUpdates = (account, billedThroughDate) => {
-  const nextBillingDate = BillingAutomationService.calculateNextBillingDate(
+  return BillingAutomationService.buildStreamUpdates(
+    account,
+    'vendor',
     billedThroughDate,
-    account.billingCycle,
+  );
+};
+
+const getBillingDateSnapshot = (account) => {
+  if (!account) return null;
+
+  const data = account.toJSON ? account.toJSON() : account;
+  return {
+    accountId: data.id,
+    accountCode: data.vendorCode || data.customerCode || data.gatewayId || null,
+    accountRole: data.accountRole || null,
+    customerLastBillingDate: data.customerLastBillingDate || null,
+    customerNextBillingDate: data.customerNextBillingDate || null,
+    vendorLastBillingDate: data.vendorLastBillingDate || null,
+    vendorNextBillingDate: data.vendorNextBillingDate || null,
+    lastbillingdate: data.lastbillingdate || null,
+    nextbillingdate: data.nextbillingdate || null,
+  };
+};
+
+const recalculateVendorBillingDatesAfterDelete = async (account, deletedInvoice, transaction) => {
+  if (!account) return;
+
+  const latestRemainingInvoice = await VendorInvoice.findOne({
+    where: { vendorCode: account.vendorCode },
+    order: [["endDate", "DESC"], ["createdAt", "DESC"]],
+    transaction,
+  });
+
+  const deletedInvoiceStartDate = deletedInvoice?.startDate
+    ? addDaysAsDateOnly(deletedInvoice.startDate, 0)
+    : null;
+  const fallbackDate = deletedInvoiceStartDate || addDaysAsDateOnly(account.billingStartDate || account.createdAt, 0);
+  const billedThroughDate = latestRemainingInvoice?.endDate
+    ? addDaysAsDateOnly(latestRemainingInvoice.endDate, 1)
+    : fallbackDate;
+
+  if (!billedThroughDate) return;
+
+  const updates = BillingAutomationService.buildStreamUpdates(
+    account,
+    "vendor",
+    billedThroughDate,
   );
 
-  const updates = {
-    vendorLastBillingDate: billedThroughDate,
-    vendorNextBillingDate: nextBillingDate,
-  };
-
-  if (String(account.accountRole || '').toLowerCase() !== 'both') {
-    updates.lastbillingdate = billedThroughDate;
-    updates.nextbillingdate = nextBillingDate;
-  }
-
-  return updates;
+  await account.update(updates, { transaction });
 };
 
 const parsePaymentDate = (value) => {
@@ -434,6 +468,15 @@ exports.createVendorInvoice = async (req, res) => {
       && usageComparison.canRaiseDispute
       && String(disputeAction).trim() === 'raise_dispute';
 
+    const disputedPercentage = Number.parseFloat(String(usageComparison.percentageDiff || '0').replace('%', '')) || 0;
+    const disputeDetails = shouldRaiseDispute
+      ? {
+        actualAmount: usageComparison.actualUsage,
+        disputedAmount: usageComparison.mismatchAmount,
+        disputedPercentage,
+      }
+      : null;
+
     const invoice = await VendorInvoice.create({
       vendorId: finalVendorId,
       vendorCode: finalVendorCode,
@@ -445,8 +488,8 @@ exports.createVendorInvoice = async (req, res) => {
       currency: normalizedCurrency,
       totalSeconds: normalizedTotalSeconds,
       filePaths: JSON.stringify(filePaths),
-      status: 'pending',
-      isDisputed: shouldRaiseDispute,
+      status: shouldRaiseDispute ? 'disputed' : 'pending',
+      disputeDetails,
     }, { transaction });
 
     const billedThroughDate = addDaysAsDateOnly(normalizedEndDate, 1);
@@ -532,12 +575,22 @@ exports.getVendorInvoices = async (req, res) => {
     }
 
     if (status) {
-      whereClause.status = String(status).trim();
+      const normalizedStatus = String(status).trim().toLowerCase();
+      const allowedStatuses = new Set(['pending', 'paid', 'disputed', 'approved', 'rejected', 'processing', 'processed', 'error']);
+      if (!allowedStatuses.has(normalizedStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid status filter',
+        });
+      }
+      whereClause.status = normalizedStatus;
     }
 
     if (typeof isDisputed !== 'undefined' && isDisputed !== '') {
       const normalized = String(isDisputed).trim().toLowerCase();
-      whereClause.isDisputed = ['true', '1', 'yes'].includes(normalized);
+      if (['true', '1', 'yes'].includes(normalized)) {
+        whereClause.status = 'disputed';
+      }
     }
 
     const include = [
@@ -882,6 +935,7 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
       notes,
       creditNoteAmount,
     } = req.body || {};
+    const normalizedStatus = status == null ? '' : String(status).trim().toLowerCase();
 
     const invoice = await VendorInvoice.findByPk(id, { transaction });
     if (!invoice) {
@@ -889,13 +943,30 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
       return res.status(404).json({ message: 'Vendor invoice not found' });
     }
 
+    if (normalizedStatus && !['pending', 'disputed', 'paid'].includes(normalizedStatus)) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'Invalid vendor invoice status' });
+    }
+
     if (String(invoice.status).toLowerCase() === 'paid') {
       await transaction.rollback();
       return res.status(409).json({ message: 'Payment already recorded for this vendor invoice' });
     }
 
-    if (status && String(status).toLowerCase() !== 'paid') {
-      invoice.status = status;
+    if (normalizedStatus && normalizedStatus !== 'paid') {
+      const currentStatus = String(invoice.status || '').toLowerCase();
+      if (currentStatus === 'disputed' && normalizedStatus === 'pending') {
+        console.warn('Blocked vendor invoice status downgrade (disputed -> pending)', {
+          invoiceId: invoice.id,
+          actorId: req.user?.id || null,
+        });
+        await transaction.rollback();
+        return res.status(409).json({
+          message: 'Disputed vendor invoices cannot be moved back to pending automatically',
+        });
+      }
+
+      invoice.status = normalizedStatus;
       await invoice.save({ transaction });
       await transaction.commit();
       return res.status(200).json({
@@ -998,10 +1069,16 @@ exports.deleteVendorInvoice = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const invoice = await VendorInvoice.findByPk(id);
+    const invoice = await VendorInvoice.findByPk(id, { transaction });
     if (!invoice) {
       return res.status(404).json({ message: 'Vendor invoice not found' });
     }
+
+    const account = await resolveVendorAccount(
+      { vendorId: invoice.vendorId, vendorCode: invoice.vendorCode },
+      transaction,
+    );
+    const billingDatesBefore = getBillingDateSnapshot(account);
 
     await Payment.destroy({
       where: {
@@ -1025,9 +1102,25 @@ exports.deleteVendorInvoice = async (req, res) => {
     }
 
     await invoice.destroy({ transaction });
+    await recalculateVendorBillingDatesAfterDelete(account, invoice, transaction);
+
+    let billingDatesAfter = null;
+    if (account) {
+      await account.reload({ transaction });
+      billingDatesAfter = getBillingDateSnapshot(account);
+    }
+
     await transaction.commit();
 
-    res.status(200).json({ message: 'Vendor invoice deleted successfully' });
+    res.status(200).json({
+      message: 'Vendor invoice deleted successfully',
+      billingDateRestore: {
+        accountFound: Boolean(account),
+        stream: 'vendor',
+        before: billingDatesBefore,
+        after: billingDatesAfter,
+      },
+    });
   } catch (error) {
     await transaction.rollback();
     console.error('Error deleting vendor invoice:', error);

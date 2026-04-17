@@ -199,6 +199,7 @@ const getVendorBillingDefaults = (vendor) => {
 const StatusBadge = ({ status }) => {
   const map = {
     pending:    { color: "orange", label: "Pending" },
+    disputed:   { color: "red",    label: "Disputed" },
     approved:   { color: "green",  label: "Approved" },
     rejected:   { color: "red",    label: "Rejected" },
     processing: { color: "blue",   label: "Processing" },
@@ -215,6 +216,7 @@ const InvoicesTab = ({ onAddNew }) => {
   const border = useColorModeValue("gray.200", "gray.700");
   const [search, setSearch]     = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [invoices, setInvoices] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError]       = useState(null);
@@ -549,6 +551,7 @@ const InvoicesTab = ({ onAddNew }) => {
         page,
         limit: pageSize,
         search: debouncedSearch || undefined,
+        status: statusFilter !== "all" ? statusFilter : undefined,
       });
       const rows = response?.data || response || [];
       setInvoices(Array.isArray(rows) ? rows : []);
@@ -565,7 +568,7 @@ const InvoicesTab = ({ onAddNew }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [toast, page, pageSize, debouncedSearch]);
+  }, [toast, page, pageSize, debouncedSearch, statusFilter]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -584,13 +587,13 @@ const InvoicesTab = ({ onAddNew }) => {
       customerId: row?.vendorCode || row?.vendor?.vendorCode || row?.vendor?.id || "",
       paymentSource: "new_payment",
       invoiceId: "",
-      amount: Number((Number(row?.grandTotal || 0) - Number(row?.creditNoteAmount || 0)).toFixed(2)).toString(),
+      amount: Number((Number(row?.grandTotal || 0) - Number(row?.creditNoteAmount || 0)).toFixed(4)).toString(),
       paymentDate: getTodayInputValue(),
       paymentMethod: "bank_transfer",
       transactionId: "",
       referenceNumber: row?.invoiceNumber || "",
       notes: "",
-      creditNoteAmount: Number(row?.creditNoteAmount || 0).toFixed(2),
+      creditNoteAmount: Number(row?.creditNoteAmount || 0).toFixed(4),
     });
     setIsPaymentOpen(true);
   };
@@ -716,7 +719,7 @@ const InvoicesTab = ({ onAddNew }) => {
       header: "Grand Total",
       render: (value, row) => (
         <Text fontSize="13px" fontWeight="700" color="gray.800">
-          {row.currency || "USD"} {Number(value || 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {row.currency || "USD"} {Number(value || 0).toLocaleString("en", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
         </Text>
       ),
     },
@@ -725,16 +728,25 @@ const InvoicesTab = ({ onAddNew }) => {
       header: "Credit Note",
       render: (value, row) => (
         <Text fontSize="13px" fontWeight="600" color={Number(value || 0) > 0 ? "orange.600" : "gray.500"}>
-          {row.currency || "USD"} {Number(value || 0).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {row.currency || "USD"} {Number(value || 0).toLocaleString("en", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
         </Text>
       ),
     },
     {
-      key: "totalSeconds",
-      header: "Duration",
-      render: (value) => (
-        <Text fontSize="13px" color="teal.600" fontWeight="500">{fmtSeconds(value)}</Text>
-      ),
+      key: "disputeAmount",
+      header: "Dispute Amount",
+      render: (_, row) => {
+        const disputedAmount = Number(row?.disputeDetails?.disputedAmount || 0);
+        const hasDispute = String(row?.status || "").toLowerCase() === "disputed" || disputedAmount > 0;
+
+        return (
+          <Text fontSize="13px" color={hasDispute ? "red.600" : "gray.500"} fontWeight="600">
+            {hasDispute
+              ? `${row.currency || "USD"} ${disputedAmount.toLocaleString("en", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+              : "-"}
+          </Text>
+        );
+      },
     },
     {
       key: "filePaths",
@@ -832,6 +844,24 @@ const InvoicesTab = ({ onAddNew }) => {
               <Badge colorScheme="blue" variant="subtle" fontSize="xs">{pagination.total || invoices.length} records</Badge>
             </HStack>
             <HStack spacing={3}>
+              <Select
+                size="sm"
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                borderColor={border}
+                borderRadius="8px"
+                fontSize="13px"
+                minW="150px"
+                _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }}
+              >
+                <option value="all">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="disputed">Disputed</option>
+                <option value="paid">Paid</option>
+              </Select>
               {/* Search */}
               <InputGroup size="sm" maxW="240px">
                 <InputLeftElement pointerEvents="none" color="gray.400"><FiSearch /></InputLeftElement>
@@ -1691,7 +1721,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
                 <Flex justify="space-between" align="baseline">
                   <Text fontSize="xs" color="whiteAlpha.600">Grand Total</Text>
                   <Text fontSize="xl" fontWeight="800" color="white" letterSpacing="-0.5px">
-                    {form.grandTotal ? `${form.currency} ${Number(form.grandTotal).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
+                    {form.grandTotal ? `${form.currency} ${Number(form.grandTotal).toLocaleString("en", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : "—"}
                   </Text>
                 </Flex>
                 <Flex justify="space-between" align="center">

@@ -373,7 +373,7 @@ export const fetchCustomers = async (params = {}) => {
 
 export const fetchVendors = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/accounts?role=vendor`, {
+    const response = await fetch(`${API_BASE_URL}/accounts?role=vendor&role=both`, {
       headers: getAuthHeaders()
     });
     const data = await handleResponse(response);
@@ -869,13 +869,13 @@ export const getAllDisputes = async (params = {}) => {
 
     const vendorParams = {
       ...sanitizedParams,
-      isDisputed: true,
+      status: 'disputed',
     };
 
     const query = new URLSearchParams(vendorParams).toString();
     const url = query
       ? `${API_BASE_URL}/vendor-invoices?${query}`
-      : `${API_BASE_URL}/vendor-invoices?isDisputed=true`;
+      : `${API_BASE_URL}/vendor-invoices?status=disputed`;
 
     const response = await fetch(url, {
       headers: getAuthHeaders()
@@ -891,7 +891,9 @@ export const getAllDisputes = async (params = {}) => {
       invoiceNumber: invoice.invoiceNumber,
       customerCode: invoice.vendorCode,
       customerName: invoice.vendor?.accountName || invoice.vendorCode,
-      disputeAmount: Number(invoice.grandTotal || 0),
+      disputeAmount: Number(invoice.disputeDetails?.disputedAmount || invoice.grandTotal || 0),
+      disputePercentage: Number(invoice.disputeDetails?.disputedPercentage || 0),
+      actualAmount: Number(invoice.disputeDetails?.actualAmount || 0),
       status: invoice.status || 'open',
       invoiceIds: [invoice.id],
       comments: [],

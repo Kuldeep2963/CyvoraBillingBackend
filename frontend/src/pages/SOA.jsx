@@ -93,6 +93,18 @@ const statusColor = (status) => {
   }
 };
 
+const isCustomerAccountRole = (role) => ["customer", "both"].includes(String(role || "").toLowerCase());
+const isVendorAccountRole = (role) => ["vendor", "both"].includes(String(role || "").toLowerCase());
+const getAccountRoleLabel = (role) => {
+  if (isCustomerAccountRole(role) && isVendorAccountRole(role)) return "Bilateral";
+  if (isCustomerAccountRole(role)) return "Customer";
+  if (isVendorAccountRole(role)) return "Vendor";
+  return "Account";
+};
+
+const getAccountOptionValue = (account) =>
+  String(account?.id ?? account?.accountId ?? `${account?.accountName || ""}:${account?.accountRole || ""}`);
+
 // ─── Invoice Table ─────────────────────────────────────────────────────────────
 const InvoiceTable = ({
   invoices,
@@ -470,6 +482,10 @@ const InvoiceCard = ({
 
 // ─── Vendor fetch helper ────────────────────────────────────────────────────────
 const fetchAllVendorData = async (selectedAccount, startDate, endDate) => {
+  if (!selectedAccount?.vendorCode && !selectedAccount?.vendorId) {
+    return { uploadedInvoices: [] };
+  }
+
   const manualRes = await fetchVendorInvoices({
     vendorCode: selectedAccount.vendorCode,
     vendorId: selectedAccount.vendorId,
@@ -529,7 +545,7 @@ const SOAPage = () => {
     onClose: onDisputeClose,
   } = useDisclosure();
 
-  const [dualAccounts, setDualAccounts] = useState([]);
+  const [allAccounts, setAllAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [customerInvoices, setCustomerInvoices] = useState([]);
   const [uploadedVendorInvoices, setUploadedVendorInvoices] = useState([]);
@@ -551,7 +567,7 @@ const SOAPage = () => {
     }
   }, []);
 
-  // ── Load bilateral accounts ────────────────────────────────────────────────
+  // ── Load report accounts (customer/vendor/bilateral) ───────────────────────
   useEffect(() => {
     const loadAccounts = async () => {
       try {
@@ -564,21 +580,42 @@ const SOAPage = () => {
         if (accountsResponse.success) {
           const customers = accountsResponse.customers || [];
           const vendors = accountsResponse.vendors || [];
+          const accountMap = new Map();
 
-          // Build a map of accountName → customerCode for quick lookup
-          const customerMap = new Map();
-          customers.forEach((c) => customerMap.set(c.accountName, c));
+          customers.forEach((c) => {
+            const key = c.id || c.accountId || c.accountName;
+            accountMap.set(key, {
+              id: c.id,
+              accountId: c.accountId,
+              accountName: c.accountName,
+              accountRole: "customer",
+              customerCode: c.customerCode || null,
+              vendorCode: c.vendorCode || null,
+              vendorId: c.id || c.accountId,
+            });
+          });
 
-          // FIX: original code was dropping accounts that didn't have a matching
-          // customer entry. Keep all vendors and just mark customerCode as null.
-          const allAccounts = vendors.map((v) => ({
-            accountName: v.accountName,
-            vendorCode: v.vendorCode,
-            vendorId: v.id || v.vendorid || v.accountId,
-            customerCode: customerMap.get(v.accountName)?.customerCode || null,
-          }));
+          vendors.forEach((v) => {
+            const key = v.id || v.accountId || v.accountName;
+            const existing = accountMap.get(key);
+            const mergedRole = existing ? "both" : "vendor";
+            accountMap.set(key, {
+              ...(existing || {}),
+              id: v.id || existing?.id,
+              accountId: v.accountId || existing?.accountId,
+              accountName: v.accountName || existing?.accountName,
+              accountRole: mergedRole,
+              customerCode: existing?.customerCode || v.customerCode || null,
+              vendorCode: v.vendorCode || existing?.vendorCode || null,
+              vendorId: v.id || v.vendorid || v.accountId || existing?.vendorId,
+            });
+          });
 
-          setDualAccounts(allAccounts);
+          const mergedAccounts = Array.from(accountMap.values()).sort((a, b) =>
+            String(a.accountName || "").localeCompare(String(b.accountName || "")),
+          );
+
+          setAllAccounts(mergedAccounts);
         }
 
         if (disputesResponse.success) {
@@ -607,6 +644,9 @@ const SOAPage = () => {
   const handleSearch = useCallback(async () => {
     if (!selectedAccount) return;
 
+    const includeCustomer = isCustomerAccountRole(selectedAccount.accountRole);
+    const includeVendor = isVendorAccountRole(selectedAccount.accountRole);
+
     if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
       toast({
         title: "Start date cannot be after end date",
@@ -626,16 +666,19 @@ const SOAPage = () => {
 
     const [customerResult, vendorResult] = await Promise.allSettled([
       // ── Customer invoices ──────────────────────────────────────
-      selectedAccount.customerCode
+      includeCustomer && selectedAccount.customerCode
         ? fetchLiteInvoices({
             customerId: selectedAccount.customerCode,
+            includePaid: true,
             startDate: startDate || null,
             endDate: endDate || null,
           })
         : Promise.resolve(null),
 
       // ── Vendor invoices (uploaded) ──────────────────────────────
-      fetchAllVendorData(selectedAccount, startDate, endDate),
+      includeVendor
+        ? fetchAllVendorData(selectedAccount, startDate, endDate)
+        : Promise.resolve({ uploadedInvoices: [] }),
     ]);
 
     // ── Handle customer result ─────────────────────────────────────────────
@@ -644,7 +687,7 @@ const SOAPage = () => {
       const res = customerResult.value;
       if (res?.success && res.data?.length) {
         setCustomerInvoices(res.data);
-      } else if (selectedAccount.customerCode) {
+      } else if (includeCustomer && selectedAccount.customerCode) {
         toast({
           title: "No customer invoices found for this account.",
           status: "warning",
@@ -665,7 +708,7 @@ const SOAPage = () => {
       const { uploadedInvoices } = vendorResult.value;
       setUploadedVendorInvoices(uploadedInvoices);
 
-      if (uploadedInvoices.length === 0) {
+      if (includeVendor && uploadedInvoices.length === 0) {
         toast({
           title: "No uploaded vendor invoices found.",
           status: "warning",
@@ -778,13 +821,15 @@ const SOAPage = () => {
   }, [onDisputeOpen, hasExistingDispute, toast]);
 
   const isLoading = loadingCustomer || loadingVendor;
+  const showCustomerSection = !selectedAccount || isCustomerAccountRole(selectedAccount.accountRole);
+  const showVendorSection = !selectedAccount || isVendorAccountRole(selectedAccount.accountRole);
 
   // ─────────────────────────────────────────────────────────────────────────────
   return (
     <Box bg="gray.50" minH="100vh">
       <PageNavBar
         title="Statement of Account"
-        description="Compare customer billing vs. vendor costs for bilateral accounts"
+        description="Compare invoices and payments by account role (customer, vendor, bilateral)"
         mb={5}
       />
 
@@ -819,7 +864,7 @@ const SOAPage = () => {
 
                 <Select
                   size="sm"
-                  placeholder="Select a bilateral or vendor account..."
+                  placeholder="Select an account..."
                   bg="gray.50"
                   border="1.5px solid"
                   borderColor="gray.200"
@@ -837,19 +882,19 @@ const SOAPage = () => {
                     boxShadow: "0 0 0 3px rgba(66,153,225,0.15)",
                     bg: "white",
                   }}
-                  value={selectedAccount?.vendorCode || ""}
+                  value={selectedAccount ? getAccountOptionValue(selectedAccount) : ""}
                   onChange={(e) => {
-                    const found = dualAccounts.find(
-                      (a) => a.vendorCode === e.target.value,
+                    const found = allAccounts.find(
+                      (a) => getAccountOptionValue(a) === e.target.value,
                     );
                     setSelectedAccount(found || null);
                     setCustomerInvoices([]);
                     setUploadedVendorInvoices([]);
                   }}
                 >
-                  {dualAccounts.map((acc) => (
-                    <option key={acc.vendorCode} value={acc.vendorCode}>
-                      {acc.accountName} {acc.customerCode ? "(Bilateral)" : "(Vendor)"}
+                  {allAccounts.map((acc) => (
+                    <option key={getAccountOptionValue(acc)} value={getAccountOptionValue(acc)}>
+                      {acc.accountName} ({getAccountRoleLabel(acc.accountRole)})
                     </option>
                   ))}
                 </Select>
@@ -894,9 +939,9 @@ const SOAPage = () => {
                 <Spacer />
               </Flex>
 
-              {dualAccounts.length === 0 && (
+              {allAccounts.length === 0 && (
                 <Text fontSize="xs" color="gray.400" mt={3}>
-                  No bilateral or vendor accounts found.
+                  No report accounts found.
                 </Text>
               )}
             </CardBody>
@@ -916,47 +961,51 @@ const SOAPage = () => {
           {/* ── Three invoice tables ───────────────────────────────────────── */}
           <Grid templateColumns={{ base: "1fr", lg: "1fr" }} gap={4}>
             {/* Customer Invoices */}
-            <GridItem>
-              <InvoiceCard
-                title="Customer Invoices"
-                badge={customerInvoices.length}
-                badgeScheme="blue"
-                subtitle={
-                  selectedAccount?.customerCode
-                    ? `${selectedAccount.accountName} · ${selectedAccount.customerCode}`
-                    : selectedAccount
-                      ? "Not configured as a customer"
-                      : undefined
-                }
-                invoices={customerInvoices}
-                loading={loadingCustomer}
-                emptyLabel={
-                  selectedAccount?.customerCode
-                    ? "No customer invoices found."
-                    : "Selected account is not a customer."
-                }
-                disputes={disputes}
-              />
-            </GridItem>
+            {showCustomerSection && (
+              <GridItem>
+                <InvoiceCard
+                  title="Customer Invoices"
+                  badge={customerInvoices.length}
+                  badgeScheme="blue"
+                  subtitle={
+                    selectedAccount?.customerCode
+                      ? `${selectedAccount.accountName} · ${selectedAccount.customerCode}`
+                      : selectedAccount
+                        ? "Not configured as a customer"
+                        : undefined
+                  }
+                  invoices={customerInvoices}
+                  loading={loadingCustomer}
+                  emptyLabel={
+                    selectedAccount?.customerCode
+                      ? "No customer invoices found."
+                      : "Selected account is not a customer."
+                  }
+                  disputes={disputes}
+                />
+              </GridItem>
+            )}
 
             {/* Vendor Invoices — Uploaded */}
-            <GridItem>
-              <InvoiceCard
-                title="Vendor Invoices (Uploaded)"
-                badge={uploadedVendorInvoices.length}
-                badgeScheme="orange"
-                subtitle={
-                  selectedAccount
-                    ? `${selectedAccount.accountName} · ${selectedAccount.vendorCode || selectedAccount.vendorId}`
-                    : undefined
-                }
-                invoices={uploadedVendorInvoices}
-                loading={loadingVendor}
-                emptyLabel="No uploaded vendor invoices found."
-                mismatchedInvoices={mismatchedInvoices}
-                disputes={disputes}
-              />
-            </GridItem>
+            {showVendorSection && (
+              <GridItem>
+                <InvoiceCard
+                  title="Vendor Invoices (Uploaded)"
+                  badge={uploadedVendorInvoices.length}
+                  badgeScheme="orange"
+                  subtitle={
+                    selectedAccount
+                      ? `${selectedAccount.accountName} · ${selectedAccount.vendorCode || selectedAccount.vendorId}`
+                      : undefined
+                  }
+                  invoices={uploadedVendorInvoices}
+                  loading={loadingVendor}
+                  emptyLabel="No uploaded vendor invoices found."
+                  mismatchedInvoices={mismatchedInvoices}
+                  disputes={disputes}
+                />
+              </GridItem>
+            )}
           </Grid>
 
           <RaiseDisputeModal

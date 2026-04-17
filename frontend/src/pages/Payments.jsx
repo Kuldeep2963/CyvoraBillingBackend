@@ -171,7 +171,7 @@ const Payments = () => {
     try {
       const exportData = payments.map((p) => ({
         "Payment #": p.paymentNumber,
-        Customer: p.customerName,
+        "Account Name": p.customerName,
         Date: format(
           new Date(
             isNaN(p.paymentDate) ? p.paymentDate : parseInt(p.paymentDate),
@@ -180,7 +180,7 @@ const Payments = () => {
         ),
         Amount: parseFloat(p.amount).toFixed(2),
         Direction: String(p.paymentDirection || "inbound").toUpperCase(),
-        Party: String(p.partyType || "customer").toUpperCase(),
+        "Account Type": String(p.partyType || "customer").toUpperCase(),
         Method: p.paymentMethod,
         Allocated: parseFloat(p.allocatedAmount).toFixed(2),
         Unapplied: parseFloat(p.unappliedAmount).toFixed(2),
@@ -215,22 +215,22 @@ const Payments = () => {
   };
 
   const columns = [
+    // {
+    //   header: "Payment Details",
+    //   key: "paymentNumber",
+    //   render: (value, row) => (
+    //     <VStack align="start" spacing={0}>
+    //       <Text fontWeight="bold" color="blue.600">
+    //         {value}
+    //       </Text>
+    //       <Text fontSize="xs" color="gray.500">
+    //          {String(row.partyType || "customer").toUpperCase()}
+    //       </Text>
+    //     </VStack>
+    //   ),
+    // },
     {
-      header: "Payment Details",
-      key: "paymentNumber",
-      render: (value, row) => (
-        <VStack align="start" spacing={0}>
-          <Text fontWeight="bold" color="blue.600">
-            {value}
-          </Text>
-          <Text fontSize="xs" color="gray.500">
-            {String(row.partyType || "customer").toUpperCase()}
-          </Text>
-        </VStack>
-      ),
-    },
-    {
-      header: "Flow",
+      header: "Payment Direction",
       key: "paymentDirection",
       render: (_, row) => {
         const flow = getPaymentFlowMeta(row);
@@ -243,7 +243,7 @@ const Payments = () => {
       },
     },
     {
-      header: "Party",
+      header: "Account Name",
       maxWidth: "200px",
       key: "customerName",
       render: (value, row) => (
@@ -327,7 +327,7 @@ const Payments = () => {
                 key={idx}
                 colorScheme="blue"
                 variant="subtle"
-                fontSize="2xs"
+                fontSize="xs"
               >
                 {alloc.invoice?.invoiceNumber || alloc.invoiceNumber}
               </Badge>
@@ -389,86 +389,7 @@ const Payments = () => {
           }
         />
 
-        {/* Stats Section */}
-        {/* <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
-          <Box
-            display="flex"
-            justifyContent="center"
-            alignItems="center"
-            textAlign="left"
-            bg={bgColor}
-            p={2}
-            pl={4}
-            boxShadow={"md"}
-            borderRadius={"md"}
-          >
-            <Stat>
-              <StatLabel color="gray.500" fontWeight="medium">
-                Total Collected
-              </StatLabel>
-              <StatNumber fontSize="2xl">
-                $
-                {stats.totalCollected.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                })}
-              </StatNumber>
-              <StatHelpText>
-                <Icon as={FiCheckCircle} color="green.500" mr={1} />
-                From {stats.paymentCount} payments
-              </StatHelpText>
-            </Stat>
-          </Box>
-          <Box
-            display="flex"
-            justifyContent="center"
-            alignItems="center"
-            textAlign="left"
-            bg={bgColor}
-            p={2}
-            pl={4}
-            boxShadow={"md"}
-            borderRadius={"md"}
-          >
-            <Stat>
-              <StatLabel color="gray.500" fontWeight="medium">
-                Unapplied Amount
-              </StatLabel>
-              <StatNumber fontSize="2xl" color="orange.500">
-                $
-                {stats.unappliedAmount.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                })}
-              </StatNumber>
-              <StatHelpText>
-                <Icon as={FiClock} color="orange.500" mr={1} />
-                Waiting to be allocated
-              </StatHelpText>
-            </Stat>
-          </Box>
-          <Box
-            display="flex"
-            justifyContent="center"
-            alignItems="center"
-            textAlign="left"
-            bg={bgColor}
-            p={2}
-            pl={4}
-            boxShadow={"md"}
-            borderRadius={"md"}
-            // borderTop={"2px solid green"}
-          >
-            <Stat>
-              <StatLabel color="gray.500" fontWeight="medium">
-                Recent Payments
-              </StatLabel>
-              <StatNumber fontSize="2xl">{stats.recentCount}</StatNumber>
-              <StatHelpText>
-                <Icon as={FiCalendar} color="blue.500" mr={1} />
-                In the last 7 days
-              </StatHelpText>
-            </Stat>
-          </Box>
-        </SimpleGrid> */}
+        
 
         {/* Filter Section */}
         <Flex gap={4} alignItems={"center"}>
@@ -478,7 +399,7 @@ const Payments = () => {
             </InputLeftElement>
             <Input
               pl={8}
-              placeholder="Search by payment, party..."
+              placeholder="Search by payment, account..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
