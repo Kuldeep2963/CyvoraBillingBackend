@@ -8,7 +8,7 @@ const { createNotification } = require('./notification-service');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const POLL_INTERVAL_MS         = 10 * 60_000;  // FIX: was 10 * 60_000 (600s) — corrected to 60s
+const POLL_INTERVAL_MS         = 5 * 60_000;  // FIX: was 10 * 60_000 (600s) — corrected to 60s
 const FETCH_BATCH_SIZE         = 500;
 const INSERT_BATCH_SIZE        = 500;
 const STARTUP_DELAY_MS         = 5_000;

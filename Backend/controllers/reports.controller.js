@@ -648,7 +648,7 @@ exports.hourlyReport = async (req, res) => {
 exports.marginReport = async (req, res) => {
   try {
     const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
-    const countryCodes = await getCountryCodes(); // ✅ Using cache
+    const countryCodes = await getCountryCodes();
 
     console.log('Margin Report Request:', {
       startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
@@ -661,7 +661,7 @@ exports.marginReport = async (req, res) => {
       attributes: [
         vendorReport ? 'agentaccount' : 'customeraccount',
         vendorReport ? 'agentname' : 'customername',
-        'calleee164', // ✅ FIXED: Use callee for destination, not caller
+        'calleee164',
         [fn('COUNT', col('*')), 'attempts'],
         [fn('SUM', H.completedCall), 'completed'],
         [fn('SUM', H.durationSec), 'duration'],
@@ -698,7 +698,6 @@ exports.marginReport = async (req, res) => {
       const accountCode = vendorReport ? r.agentaccount : r.customeraccount;
       const accountName = vendorReport ? r.agentname : r.customername;
       
-      // ✅ FIXED: Use calleee164 (destination) with prefix skip for vendor routing
       const destination = getCountryFromNumber(r.calleee164, countryCodes, true);
       
       const key = `${accountCode}|${destination}`;
@@ -768,7 +767,7 @@ exports.marginReport = async (req, res) => {
 exports.customerTrafficReport = async (req, res) => {
   try {
     const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
-    const countryCodes = await getCountryCodes(); // ✅ Using cache
+    const countryCodes = await getCountryCodes();
 
     console.log('Customer Traffic Report Request:', {
       startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
@@ -776,10 +775,10 @@ exports.customerTrafficReport = async (req, res) => {
 
     const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
 
-    // Get all CDRs grouped by individual numbers first
+    // Get all CDRs grouped by destination (calleee164) — callere164 not needed
     const cdrs = await CDR.findAll({
       attributes: [
-        'customeraccount', 'customername', 'callere164',
+        'customeraccount', 'customername',
         'agentaccount', 'agentname', 'calleee164',
         [fn('COUNT', col('*')), 'attempts'],
         [fn('SUM', H.completedCall), 'completed'],
@@ -789,7 +788,7 @@ exports.customerTrafficReport = async (req, res) => {
       ],
       where,
       group: [
-        'customeraccount', 'customername', 'callere164',
+        'customeraccount', 'customername',
         'agentaccount', 'agentname', 'calleee164'
       ],
       raw: true
@@ -809,28 +808,22 @@ exports.customerTrafficReport = async (req, res) => {
       });
     }
 
-    // The ownerName is passed from the frontend (from getReportAccounts endpoint)
-    // Simply use it directly - no need to fetch or map anything
-
-    // Group by customer, vendor, and destination countries
+    // Group by customer, vendor, and shared destination country (from calleee164)
     const groupedData = {};
-    
+
     cdrs.forEach(r => {
-      // Customer destination (caller origin) - no prefix skip
-      const custCountry = getCountryFromNumber(r.callere164, countryCodes, false);
-      // Vendor destination (callee/destination) - skip first 5 digits for routing prefix
-      const vendCountry = getCountryFromNumber(r.calleee164, countryCodes, true);
-      
-      const key = `${r.customeraccount}|${r.agentaccount}|${custCountry}|${vendCountry}`;
-      
+      // Both customer and vendor destination derived from calleee164 (with prefix skip)
+      const destination = getCountryFromNumber(r.calleee164, countryCodes, true);
+
+      const key = `${r.customeraccount}|${r.agentaccount}|${destination}`;
+
       if (!groupedData[key]) {
         groupedData[key] = {
           customeraccount: r.customeraccount,
           customername: r.customername,
-          custDestination: custCountry,
+          destination,
           agentaccount: r.agentaccount,
           agentname: r.agentname,
-          vendDestination: vendCountry,
           attempts: 0,
           completed: 0,
           duration: 0,
@@ -838,12 +831,12 @@ exports.customerTrafficReport = async (req, res) => {
           cost: 0
         };
       }
-      
-      groupedData[key].attempts += Number(r.attempts);
+
+      groupedData[key].attempts  += Number(r.attempts);
       groupedData[key].completed += Number(r.completed);
-      groupedData[key].duration += Number(r.duration);
-      groupedData[key].revenue += Number(r.revenue);
-      groupedData[key].cost += Number(r.cost);
+      groupedData[key].duration  += Number(r.duration);
+      groupedData[key].revenue   += Number(r.revenue);
+      groupedData[key].cost      += Number(r.cost);
     });
 
     console.log(`Processed ${cdrs.length} individual rows into ${Object.keys(groupedData).length} grouped rows`);
@@ -855,17 +848,14 @@ exports.customerTrafficReport = async (req, res) => {
       const dur = r.duration;
       const comp = r.completed;
 
-      // Get the owner for this account (passed from frontend via ownerName param)
-      const accountOwner = ownerName;
-
       return {
         custAccountCode: r.customeraccount,
         vendAccountCode: r.agentaccount,
-        accountOwner: accountOwner,
+        accountOwner: ownerName,
         customer: r.customername,
-        custDestination: r.custDestination,
+        custDestination: r.destination,   // same as vendDestination — both from calleee164
         vendor: r.agentname,
-        vendDestination: r.vendDestination,
+        vendDestination: r.destination,   // same as custDestination — both from calleee164
         attempts: r.attempts,
         completed: comp,
         asr: r.attempts > 0 ? parseFloat(((comp / r.attempts) * 100).toFixed(4)) : 0,
@@ -917,7 +907,7 @@ exports.customerOnlyTrafficReport = async (req, res) => {
 
     const cdrs = await CDR.findAll({
       attributes: [
-        'customeraccount', 'customername', 'callere164',
+        'customeraccount', 'customername', 'calleee164',
         [fn('COUNT', col('*')), 'attempts'],
         [fn('SUM', H.completedCall), 'completed'],
         [fn('SUM', H.durationSec), 'duration'],
@@ -925,7 +915,7 @@ exports.customerOnlyTrafficReport = async (req, res) => {
         [fn('SUM', H.cost), 'cost']
       ],
       where,
-      group: ['customeraccount', 'customername', 'callere164'],
+      group: ['customeraccount', 'customername', 'calleee164'],
       raw: true
     });
 
@@ -938,17 +928,15 @@ exports.customerOnlyTrafficReport = async (req, res) => {
       });
     }
 
-    // The ownerName is passed from frontend (from getReportAccounts which includes owner info)
-    // Simply use it directly
     const groupedData = {};
     cdrs.forEach(r => {
-      const custCountry = getCountryFromNumber(r.callere164, countryCodes, false);
-      const key = `${r.customeraccount}|${custCountry}`;
+      const vendDestination = getCountryFromNumber(r.calleee164, countryCodes, false);
+      const key = `${r.customeraccount}|${vendDestination}`;
       if (!groupedData[key]) {
         groupedData[key] = {
           customeraccount: r.customeraccount,
           customername: r.customername,
-          custDestination: custCountry,
+          vendDestination: vendDestination,
           attempts: 0,
           completed: 0,
           duration: 0,
@@ -973,7 +961,7 @@ exports.customerOnlyTrafficReport = async (req, res) => {
         custAccountCode: r.customeraccount,
         accountOwner: ownerName,
         customer: r.customername,
-        custDestination: r.custDestination,
+        vendDestination: r.vendDestination,
         attempts: r.attempts,
         completed: comp,
         asr: r.attempts > 0 ? parseFloat(((comp / r.attempts) * 100).toFixed(4)) : 0,
@@ -1037,10 +1025,6 @@ exports.vendorTrafficReport = async (req, res) => {
       });
     }
 
-    // prepare owner map for vendor-only report
-    // The ownerName is passed from frontend (from getReportAccounts which includes owner info)
-    // Simply use it directly
-
     const groupedData = {};
     cdrs.forEach(r => {
       const vendCountry = getCountryFromNumber(r.calleee164, countryCodes, true);
@@ -1063,6 +1047,7 @@ exports.vendorTrafficReport = async (req, res) => {
       groupedData[key].revenue += Number(r.revenue);
       groupedData[key].cost += Number(r.cost);
     });
+
     const data = Object.values(groupedData).map(r => {
       const rev = r.revenue;
       const cst = r.cost;
@@ -1080,7 +1065,6 @@ exports.vendorTrafficReport = async (req, res) => {
         acd: comp > 0 ? parseFloat((dur / comp).toFixed(4)) : 0,
         revenue: parseFloat(rev.toFixed(6)),
         cost: parseFloat(cst.toFixed(6)),
-        // calculate cost per minute similar to other reports
         costPerMin: dur > 0 ? parseFloat((cst / (dur / 60)).toFixed(6)) : 0,
         margin: parseFloat(margin.toFixed(6)),
         marginPercent: rev > 0 ? parseFloat(((margin / rev) * 100).toFixed(4)) : 0
@@ -1108,7 +1092,7 @@ exports.vendorTrafficReport = async (req, res) => {
 exports.negativeMarginReport = async (req, res) => {
   try {
     const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
-    const countryCodes = await getCountryCodes(); // ✅ Using cache
+    const countryCodes = await getCountryCodes();
 
     console.log('Negative Margin Report Request:', {
       startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
@@ -1116,12 +1100,11 @@ exports.negativeMarginReport = async (req, res) => {
 
     const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
 
-    // Get all CDRs grouped by individual numbers first
     const cdrs = await CDR.findAll({
       attributes: [
         vendorReport ? 'agentaccount' : 'customeraccount',
         vendorReport ? 'agentname' : 'customername',
-        'calleee164', // ✅ FIXED: Use destination number
+        'calleee164',
         [fn('COUNT', col('*')), 'attempts'],
         [fn('SUM', H.completedCall), 'completed'],
         [fn('SUM', H.durationSec), 'duration'],
@@ -1158,7 +1141,6 @@ exports.negativeMarginReport = async (req, res) => {
       const accountCode = vendorReport ? r.agentaccount : r.customeraccount;
       const accountName = vendorReport ? r.agentname : r.customername;
       
-      // ✅ FIXED: Use calleee164 (destination) with prefix skip
       const destination = getCountryFromNumber(r.calleee164, countryCodes, true);
       
       const key = `${accountCode}|${destination}`;
@@ -1312,64 +1294,64 @@ exports.debugMapping = async (req, res) => {
 };
 
 /* ===================== REPORT ACCOUNTS ===================== */
-  exports.getReportAccounts = async (req, res) => {
-    try {
-      const accounts = await Account.findAll({
-        attributes: [
-          'id',
-          'accountId',
-          'accountName',
-          'accountRole',
-          'customerCode',
-          'lastbillingdate',
-          'nextbillingdate',
-          'vendorCode',
-          'accountOwner',
-          'customerauthenticationType',
-          'customerauthenticationValue',
-          'billingType',
-          'balance',
-          'creditLimit',
-          'originalCreditLimit',
-        ],
-        where: { active: true },
-        order: [['accountName', 'ASC']],
-        raw: true
-      });
+exports.getReportAccounts = async (req, res) => {
+  try {
+    const accounts = await Account.findAll({
+      attributes: [
+        'id',
+        'accountId',
+        'accountName',
+        'accountRole',
+        'customerCode',
+        'lastbillingdate',
+        'nextbillingdate',
+        'vendorCode',
+        'accountOwner',
+        'customerauthenticationType',
+        'customerauthenticationValue',
+        'billingType',
+        'balance',
+        'creditLimit',
+        'originalCreditLimit',
+      ],
+      where: { active: true },
+      order: [['accountName', 'ASC']],
+      raw: true
+    });
 
-      // Fetch all owners for these accounts
-      const ownerIds = [...new Set(accounts.filter(a => a.accountOwner).map(a => a.accountOwner))];
-      const owners = ownerIds.length > 0
-        ? await User.findAll({
-            where: { id: { [Op.in]: ownerIds } },
-            attributes: ['id', 'first_name', 'last_name'],
-            raw: true
-          })
-        : [];
-      const ownerMapByUserId = {};
-      owners.forEach(o => {
-        ownerMapByUserId[o.id] = `${o.first_name} ${o.last_name}`;
-      });
+    // Fetch all owners for these accounts
+    const ownerIds = [...new Set(accounts.filter(a => a.accountOwner).map(a => a.accountOwner))];
+    const owners = ownerIds.length > 0
+      ? await User.findAll({
+          where: { id: { [Op.in]: ownerIds } },
+          attributes: ['id', 'first_name', 'last_name'],
+          raw: true
+        })
+      : [];
+    const ownerMapByUserId = {};
+    owners.forEach(o => {
+      ownerMapByUserId[o.id] = `${o.first_name} ${o.last_name}`;
+    });
 
-      // Add owner name to each account
-      const accountsWithOwners = accounts.map(a => ({
-        ...a,
-        ownerName: a.accountOwner ? ownerMapByUserId[a.accountOwner] || '' : ''
-      }));
+    // Add owner name to each account
+    const accountsWithOwners = accounts.map(a => ({
+      ...a,
+      ownerName: a.accountOwner ? ownerMapByUserId[a.accountOwner] || '' : ''
+    }));
 
-      const customers = accountsWithOwners.filter(a => ['customer', 'both'].includes(a.accountRole));
-      const vendors = accountsWithOwners.filter(a => ['vendor', 'both'].includes(a.accountRole));
+    const customers = accountsWithOwners.filter(a => ['customer', 'both'].includes(a.accountRole));
+    const vendors = accountsWithOwners.filter(a => ['vendor', 'both'].includes(a.accountRole));
 
-      res.json({
-        success: true,
-        customers,
-        vendors
-      });
-    } catch (e) {
-      console.error('Get Report Accounts Error:', e);
-      res.status(500).json({ success: false, error: e.message });
-    }
-  };
+    res.json({
+      success: true,
+      customers,
+      vendors
+    });
+  } catch (e) {
+    console.error('Get Report Accounts Error:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+};
 
 /* ===================== ACCOUNT EXPOSURE (CDR BASED) ===================== */
 exports.getAccountExposure = async (req, res) => {
@@ -1662,7 +1644,7 @@ exports.exportSOA = async (req, res) => {
         : Promise.resolve([]),
     ]);
 
-    // 5. Derive dispute rows from disputed vendor invoices
+    // Derive dispute rows from disputed vendor invoices
     const disputes = vendorInvoices
       .filter((invoice) => String(invoice.status || '').toLowerCase() === 'disputed')
       .map((invoice) => ({
@@ -1689,7 +1671,6 @@ exports.exportSOA = async (req, res) => {
     mainHeader.alignment = { horizontal: 'center' };
 
     // --- GROUP HEADERS (Row 4) ---
-    // Left Group: Customer Usage (Cyvoratech Pvt Ltd. INVOICE)
     worksheet.mergeCells('A4:C4');
     const leftInvoiceHeader = worksheet.getCell('A4');
     leftInvoiceHeader.value = includeCustomer ? 'Cyvoratech Pvt Ltd. INVOICE' : '';
@@ -1702,7 +1683,6 @@ exports.exportSOA = async (req, res) => {
     leftPaymentHeader.font = { bold: true };
     leftPaymentHeader.alignment = { horizontal: 'center' };
 
-    // Right Group: Vendor Usage (Account INVOICE)
     worksheet.mergeCells('I4:K4');
     const rightInvoiceHeader = worksheet.getCell('I4');
     rightInvoiceHeader.value = includeVendor ? `${accountName} INVOICE` : '';
@@ -1771,7 +1751,6 @@ exports.exportSOA = async (req, res) => {
         row.getCell(3).numFmt = '#,##0.0000';
         totalCustInv += Number(customerInvoices[i].totalAmount);
         
-        // Check for dispute
         const dispute = disputes.find(d => d.invoiceNumber && d.invoiceNumber.includes(customerInvoices[i].invoiceNumber));
         if (dispute) {
           row.getCell(4).value = Number(dispute.disputeAmount);
@@ -1794,8 +1773,6 @@ exports.exportSOA = async (req, res) => {
         row.getCell(11).value = Number(vendorInvoices[i].grandTotal || 0);
         row.getCell(11).numFmt = '#,##0.0000';
         totalVendInv += Number(vendorInvoices[i].grandTotal || 0);
-
-        // Vendor side disputes (if any, though disputes model seems customer-centric in this DB)
       }
 
       // Vendor Payments
@@ -1960,7 +1937,7 @@ exports.sendSOAEmail = async (req, res) => {
         : Promise.resolve([]),
     ]);
 
-    // 5. Derive dispute rows from disputed vendor invoices
+    // Derive dispute rows from disputed vendor invoices
     const disputes = vendorInvoices
       .filter((invoice) => String(invoice.status || '').toLowerCase() === 'disputed')
       .map((invoice) => ({
