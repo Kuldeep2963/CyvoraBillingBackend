@@ -372,7 +372,7 @@ const Dashboard = () => {
                 justify={{ base: "center", md: "flex-end" }}
                 w="full"
               >
-                <Box px={3} py={1} bg={"gray.200"} borderRadius={"md"}>
+                <Box px={3} py={2} bg={"gray.200"} borderRadius={"md"}>
                   <HStack spacing={3} alignItems={"center"}>
                     <HStack spacing={2}>
                       <Icon as={FiCalendar} color="blue.400" />
@@ -380,7 +380,7 @@ const Dashboard = () => {
                         {formatInTimeZone(currentTime, "UTC", "MMM dd, yyyy")}
                       </Text>
                     </HStack>
-                    <Divider orientation="vertical" h="20px" />
+                    <Divider orientation="vertical" borderColor="gray.400" h="20px" />
                     <HStack spacing={2}>
                       <Icon as={FiClock} color="blue.400" />
                       <Text
@@ -459,7 +459,7 @@ const Dashboard = () => {
               loading={dashLoading}
             />
             <StatCard
-              title="Active Customers"
+              title={`Active Customers ${timeRange}`}
               value={Number(stats?.activeCustomers || 0)}
               change="Unique"
               icon={FiUsers}

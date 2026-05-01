@@ -222,7 +222,7 @@ const SortableTh = ({ label, sortKey, sortConfig, onSort, isNumeric }) => (
   </Th>
 );
 
-// ─── Loading / Empty states ────────────────────────────────────────────────────
+// ─── Loading / Empty states 
 
 const LoadingState = () => (
   <Center py={20}>
@@ -1339,10 +1339,10 @@ const NegativeMarginTableHead = ({ sortConfig, onSort }) => (
 
 const CustomerVendorTableHead = ({ sortConfig, onSort, isVendorReport }) => (
   <Tr>
-    <SortableTh label="Account" sortKey="custAccountCode" sortConfig={sortConfig} onSort={onSort} />
+    {/* <SortableTh label="Account" sortKey="custAccountCode" sortConfig={sortConfig} onSort={onSort} /> */}
     <SortableTh label="Account Owner" sortKey="accountOwner" sortConfig={sortConfig} onSort={onSort} />
     <SortableTh label="Customer" sortKey="customer" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Source Country" sortKey="custDestination" sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Destination" sortKey="venDestination" sortConfig={sortConfig} onSort={onSort} />
     <SortableTh label="Vendor" sortKey="vendor" sortConfig={sortConfig} onSort={onSort} />
     <SortableTh label="Attempts" sortKey="attempts" sortConfig={sortConfig} onSort={onSort} isNumeric />
     <SortableTh label="Comp" sortKey="completed" sortConfig={sortConfig} onSort={onSort} isNumeric />
@@ -1365,7 +1365,7 @@ const CustomerOnlyTableHead = ({ sortConfig, onSort }) => (
   <Tr>
     <SortableTh label="Customer" sortKey="customer" sortConfig={sortConfig} onSort={onSort} />
     <SortableTh label="Account Owner" sortKey="accountOwner" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Source Country" sortKey="custDestination" sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Destination" sortKey="vendDestination" sortConfig={sortConfig} onSort={onSort} />
     <SortableTh label="Attempts" sortKey="attempts" sortConfig={sortConfig} onSort={onSort} isNumeric />
     <SortableTh label="Comp" sortKey="completed" sortConfig={sortConfig} onSort={onSort} isNumeric />
     <SortableTh label="ASR%" sortKey="asr" sortConfig={sortConfig} onSort={onSort} isNumeric />
@@ -1379,7 +1379,7 @@ const CustomerOnlyTableHead = ({ sortConfig, onSort }) => (
 
 const VendorOnlyTableHead = ({ sortConfig, onSort }) => (
   <Tr>
-    <SortableTh label="Account" sortKey="vendAccountCode" sortConfig={sortConfig} onSort={onSort} />
+    {/* <SortableTh label="Account" sortKey="vendAccountCode" sortConfig={sortConfig} onSort={onSort} /> */}
     <SortableTh label="Account Owner" sortKey="accountOwner" sortConfig={sortConfig} onSort={onSort} />
     <SortableTh label="Vendor" sortKey="vendor" sortConfig={sortConfig} onSort={onSort} />
     <SortableTh label="Destination Country" sortKey="vendDestination" sortConfig={sortConfig} onSort={onSort} />
@@ -1472,10 +1472,10 @@ const CustomerVendorTableBody = React.memo(({ rows, isVendorReport }) => (
   <>
     {rows.map((row, i) => (
       <Tr key={i}>
-        <Td fontSize="xs">{isVendorReport ? row.vendAccountCode ?? row.vendor : row.custAccountCode ?? row.customer}</Td>
+        {/* <Td fontSize="xs">{isVendorReport ? row.vendAccountCode ?? row.vendor : row.custAccountCode ?? row.customer}</Td> */}
         <Td fontSize="xs">{row.accountOwner ?? "-"}</Td>
         <Td fontSize="xs">{row.customer}</Td>
-        <Td>{row.custDestination}</Td>
+        <Td>{row.vendDestination}</Td>
         <Td fontSize="xs">{row.vendor}</Td>
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
@@ -1503,7 +1503,7 @@ const CustomerOnlyTableBody = React.memo(({ rows }) => (
       <Tr key={i}>
         <Td fontSize="xs">{row.customer}</Td>
         <Td fontSize="xs">{row.accountOwner ?? "-"}</Td>
-        <Td>{row.custDestination}</Td>
+        <Td>{row.vendDestination}</Td>
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
         <Td isNumeric><Badge colorScheme={row.asr > 40 ? "green" : "orange"}>{row.asr}%</Badge></Td>
@@ -1522,7 +1522,7 @@ const VendorOnlyTableBody = React.memo(({ rows }) => (
   <>
     {rows.map((row, i) => (
       <Tr key={i}>
-        <Td fontSize="xs">{row.vendAccountCode ?? row.vendor}</Td>
+        {/* <Td fontSize="xs">{row.vendAccountCode ?? row.vendor}</Td> */}
         <Td fontSize="xs">{row.accountOwner ?? "-"}</Td>
         <Td fontSize="xs">{row.vendor}</Td>
         <Td>{row.vendDestination}</Td>
