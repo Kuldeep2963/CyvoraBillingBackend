@@ -51,6 +51,21 @@ const getCountryFromNumber = (number, countryCodes) => {
   return 'Unknown';
 };
 
+const getCountryCallingCodeFromNumber = (number, countryCodes) => {
+  if (!number) return '';
+
+  const cleaned = number.toString().replace(/^(\+|00)/, '');
+  const sortedCodes = [...countryCodes].sort((a, b) => b.code.length - a.code.length);
+
+  for (const cc of sortedCodes) {
+    if (cleaned.startsWith(cc.code)) {
+      return `+${cc.code}`;
+    }
+  }
+
+  return '';
+};
+
 /* ===================== HELPER: GET TRUNK NAME ===================== */
 const getTrunkName = (number) => {
   if (!number) return 'Unknown';
@@ -353,30 +368,21 @@ class InvoiceService {
         
         if (phoneNumber) {
           destination = getCountryFromNumber(actualCalleee, countryCodes);
-          prefix = phoneNumber.countryCallingCode;
+          prefix = `+${phoneNumber.countryCallingCode}`;
         } else {
           destination = getCountryFromNumber(actualCalleee, countryCodes);
-          prefix = actualCalleee.length >= 6 ? actualCalleee.substring(0, 3) : actualCalleee;
+          prefix = getCountryCallingCodeFromNumber(actualCalleee, countryCodes)
+            || (actualCalleee.length >= 6 ? `+${actualCalleee.substring(0, 3)}` : actualCalleee);
         }
 
         const trunk = getTrunkName(cdr.calleee164);
-        
-        let customDescription = '';
-        if (cdr.calleegatewayid) {
-          const parts = cdr.calleegatewayid.split('--');
-          if (parts.length >= 3) {
-            customDescription = parts[2].trim();
-          }
-        }
-
-        const key = `${destination}|${prefix}|${trunk}|${customDescription}`;
+        const key = `${destination}|${prefix}|${trunk}`;
         
         if (!groupedData[key]) {
           groupedData[key] = {
             destination,
             trunk,
             prefix,
-            customDescription,
             totalCalls: 0,
             completedCalls: 0,
             failedCalls: 0,
@@ -410,15 +416,15 @@ class InvoiceService {
 
         return {
           itemType: 'call_charges',
-          description: item.customDescription || `Calls to ${item.destination} (${item.trunk})`,
+          description: '',
           destination: item.destination,
           trunk: item.trunk,
           prefix: item.prefix,
-          quantity: item.totalCalls,
+          quantity: item.completedCalls,
           duration: item.duration,
-          unitPrice: item.totalCalls > 0 ? (amount / item.totalCalls) : 0,
+          unitPrice: item.completedCalls > 0 ? (amount / item.completedCalls) : 0,
           amount: parseFloat(amount.toFixed(4)),
-          totalCalls: item.totalCalls,
+          totalCalls: item.completedCalls,
           completedCalls: item.completedCalls,
           failedCalls: item.failedCalls,
           asr: item.totalCalls > 0 ? parseFloat(((item.completedCalls / item.totalCalls) * 100).toFixed(2)) : 0,

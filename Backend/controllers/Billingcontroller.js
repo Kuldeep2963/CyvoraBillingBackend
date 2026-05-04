@@ -125,6 +125,21 @@ const getCountryFromNumber = (number, countryCodes) => {
   return "Unknown";
 };
 
+const getCountryCallingCodeFromNumber = (number, countryCodes) => {
+  if (!number) return "";
+
+  const cleaned = number.toString().replace(/^(\+|00)/, "");
+  const sortedCodes = [...countryCodes].sort((a, b) => b.code.length - a.code.length);
+
+  for (const cc of sortedCodes) {
+    if (cleaned.startsWith(cc.code)) {
+      return `+${cc.code}`;
+    }
+  }
+
+  return "";
+};
+
 /* ===================== HELPER: GET TRUNK NAME ===================== */
 const getTrunkName = (number) => {
   if (!number) return "Unknown";
@@ -487,7 +502,7 @@ exports.generateInvoice = async (req, res) => {
 
       if (phoneNumber) {
         destination = getCountryFromNumber(actualCalleee, countryCodes);
-        prefix = phoneNumber.countryCallingCode;
+        prefix = `+${phoneNumber.countryCallingCode}`;
 
         const national = phoneNumber.nationalNumber;
 
@@ -501,33 +516,18 @@ exports.generateInvoice = async (req, res) => {
       } else {
         console.warn("libphonenumber parsing failed for:", actualCalleee);
         destination = getCountryFromNumber(actualCalleee, countryCodes);
-
-        if (actualCalleee.length >= 6) {
-          prefix = actualCalleee.substring(0, 3);
-        } else {
-          prefix = actualCalleee;
-        }
+        prefix = getCountryCallingCodeFromNumber(actualCalleee, countryCodes)
+          || (actualCalleee.length >= 6 ? `+${actualCalleee.substring(0, 3)}` : actualCalleee);
       }
 
       const trunk = getTrunkName(cdr.calleee164);
-
-      // Extract custom description from calleegatewayid (after second --)
-      let customDescription = "";
-      if (cdr.calleegatewayid) {
-        const parts = cdr.calleegatewayid.split("--");
-        if (parts.length >= 3) {
-          customDescription = parts[2].trim();
-        }
-      }
-
-      const key = `${destination}|${prefix}|${trunk}|${customDescription}`;
+      const key = `${destination}|${prefix}|${trunk}`;
 
       if (!groupedData[key]) {
         groupedData[key] = {
           destination,
           trunk,
           prefix,
-          customDescription,
           totalCalls: 0,
           completedCalls: 0,
           failedCalls: 0,
@@ -560,18 +560,16 @@ exports.generateInvoice = async (req, res) => {
 
         return {
           itemType: "call_charges",
-          description:
-            item.customDescription ||
-            `Calls to ${item.destination} (${item.trunk})`,
+          description: "",
           destination: item.destination,
           trunk: item.trunk,
           prefix: item.prefix,
-          quantity: item.totalCalls,
+          quantity: item.completedCalls,
           duration: item.duration,
 
-          unitPrice: item.totalCalls > 0 ? amount / item.totalCalls : 0,
+          unitPrice: item.completedCalls > 0 ? amount / item.completedCalls : 0,
           amount: parseFloat(amount.toFixed(4)),
-          totalCalls: item.totalCalls,
+          totalCalls: item.completedCalls,
           completedCalls: item.completedCalls,
           failedCalls: item.failedCalls,
           asr:
@@ -1178,6 +1176,7 @@ const generateInvoicePDFBuffer = async (invoice) => {
               width: 100%;
               border-collapse: collapse;
               font-size: 12px;
+              table-layout: fixed;
             }
             .invoice-table th {
               background-color: #1a365d;
@@ -1190,11 +1189,22 @@ const generateInvoicePDFBuffer = async (invoice) => {
             .invoice-table td {
               padding: 10px 8px;
               border-bottom: 1px solid #e2e8f0;
+              word-break: break-word;
             }
             .invoice-table tr:nth-child(even) {
               background-color: #f8fafc;
             }
             .text-right { text-align: right; }
+            .invoice-table th:nth-child(4),
+            .invoice-table th:nth-child(5),
+            .invoice-table th:nth-child(6),
+            .invoice-table th:nth-child(7),
+            .invoice-table td:nth-child(4),
+            .invoice-table td:nth-child(5),
+            .invoice-table td:nth-child(6),
+            .invoice-table td:nth-child(7) {
+              text-align: right;
+            }
             .totals-section {
               display: flex;
               justify-content: flex-end;
@@ -1296,12 +1306,20 @@ Tashkent Region, Uzbekistan<br>
 
             <div class="table-section">
               <table class="invoice-table">
+                <colgroup>
+                  <col style="width: 14%;" />
+                  <col style="width: 10%;" />
+                  <col style="width: 26%;" />
+                  <col style="width: 10%;" />
+                  <col style="width: 20%;" />
+                  <col style="width: 12%;" />
+                  <col style="width: 14%;" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Trunk</th>
                     <th>Prefix</th>
                     <th>Destination</th>
-                    <th>Description</th>
                     <th class="text-right">Calls</th>
                     <th class="text-right">Duration (Min)</th>
                     <th class="text-right">Rate</th>
@@ -1316,7 +1334,6 @@ Tashkent Region, Uzbekistan<br>
                       <td>${item.trunk || "-"}</td>
                       <td>${item.prefix || "-"}</td>
                       <td>${item.destination || "-"}</td>
-                      <td>${item.description || "-"}</td>
                       <td class="text-right">${item.totalCalls}</td>
                       <td class="text-right">${(item.duration / 60).toFixed(2)}</td>
                       <td class="text-right">$${parseFloat(item.unitPrice).toFixed(4)}</td>
@@ -1642,10 +1659,10 @@ exports.deleteInvoice = async (req, res) => {
     }
 
     // Only allow deletion of draft or cancelled invoices
-    if (!["draft", "pending", "cancelled", "void"].includes(invoice.status)) {
+    if (!["draft", "pending", "cancelled"].includes(invoice.status)) {
       return res.status(400).json({
         success: false,
-        error: "Only draft, cancelled, or void invoices can be deleted",
+        error: "Only draft, cancelled, or pending invoices can be deleted",
       });
     }
 
