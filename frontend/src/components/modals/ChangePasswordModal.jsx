@@ -17,18 +17,18 @@ import {
   InputGroup,
   InputRightElement,
   Icon,
-  useToast,
   HStack,
   Box,
   Text,
 } from "@chakra-ui/react";
+import useNotify from "../../utils/notify";
 import { MemoizedInput as Input } from "../memoizedinput/memoizedinput";
 import { FiEye, FiEyeOff } from "react-icons/fi";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 const ChangePasswordModal = ({ isOpen, onClose }) => {
-  const toast = useToast();
+  const toast = useNotify();
   const [isLoading, setIsLoading] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);

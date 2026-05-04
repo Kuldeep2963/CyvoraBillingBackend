@@ -29,7 +29,6 @@ import {
   
   Icon,
   useColorModeValue,
-  useToast,
   Avatar,
   Tooltip,
   Progress,
@@ -59,6 +58,7 @@ import {
   AlertTitle,
   AlertDescription,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import DataTable from "../components/DataTable";
@@ -211,7 +211,7 @@ const StatusBadge = ({ status }) => {
 
 // ── Invoices List Tab ─────────────────────────────────────────
 const InvoicesTab = ({ onAddNew }) => {
-  const toast  = useToast();
+  const toast  = useNotify();
   const cardBg = useColorModeValue("white", "gray.800");
   const border = useColorModeValue("gray.200", "gray.700");
   const [search, setSearch]     = useState("");
@@ -1193,7 +1193,7 @@ const InvoicesTab = ({ onAddNew }) => {
 // ── Upload Form Tab ───────────────────────────────────────────
 const UploadTab = ({ onViewInvoices, onSuccess }) => {
   const navigate = useNavigate();
-  const toast = useToast();
+  const toast = useNotify();
   const fileRef = useRef();
   const [files, setFiles] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);

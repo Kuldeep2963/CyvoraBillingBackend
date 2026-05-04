@@ -22,7 +22,6 @@ import {
   HStack,
   Badge,
   Icon,
-  useToast,
   Table,
   Thead,
   Tbody,
@@ -32,6 +31,7 @@ import {
   TableContainer,
   Divider,
 } from '@chakra-ui/react';
+import useNotify from '../utils/notify';
 import { 
   FiUpload, 
   FiFile, 
@@ -53,7 +53,7 @@ const CDRUpload = () => {
   const [uploadResults, setUploadResults] = useState(null);
   const [cdrSummary, setCdrSummary] = useState(null);
   const [sampleData, setSampleData] = useState([]);
-  const toast = useToast();
+  const toast = useNotify();
   const API_URL = import.meta.env.VITE_API_URL || '/api';
 
   const onDrop = useCallback((acceptedFiles) => {

@@ -6,7 +6,6 @@ import {
   VStack,
   Text,
   Button,
-  useToast,
   HStack,
   Badge,
   useColorModeValue,
@@ -22,6 +21,7 @@ import {
   Tooltip,
   Flex,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import {
   MemoizedInput as Input,
   MemoizedSelect as Select,
@@ -162,7 +162,7 @@ const Accounts = () => {
   const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
   const [selectedAccountForTopup, setSelectedAccountForTopup] = useState(null);
 
-  const toast = useToast();
+  const toast = useNotify();
   const cardBg = useColorModeValue("white", "gray.800");
   const borderColor = useColorModeValue("gray.200", "gray.700");
 

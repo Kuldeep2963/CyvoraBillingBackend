@@ -12,7 +12,6 @@ import {
   GridItem,
   Heading,
   Text,
-  useToast,
   VStack,
   HStack,
   Alert,
@@ -25,6 +24,7 @@ import {
   SimpleGrid,
   useColorModeValue,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import {
   MemoizedInput as Input,
   MemoizedSelect as Select,
@@ -45,7 +45,7 @@ import { fromDateTimeUtcInput, toDateTimeUtcInput } from "../utils/dateInput";
 // ─── Component ──────────────────────────────────────────────────────────────
 
 const AdminCDRDownload = () => {
-  const toast = useToast();
+  const toast = useNotify();
 
   // Initialise once — useMemo with [] only runs on mount, which is correct here.
   const now = useMemo(() => new Date(), []);

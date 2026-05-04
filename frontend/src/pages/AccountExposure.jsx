@@ -6,23 +6,23 @@ import {
   Card,
   CardBody,
   CardHeader,
+  Divider,
   Flex,
   Grid,
   GridItem,
   Heading,
+  Icon,
   Spinner,
-  Stat,
-  StatHelpText,
-  StatLabel,
-  StatNumber,
   Text,
-  useToast,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import { SearchIcon } from "@chakra-ui/icons";
 import { MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import DateRangePicker from "../components/formats/DateRangepicker";
 import PageNavBar from "../components/PageNavBar";
 import { fetchAccountExposure, fetchReportAccounts } from "../utils/api";
+
+// ─── Formatters ──────────────────────────────────────────────────────────────
 
 const formatAmount = (amount) =>
   Number(amount || 0).toLocaleString("en-US", {
@@ -53,55 +53,134 @@ const formatDuration = (seconds) => {
   return `${hours}h ${minutes}m`;
 };
 
-const ExposureStatCard = ({ label, value, color = "gray.800", help }) => (
-  <Card borderWidth="1px" borderColor="gray.200" borderRadius="10px">
-    <CardBody>
-      <Stat>
-        <StatLabel color="gray.600" fontWeight="semibold" fontSize="12px" textTransform="uppercase" letterSpacing="0.04em">
-          {label}
-        </StatLabel>
-        <StatNumber color={color} fontSize={{ base: "xl", md: "2xl" }}>
-          ${formatAmount(value)}
-        </StatNumber>
-        {help ? <StatHelpText mb={0}>{help}</StatHelpText> : null}
-      </Stat>
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+const StatCard = ({ label, value, color, help }) => (
+  <Card
+    bg="white"
+    borderWidth="0.5px"
+    borderColor="gray.200"
+    borderRadius="10px"
+    boxShadow="none"
+  >
+    <CardBody px={5} py={4}>
+      <Text
+        fontSize="10px"
+        fontWeight="600"
+        textTransform="uppercase"
+        letterSpacing="0.07em"
+        color="gray.500"
+        mb={2}
+      >
+        {label}
+      </Text>
+      <Text fontSize="xl" fontWeight="500" color={color} fontVariantNumeric="tabular-nums">
+        ${formatAmount(value)}
+      </Text>
+      {help && (
+        <Text fontSize="11px" color="gray.400" mt={1}>
+          {help}
+        </Text>
+      )}
     </CardBody>
   </Card>
 );
 
-const MetricsCard = ({ title, metrics, badgeText, badgeScheme }) => (
-  <Card borderWidth="1px" borderColor="gray.200" borderRadius="10px" h="100%">
-    <CardHeader pb={2}>
+const MetricItem = ({ label, value }) => (
+  <Box>
+    <Text
+      fontSize="10px"
+      fontWeight="600"
+      textTransform="uppercase"
+      letterSpacing="0.06em"
+      color="gray.400"
+      mb={1}
+    >
+      {label}
+    </Text>
+    <Text fontSize="15px" fontWeight="500" color="gray.800" fontVariantNumeric="tabular-nums">
+      {value}
+    </Text>
+  </Box>
+);
+
+const MetricsCard = ({ title, metrics, badgeText }) => (
+  <Card
+    bg="white"
+    borderWidth="0.5px"
+    borderColor="gray.200"
+    borderRadius="10px"
+    boxShadow="none"
+    h="100%"
+  >
+    <CardHeader px={5} py={3} borderBottomWidth="0.5px" borderColor="gray.100">
       <Flex align="center" justify="space-between">
-        <Heading size="sm">{title}</Heading>
-        <Badge colorScheme={badgeScheme}>{badgeText}</Badge>
+        <Text fontSize="13px" fontWeight="500" color="gray.700">
+          {title}
+        </Text>
+        <Badge
+          bg="gray.100"
+          color="gray.500"
+          fontSize="12px"
+          fontWeight="500"
+          px={2}
+          py="2px"
+          borderRadius="full"
+          textTransform="none"
+          letterSpacing="0"
+        >
+          {badgeText}
+        </Badge>
       </Flex>
     </CardHeader>
-    <CardBody pt={2}>
-      <Grid templateColumns="repeat(4, minmax(0,1fr))" gap={4}>
-        <Box>
-          <Text fontSize="xs" color="gray.600" textTransform="uppercase" letterSpacing="0.04em">Attempts</Text>
-          <Text fontSize="lg" fontWeight="bold">{Number(metrics?.attempts || 0).toLocaleString()}</Text>
-        </Box>
-        <Box>
-          <Text fontSize="xs" color="gray.600" textTransform="uppercase" letterSpacing="0.04em">Completed</Text>
-          <Text fontSize="lg" fontWeight="bold">{Number(metrics?.completed || 0).toLocaleString()}</Text>
-        </Box>
-        <Box>
-          <Text fontSize="xs" color="gray.600" textTransform="uppercase" letterSpacing="0.04em">Failed</Text>
-          <Text fontSize="lg" fontWeight="bold">{Number(metrics?.failed || 0).toLocaleString()}</Text>
-        </Box>
-        <Box>
-          <Text fontSize="xs" color="gray.600" textTransform="uppercase" letterSpacing="0.04em">Duration</Text>
-          <Text fontSize="lg" fontWeight="bold">{formatDuration(metrics?.duration || 0)}</Text>
-        </Box>
+    <CardBody px={5} py={4}>
+      <Grid templateColumns="repeat(4, 1fr)" gap={4}>
+        <MetricItem label="Attempts" value={Number(metrics?.attempts || 0).toLocaleString()} />
+        <MetricItem label="Completed" value={Number(metrics?.completed || 0).toLocaleString()} />
+        <MetricItem label="Failed" value={Number(metrics?.failed || 0).toLocaleString()} />
+        <MetricItem label="Duration" value={formatDuration(metrics?.duration || 0)} />
       </Grid>
     </CardBody>
   </Card>
 );
 
+const EmptyState = () => (
+  <Card
+    bg="gray.50"
+    borderWidth="0.5px"
+    borderColor="gray.200"
+    borderRadius="10px"
+    boxShadow="none"
+  >
+    <CardBody px={6} py={10} textAlign="center">
+      <Box mb={3} color="gray.300">
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ display: "inline-block" }}
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1="3" y1="9" x2="21" y2="9" />
+          <line x1="9" y1="21" x2="9" y2="9" />
+        </svg>
+      </Box>
+      <Text fontSize="13px" color="gray.400" maxW="340px" mx="auto" lineHeight="1.7">
+        Select an account and date range, then click Calculate to view exposure from CDR records.
+      </Text>
+    </CardBody>
+  </Card>
+);
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 const AccountExposure = () => {
-  const toast = useToast();
+  const toast = useNotify();
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
@@ -119,13 +198,10 @@ const AccountExposure = () => {
     try {
       setLoadingAccounts(true);
       const response = await fetchReportAccounts();
-      if (!response?.success) {
-        throw new Error("Failed to load accounts");
-      }
+      if (!response?.success) throw new Error("Failed to load accounts");
 
       const customers = Array.isArray(response.customers) ? response.customers : [];
       const vendors = Array.isArray(response.vendors) ? response.vendors : [];
-
       const byName = new Map();
 
       customers.forEach((acc) => {
@@ -170,9 +246,8 @@ const AccountExposure = () => {
       });
 
       const merged = Array.from(byName.values()).sort((a, b) =>
-        a.accountName.localeCompare(b.accountName),
+        a.accountName.localeCompare(b.accountName)
       );
-
       setAccounts(merged);
     } catch (error) {
       toast({
@@ -194,7 +269,8 @@ const AccountExposure = () => {
   const handleAccountChange = (event) => {
     const key = event.target.value;
     setSelectedAccountKey(key);
-    const account = accounts.find((a) => `${a.accountName}|${a.accountId || ""}` === key) || null;
+    const account =
+      accounts.find((a) => `${a.accountName}|${a.accountId || ""}` === key) || null;
     setSelectedAccount(account);
     setExposure(null);
   };
@@ -222,10 +298,7 @@ const AccountExposure = () => {
         endDate: endDate || null,
       });
 
-      if (!result?.success) {
-        throw new Error(result?.error || "Failed to fetch account exposure");
-      }
-
+      if (!result?.success) throw new Error(result?.error || "Failed to fetch account exposure");
       setExposure(result);
     } catch (error) {
       setExposure(null);
@@ -242,63 +315,78 @@ const AccountExposure = () => {
   };
 
   const netBadge = useMemo(() => {
-    const netPosition = exposure?.summary?.netPosition;
-    if (netPosition === "receivable") return { text: "Net Receivable", scheme: "green" };
-    if (netPosition === "payable") return { text: "Net Payable", scheme: "red" };
-    return { text: "Balanced", scheme: "gray" };
+    const pos = exposure?.summary?.netPosition;
+    if (pos === "receivable") return { text: "Net Receivable", colorScheme: "green" };
+    if (pos === "payable") return { text: "Net Payable", colorScheme: "red" };
+    return { text: "Balanced", colorScheme: "gray" };
   }, [exposure]);
 
-  const exposureBreakdown = useMemo(() => {
+  const breakdown = useMemo(() => {
     const customerExpense = Number(exposure?.summary?.customerExpense || 0);
     const vendorExpense = Number(exposure?.summary?.vendorExpense || 0);
-    const difference = Math.abs(customerExpense - vendorExpense);
-
+    const diff = Math.abs(customerExpense - vendorExpense);
     return {
       customerExpense,
       vendorExpense,
-      totalReceivable: customerExpense > vendorExpense ? difference : 0,
-      totalPayable: vendorExpense > customerExpense ? difference : 0,
+      totalReceivable: customerExpense > vendorExpense ? diff : 0,
+      totalPayable: vendorExpense > customerExpense ? diff : 0,
       netAmount: customerExpense - vendorExpense,
     };
   }, [exposure]);
 
+  // Semantic color maps — no funky accents
+  const netAmountColor =
+    breakdown.netAmount >= 0 ? "green.700" : "red.600";
+
   return (
     <Box>
       <PageNavBar
-      
         title="Account Exposure"
-        description="Account exposure from CDR totals (till now)"
+        description="CDR-based customer and vendor exposure summary"
         mb={5}
       />
 
       {loadingAccounts ? (
         <Flex justify="center" mt={20}>
-          <Spinner size="xl" color="blue.400" />
+          <Spinner size="lg" color="gray.400" thickness="2px" />
         </Flex>
       ) : (
         <>
+          {/* ── Filter Bar ── */}
           <Card
             mb={4}
             bg="white"
-            borderWidth="1px"
+            borderWidth="0.5px"
             borderColor="gray.200"
-            borderRadius="12px"
-            borderLeft="3px solid"
-            borderLeftColor="blue.400"
+            borderRadius="10px"
+            boxShadow="none"
           >
-            <CardBody py={4} px={5}>
+            <CardBody py={3} px={5}>
               <Flex align="center" gap={3} flexWrap="wrap">
-                <Text fontWeight="700" color="gray.600" fontSize="13px" whiteSpace="nowrap">
-                  Account:
+                <Text
+                  fontSize="10px"
+                  fontWeight="600"
+                  color="gray.400"
+                  textTransform="uppercase"
+                  letterSpacing="0.07em"
+                  whiteSpace="nowrap"
+                >
+                  Account
                 </Text>
 
                 <Select
                   placeholder="Select an account..."
-                  border="1.5px solid"
-                  minW="260px"
-                  maxW="420px"
+                  borderWidth="0.5px"
+                  borderColor="gray.200"
+                  bg="gray.50"
+                  _hover={{ borderColor: "gray.300" }}
+                  _focus={{ borderColor: "gray.400", boxShadow: "none" }}
+                  borderRadius="8px"
+                  fontSize="13px"
+                  height="34px"
+                  minW="220px"
+                  maxW="360px"
                   flex="1"
-                  height="35px"
                   onChange={handleAccountChange}
                   value={selectedAccountKey}
                 >
@@ -307,8 +395,8 @@ const AccountExposure = () => {
                       acc.customerRole && acc.vendorRole
                         ? "Bilateral"
                         : acc.vendorRole
-                          ? "Vendor"
-                          : "Customer";
+                        ? "Vendor"
+                        : "Customer";
                     const value = `${acc.accountName}|${acc.accountId || ""}`;
                     return (
                       <option key={value} value={value}>
@@ -329,142 +417,176 @@ const AccountExposure = () => {
                     setExposure(null);
                   }}
                   placeholder="Select date range"
-                  inputProps={{ minW: "260px", maxW: "320px", size: "sm" }}
+                  inputProps={{ minW: "220px", maxW: "300px", size: "sm" }}
                 />
 
                 <Button
                   size="sm"
-                  colorScheme="blue"
-                  leftIcon={<SearchIcon boxSize={3} />}
+                  bg="blue.500"
+                  color="white"
+                  _hover={{ bg: "blue.600" }}
+                  _active={{ bg: "blue.700" }}
+                  leftIcon={<SearchIcon boxSize="11px" />}
                   onClick={handleSearch}
                   isDisabled={!selectedAccount || loadingExposure}
                   isLoading={loadingExposure}
                   loadingText="Calculating"
-                  minW="120px"
-                  height="36px"
+                  height="34px"
+                  px={5}
                   borderRadius="8px"
-                  fontWeight="600"
+                  fontWeight="500"
                   fontSize="13px"
+                  boxShadow="none"
                 >
                   Calculate
                 </Button>
               </Flex>
-
-              {!accounts.length ? (
-                <Text fontSize="xs" color="gray.500" mt={3}>
-                  No active accounts found.
-                </Text>
-              ) : null}
             </CardBody>
           </Card>
 
           {exposure ? (
             <>
-              <Card mb={4} borderWidth="1px" borderColor="gray.200" borderRadius="10px">
-                <CardBody py={3}>
-                  <Flex align={{ base: "start", md: "center" }} justify="space-between" gap={3} flexDirection={{ base: "column", md: "row" }}>
+              {/* ── Account Header ── */}
+              <Card
+                mb={3}
+                bg="gray.50"
+                borderWidth="0.5px"
+                borderColor="gray.200"
+                borderRadius="10px"
+                boxShadow="none"
+              >
+                <CardBody py={3} px={5}>
+                  <Flex
+                    align={{ base: "start", md: "center" }}
+                    justify="space-between"
+                    gap={3}
+                    flexDirection={{ base: "column", md: "row" }}
+                  >
                     <Box>
-                      <Heading size="sm">{exposure.account?.accountName}</Heading>
-                      <Text fontSize="xs" color="gray.600" mt={1}>
+                      <Text fontSize="14px" fontWeight="500" color="gray.800">
+                        {exposure.account?.accountName}
+                      </Text>
+                      <Text fontSize="11px" color="gray.400" mt="2px">
                         {exposure?.dateRange?.startDate || exposure?.dateRange?.endDate
                           ? `Snapshot from ${exposure?.dateRange?.startDate || "beginning"} to ${exposure?.dateRange?.endDate || "today"}`
                           : "Snapshot up to current time from CDR traffic"}
                       </Text>
                     </Box>
-                    <Badge colorScheme={netBadge.scheme} fontSize="11px" px={2} py={1} borderRadius="6px">
+                    <Badge
+                      colorScheme={netBadge.colorScheme}
+                      fontSize="12px"
+                      fontWeight="500"
+                      px={3}
+                      py={1}
+                      borderRadius="full"
+                      textTransform="none"
+                    >
                       {netBadge.text}
                     </Badge>
                   </Flex>
                 </CardBody>
               </Card>
 
-              <Grid templateColumns={{ base: "1fr", md: "1fr 1fr", xl: netBadge.scheme === "red" ? "repeat(3, 1fr)" : netBadge.scheme === "green" ? "repeat(3, 1fr)" : "repeat(2, 1fr)" }} gap={4} mb={4}>
-                <GridItem>
-                  <ExposureStatCard
-                    label="Customer Expense"
-                      value={exposureBreakdown.customerExpense}
-                    color="blue.600"
-                    help="Derived from customer-side CDR revenue"
+              {/* ── Stat Cards ── */}
+              <Grid
+                templateColumns={{
+                  base: "1fr",
+                  md: "1fr 1fr",
+                  xl: "repeat(3, 1fr)",
+                }}
+                gap={3}
+                mb={3}
+              >
+                <StatCard
+                  label="Customer Expense"
+                  value={breakdown.customerExpense}
+                  color="blue.700"
+                  help="Revenue from customer-side CDR"
+                />
+                <StatCard
+                  label="Vendor Expense"
+                  value={breakdown.vendorExpense}
+                  color="purple.700"
+                  help="Cost from vendor-side CDR"
+                />
+                {netBadge.colorScheme === "green" && (
+                  <StatCard
+                    label="Total Receivable"
+                    value={breakdown.totalReceivable}
+                    color="green.700"
+                    help="Customer expense exceeds vendor expense"
                   />
-                </GridItem>
-                <GridItem>
-                  <ExposureStatCard
-                    label="Vendor Expense"
-                      value={exposureBreakdown.vendorExpense}
-                    color="purple.600"
-                    help="Derived from vendor-side CDR cost"
-                  />
-                </GridItem>
-                {netBadge.scheme === "green" && (
-                  <GridItem>
-                    <ExposureStatCard
-                      label="Total Receivable"
-                        value={exposureBreakdown.totalReceivable}
-                      color="green.600"
-                        help="Customer expense is higher than vendor expense"
-                    />
-                  </GridItem>
                 )}
-                {netBadge.scheme === "red" && (
-                  <GridItem>
-                    <ExposureStatCard
-                      label="Total Payable"
-                        value={exposureBreakdown.totalPayable}
-                      color="red.600"
-                        help="Vendor expense is higher than customer expense"
-                    />
-                  </GridItem>
+                {netBadge.colorScheme === "red" && (
+                  <StatCard
+                    label="Total Payable"
+                    value={breakdown.totalPayable}
+                    color="red.600"
+                    help="Vendor expense exceeds customer expense"
+                  />
+                )}
+                {netBadge.colorScheme === "gray" && (
+                  <StatCard
+                    label="Net Difference"
+                    value={0}
+                    color="gray.600"
+                    help="Customer and vendor expenses are equal"
+                  />
                 )}
               </Grid>
 
-              <Card mb={4} borderWidth="1px" borderColor="gray.200" borderRadius="10px">
-                <CardBody>
+              {/* ── Net Exposure Bar ── */}
+              <Card
+                mb={3}
+                bg="white"
+                borderWidth="0.5px"
+                borderColor="gray.200"
+                borderRadius="10px"
+                boxShadow="none"
+              >
+                <CardBody py={4} px={5}>
                   <Flex align="center" justify="space-between">
-                    <Text fontSize="sm" color="gray.600" textTransform="uppercase" letterSpacing="0.05em">
+                    <Text
+                      fontSize="12px"
+                      fontWeight="600"
+                      textTransform="uppercase"
+                      letterSpacing="0.07em"
+                      color="gray.400"
+                    >
                       Net Exposure
                     </Text>
                     <Text
-                      fontSize="2xl"
-                      fontWeight="extrabold"
-                      color={
-                        Number(exposureBreakdown.netAmount || 0) >= 0
-                          ? "green.600"
-                          : "red.600"
-                      }
+                      fontSize="xl"
+                      fontWeight="500"
+                      color={netAmountColor}
+                      fontVariantNumeric="tabular-nums"
                     >
-                      ${formatAmount(Math.abs(exposureBreakdown.netAmount || 0))}
+                      ${formatAmount(Math.abs(breakdown.netAmount))}
                     </Text>
                   </Flex>
                 </CardBody>
               </Card>
 
-              <Grid templateColumns={{ base: "1fr", xl: "1fr 1fr" }} gap={4}>
+              {/* ── Metrics Cards ── */}
+              <Grid templateColumns={{ base: "1fr", xl: "1fr 1fr" }} gap={3}>
                 <GridItem>
                   <MetricsCard
-                    title="Customer Side Metrics"
+                    title="Customer Metrics"
                     metrics={exposure.customerMetrics}
-                    badgeText="Receivable Side"
-                    badgeScheme="blue"
+                    badgeText="Receivable side"
                   />
                 </GridItem>
                 <GridItem>
                   <MetricsCard
-                    title="Vendor Side Metrics"
+                    title="Vendor Metrics"
                     metrics={exposure.vendorMetrics}
-                    badgeText="Payable Side"
-                    badgeScheme="purple"
+                    badgeText="Payable side"
                   />
                 </GridItem>
               </Grid>
             </>
           ) : (
-            <Card borderWidth="1px" borderColor="gray.200" borderRadius="10px">
-              <CardBody>
-                <Text fontSize="sm" color="gray.500">
-                  Select an account and click Calculate to view vendor expense, customer expense, total payable, and total receivable from CDR data till now.
-                </Text>
-              </CardBody>
-            </Card>
+            <EmptyState />
           )}
         </>
       )}

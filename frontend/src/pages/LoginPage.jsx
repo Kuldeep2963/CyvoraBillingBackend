@@ -16,9 +16,9 @@ import {
   InputRightElement,
   Flex,
   Image,
-  useToast,
   FormErrorMessage,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import { MemoizedInput as Input } from "../components/memoizedinput/memoizedinput";
 import { keyframes } from "@emotion/react";
 import {
@@ -81,7 +81,7 @@ const LoginPage = () => {
   const [touched, setTouched] = useState({}); // FIX 3: only show errors after blur
   const { login } = useAuth();
   const navigate = useNavigate();
-  const toast = useToast();
+  const toast = useNotify();
   const emailRef = useRef(null); // FIX 4: auto-focus on mount
 
   const [formData, setFormData] = useState({

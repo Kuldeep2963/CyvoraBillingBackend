@@ -17,8 +17,8 @@ import {
   ModalOverlay,
   Text,
   VStack,
-  useToast,
 } from "@chakra-ui/react";
+import useNotify from "../../utils/notify";
 import { FiDownload, FiUpload } from "react-icons/fi";
 import Papa from "papaparse";
 import { bulkCreateCustomers } from "../../utils/api";
@@ -91,7 +91,7 @@ const sampleRows = [
 ];
 
 const BulkAccountUploadModal = ({ isOpen, onClose, onUploaded }) => {
-  const toast = useToast();
+  const toast = useNotify();
   const fileInputRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);

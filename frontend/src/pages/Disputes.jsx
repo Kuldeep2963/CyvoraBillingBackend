@@ -23,9 +23,9 @@ import {
   StatNumber,
   Text,
   useColorModeValue,
-  useToast,
   VStack,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import { FiAlertTriangle, FiRefreshCw, FiSearch } from "react-icons/fi";
 import PageNavBar from "../components/PageNavBar";
 import DataTable from "../components/DataTable";
@@ -61,7 +61,7 @@ const statusColor = (status) => {
 };
 
 export default function Disputes() {
-  const toast = useToast();
+  const toast = useNotify();
   const cardBg = useColorModeValue("white", "gray.900");
   const borderColor = useColorModeValue("gray.200", "gray.700");
 
@@ -216,31 +216,40 @@ export default function Disputes() {
 
       </Flex>
 
-      {rows.length === 0 && !isLoading ? (
-        <VStack py={8} spacing={2} color="gray.500">
-          <FiAlertTriangle />
-          <Text fontSize="sm">No disputed vendor invoices found.</Text>
-        </VStack>
-      ) : (
-        <DataTable
-          columns={columns}
-          data={rows}
-          actions
-          onView={(row) => setSelectedRow(row)}
-          serverPagination
-          page={page}
-          pageSize={pageSize}
-          total={pagination.total || 0}
-          onPageChange={setPage}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(1);
-          }}
-          isPaginationDisabled={isLoading}
-          striped
-          height="calc(100vh - 250px)"
-        />
-      )}
+      <DataTable
+  columns={columns}
+  data={rows}
+  actions
+  onView={(row) => setSelectedRow(row)}
+  serverPagination
+  page={page}
+  pageSize={pageSize}
+  total={pagination.total || 0}
+  onPageChange={setPage}
+  onPageSizeChange={(size) => {
+    setPageSize(size);
+    setPage(1);
+  }}
+  isPaginationDisabled={isLoading}
+  striped
+  height="calc(100vh - 250px)"
+  noDataComponent={
+    !isLoading && (
+      <VStack
+        justify="center"
+        align="center"
+        height="100%"
+        spacing={2}
+        color="gray.500"
+      >
+        <FiAlertTriangle />
+        <Text fontSize="sm">
+          No disputed vendor invoices found.
+        </Text>
+      </VStack>
+    )
+  }
+/>
 
       <Modal isOpen={Boolean(selectedRow)} onClose={() => setSelectedRow(null)} isCentered size="lg">
         <ModalOverlay />

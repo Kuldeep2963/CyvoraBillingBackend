@@ -25,8 +25,9 @@ import {
   Thead,
   Tr,
   VStack,
-  useToast,
+  
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import { MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import DestinationMap from "../components/DestinationMap";
@@ -203,7 +204,7 @@ const MetricItem = ({ label, value, icon: IconComp, color, valueColor }) => (
 );
 
 const Dashboard = () => {
-  const toast = useToast();
+  const toast = useNotify();
 
   const [stats, setStats] = useState(null);
   const [financialData, setFinancialData] = useState({});

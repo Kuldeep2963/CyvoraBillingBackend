@@ -4,12 +4,12 @@ import {
   VStack,
   Text,
   Button,
-  useToast,
   Badge,
   Flex,
   InputGroup,
   InputLeftElement,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import { MemoizedInput as Input } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
@@ -58,7 +58,7 @@ const Payments = () => {
     notes: "",
     invoiceId: "",
   });
-  const toast = useToast();
+  const toast = useNotify();
 
   const getPaymentFlowMeta = (payment) => {
     const direction = String(payment?.paymentDirection || "inbound").toLowerCase();

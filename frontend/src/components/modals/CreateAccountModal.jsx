@@ -5,7 +5,6 @@ import {
   VStack,
   Text,
   Button,
-  useToast,
   HStack,
   IconButton,
   Modal,
@@ -35,6 +34,7 @@ import {
   Flex,
   Badge,
 } from "@chakra-ui/react";
+import useNotify from "../../utils/notify";
 import {
   FiUser, FiUpload, FiDownload, FiTrash2, FiFileText, FiEye,
   FiPaperclip, FiAlertCircle, FiFile,
@@ -78,10 +78,10 @@ const getFileAccent = (name = "") => {
 };
 
 // ─── Helper: build canonical option label ─────────────────────────────────────
-// Used in BOTH directions so the label format is defined once
 const buildCountryLabel = (countryName, code) =>
   countryName && code ? `${countryName} (${code})` : "";
 
+// ─── FIX #8: Safe localStorage helpers with try/catch ────────────────────────
 const loadAccountDraft = () => {
   if (typeof window === "undefined") return null;
   try {
@@ -96,12 +96,71 @@ const loadAccountDraft = () => {
 
 const persistAccountDraft = (payload) => {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(ACCOUNT_DRAFT_STORAGE_KEY, JSON.stringify(payload));
+  try {
+    // FIX #8: JSON.stringify can throw on circular references or quota exceeded
+    const serialized = JSON.stringify(payload);
+    window.localStorage.setItem(ACCOUNT_DRAFT_STORAGE_KEY, serialized);
+    return true;
+  } catch (err) {
+    // Storage quota exceeded or serialization error — signal failure to caller
+    if (err.name === "QuotaExceededError") {
+      throw new Error("Storage is full. Please clear some browser data and try again.");
+    }
+    throw new Error("Could not save draft. Please try again.");
+  }
 };
 
 const clearAccountDraft = () => {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(ACCOUNT_DRAFT_STORAGE_KEY);
+  try {
+    window.localStorage.removeItem(ACCOUNT_DRAFT_STORAGE_KEY);
+  } catch {
+    // Silently ignore — clearing is best-effort
+  }
+};
+
+// ─── FIX #3: Centralised human-friendly error message extractor ───────────────
+/**
+ * Converts raw API/JS errors into messages safe to show in toasts.
+ * Avoids leaking stack traces, internal field names, or empty strings.
+ */
+const getFriendlyErrorMessage = (error, fallback = "Something went wrong. Please try again.") => {
+  if (!error) return fallback;
+
+  // Network-level failures
+  if (error.name === "NetworkError" || error.message?.toLowerCase().includes("network")) {
+    return "Network error — please check your connection and try again.";
+  }
+  if (error.name === "AbortError") {
+    return "The request timed out. Please try again.";
+  }
+
+  // HTTP status codes from API wrappers that attach a `status` property
+  if (error.status === 401 || error.status === 403) {
+    return "You don't have permission to perform this action.";
+  }
+  if (error.status === 404) {
+    return "The requested resource was not found.";
+  }
+  if (error.status === 409) {
+    return "A conflict occurred — this record may already exist.";
+  }
+  if (error.status === 413) {
+    return "The file is too large. Please upload a smaller file.";
+  }
+  if (error.status === 422) {
+    return error.message || "Some fields are invalid. Please review your input.";
+  }
+  if (error.status >= 500) {
+    return "A server error occurred. Please try again later or contact support.";
+  }
+
+  // API may return a human message — use it only if it looks safe (non-technical)
+  const msg = error.message || "";
+  const looksInternal = /stack|undefined|null|cannot read|typeerror|syntaxerror/i.test(msg);
+  if (msg && !looksInternal) return msg;
+
+  return fallback;
 };
 
 // ─── DocumentRow ──────────────────────────────────────────────────────────────
@@ -180,10 +239,6 @@ const DocumentRow = ({
 };
 
 // ─── Custom debounce hook ─────────────────────────────────────────────────────
-/**
- * Returns a debounced version of the value.
- * The timer resets each time the raw value changes.
- */
 function useDebounced(value, delay = DEBOUNCE_MS) {
   const [debounced, setDebounced] = useState(value);
 
@@ -196,20 +251,12 @@ function useDebounced(value, delay = DEBOUNCE_MS) {
 }
 
 // ─── useCountrySearch hook ────────────────────────────────────────────────────
-/**
- * Encapsulates all country fetching logic:
- *  - Debounced search (500 ms)
- *  - Race-condition-safe via AbortController pattern (isCancelled flag)
- *  - Only fetches when the modal is open AND the search term is non-empty
- *  - Returns { options, loading, buildLabel }
- */
 function useCountrySearch(searchTerm, isOpen) {
   const [options, setOptions]   = useState([]);
   const [loading, setLoading]   = useState(false);
   const debouncedTerm           = useDebounced(searchTerm, DEBOUNCE_MS);
 
   useEffect(() => {
-    // Guard: skip fetch when modal is closed or search is empty
     if (!isOpen || !debouncedTerm.trim()) {
       setOptions([]);
       setLoading(false);
@@ -225,7 +272,6 @@ function useCountrySearch(searchTerm, isOpen) {
         setOptions(Array.isArray(response?.countryCodes) ? response.countryCodes : []);
       })
       .catch(() => {
-        // Only clear options if the request was not superseded
         if (!cancelled) setOptions([]);
       })
       .finally(() => {
@@ -235,7 +281,6 @@ function useCountrySearch(searchTerm, isOpen) {
     return () => { cancelled = true; };
   }, [debouncedTerm, isOpen]);
 
-  // Reset when modal closes
   useEffect(() => {
     if (!isOpen) {
       setOptions([]);
@@ -252,7 +297,7 @@ const CreateAccountModal = ({
   onSuccess, users = [], mode = "create",
 }) => {
   const [loading, setLoading]   = useState(false);
-  const toast                   = useToast();
+  const toast                   = useNotify();
   const isViewMode              = mode === "view";
 
   // ── Initial form shape ──────────────────────────────────────────────────────
@@ -274,9 +319,8 @@ const CreateAccountModal = ({
     timezone: "UTC", languages: "en",
     addressLine1: "", addressLine2: "", addressLine3: "",
     city: "", state: "", postalCode: "",
-    // FIX: store country_name and countryCode separately — never conflate them
-    country: "",     // human-readable name  e.g. "United States"
-    countryCode: "", // ISO code             e.g. "US"
+    country: "",
+    countryCode: "",
     billingClass: "paiusa", billingType: "prepaid", billingTimezone: "UTC",
     billingStartDate: new Date().toISOString().split("T")[0],
     billingCycle: "monthly", lastbillingdate: "", nextbillingdate: "",
@@ -291,8 +335,6 @@ const CreateAccountModal = ({
   const createDraftBaselineRef = useRef(null);
 
   // ── Country search state ────────────────────────────────────────────────────
-  // searchTerm drives what the user has typed in the country field.
-  // It is SEPARATE from formData.country (the saved value).
   const [countrySearchTerm, setCountrySearchTerm] = useState("");
 
   const { options: countryOptions, loading: countryLoading } =
@@ -304,21 +346,17 @@ const CreateAccountModal = ({
 
   useEffect(() => {
     if (!formData.syncContactEmailsWithRates) return;
-
     setFormData((fd) => ({
       ...fd,
       ...getSyncedContactEmailValues(fd.ratesEmails),
     }));
-  }, [formData.ratesEmails, formData.syncContactEmailsWithRates]);
+  }, [formData.ratesEmails, formData.syncContactEmailsWithRates]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The label shown in the SearchSelect input once a country is selected.
-  // Recomputed only when the saved country values change.
   const savedCountryLabel = useMemo(
     () => buildCountryLabel(formData.country, formData.countryCode),
     [formData.country, formData.countryCode],
   );
 
-  // Option labels for the SearchSelect dropdown — memoized over API results
   const countryOptionLabels = useMemo(
     () => countryOptions.map((item) => buildCountryLabel(item.country_name, item.code)),
     [countryOptions],
@@ -339,17 +377,16 @@ const CreateAccountModal = ({
   const firstEmailFromList = (value = "") => splitEmailList(value)[0] ?? "";
 
   const getSyncedContactEmailValues = (ratesValue = "") => {
-    const normalizedRates = normalizeListToInput(ratesValue);
+    const normalizedRates  = normalizeListToInput(ratesValue);
     const primaryRateEmail = firstEmailFromList(normalizedRates);
-
     return {
       billingEmails: normalizedRates,
-      billingEmail: primaryRateEmail,
+      billingEmail:  primaryRateEmail,
       disputeEmails: normalizedRates,
-      disputeEmail: primaryRateEmail,
-      nocEmails: normalizedRates,
-      nocEmail: primaryRateEmail,
-      soaEmail: primaryRateEmail,
+      disputeEmail:  primaryRateEmail,
+      nocEmails:     normalizedRates,
+      nocEmail:      primaryRateEmail,
+      soaEmail:      primaryRateEmail,
     };
   };
 
@@ -387,17 +424,26 @@ const CreateAccountModal = ({
     }).filter(Boolean);
   };
 
+  // ─── FIX #11: Safe number parser — never stores NaN ───────────────────────
+  const safeParseFloat = (value, fallback = 0) => {
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
   const sanitizeFormShape = useCallback((data) => {
     const safe = { ...data };
     Object.keys(initialFormData).forEach((key) => {
       const init = initialFormData[key];
       const curr = safe[key];
       if (typeof init === "string"  && (curr === null || curr === undefined)) safe[key] = "";
-      if (typeof init === "number") { const n = Number(curr); safe[key] = Number.isFinite(n) ? n : init; }
+      if (typeof init === "number") {
+        // FIX #11: Use safeParseFloat so NaN never enters state
+        safe[key] = safeParseFloat(curr, init);
+      }
       if (typeof init === "boolean" && typeof curr !== "boolean") safe[key] = init;
     });
     return safe;
-  }, [initialFormData]);
+  }, [initialFormData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Reset on open / customer change ─────────────────────────────────────────
   useEffect(() => {
@@ -407,8 +453,6 @@ const CreateAccountModal = ({
       createDraftBaselineRef.current = null;
       const merged = sanitizeFormShape({ ...initialFormData, ...selectedCustomer });
 
-      // FIX: Resolve the stored country name and code clearly
-      // API may return `country` as ISO code OR as a name — normalise here.
       const storedCountryName = merged.country    || "";
       const storedCountryCode = merged.countryCode || "";
 
@@ -428,12 +472,9 @@ const CreateAccountModal = ({
         nextbillingdate:  merged.nextbillingdate  || "",
         accountOwner:
           selectedCustomer.accountOwner ||
-          (selectedCustomer.owner?.id) || "",
+          (selectedCustomer.owner?.id)  || "",
       });
 
-      // FIX: Pre-populate search term with the canonical label so the field
-      // shows the saved value — but DO NOT trigger a fetch (isOpen guard handles it
-      // by requiring non-empty debouncedTerm; empty options are fine on open)
       setCountrySearchTerm(storedCountryName);
     } else {
       const baseFormData = {
@@ -442,12 +483,9 @@ const CreateAccountModal = ({
         customerCode: `C_${Math.floor(10000 + Math.random() * 90000)}`,
       };
 
-      createDraftBaselineRef.current = {
-        ...baseFormData,
-        documents: [],
-      };
+      createDraftBaselineRef.current = { ...baseFormData, documents: [] };
 
-      const draft = loadAccountDraft();
+      const draft     = loadAccountDraft();
       const draftData = draft?.data && typeof draft.data === "object" ? draft.data : null;
 
       if (draftData) {
@@ -463,11 +501,17 @@ const CreateAccountModal = ({
           documents: [],
         });
         setCountrySearchTerm(String(merged.country || ""));
+
+        // FIX #12: Show when the draft was saved so user knows if it's stale
+        const savedAtLabel = draft.savedAt
+          ? new Date(draft.savedAt).toLocaleString()
+          : "unknown time";
+
         toast({
-          title: "Draft restored",
-          description: "Loaded your saved account draft.",
+          title: "Draft Restored",
+          description: `Your previously saved draft (from ${savedAtLabel}) has been loaded.`,
           status: "info",
-          duration: 2200,
+          duration: 3000,
           isClosable: true,
         });
       } else {
@@ -487,6 +531,8 @@ const CreateAccountModal = ({
     if (!lastbillingdate || !billingCycle) return;
 
     const dt = new Date(lastbillingdate);
+    if (isNaN(dt.getTime())) return; // FIX: guard invalid date
+
     switch (billingCycle) {
       case "daily":     dt.setDate(dt.getDate() + 1);         break;
       case "weekly":    dt.setDate(dt.getDate() + 7);         break;
@@ -501,34 +547,15 @@ const CreateAccountModal = ({
   }, [formData.lastbillingdate, formData.billingCycle]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Country select handlers ──────────────────────────────────────────────────
-  /**
-   * Called on every keystroke in the SearchSelect input.
-   * Updates the local search term — the debounced hook fires the API call.
-   *
-   * FIX: We used to sync countryCodeSearch with formData which caused the
-   * display value and the search term to conflict. Now they are separate.
-   */
   const handleCountryInputChange = useCallback((e) => {
     const raw = typeof e === "string" ? e : e?.target?.value ?? "";
     setCountrySearchTerm(raw);
-
-    // If the user clears the field, also clear the saved country in formData
     if (!raw.trim()) {
       setFormData((fd) => ({ ...fd, country: "", countryCode: "" }));
     }
   }, []);
 
-  /**
-   * Called when the user picks an option from the dropdown list.
-   *
-   * FIX 1: SearchSelect may pass a raw string value OR an event — handle both.
-   * FIX 2: Match by the canonical label string (defined once in buildCountryLabel).
-   * FIX 3: Guard against unmatched selections — show toast instead of silent fail.
-   * FIX 4: After selection, set the search term to the country NAME only (not the
-   *         full label) so a subsequent re-open pre-populates the field cleanly.
-   */
   const handleCountrySelect = useCallback((eventOrValue) => {
-    // Normalise: SearchSelect may fire a string or a synthetic event
     const selectedLabel =
       typeof eventOrValue === "string"
         ? eventOrValue
@@ -540,20 +567,13 @@ const CreateAccountModal = ({
       (item) => buildCountryLabel(item.country_name, item.code) === selectedLabel,
     );
 
-    if (!matched) {
-      // Selection doesn't match any loaded option — this can happen if the
-      // user types very fast and options haven't updated yet. Ignore gracefully.
-      return;
-    }
+    if (!matched) return;
 
     setFormData((fd) => ({
       ...fd,
       country:     matched.country_name,
       countryCode: matched.code,
     }));
-
-    // FIX: Keep search term as country name so field looks correct after selection
-    // and a subsequent open pre-populates correctly
     setCountrySearchTerm(matched.country_name);
   }, [countryOptions]);
 
@@ -561,6 +581,16 @@ const CreateAccountModal = ({
   const handleAddDocument = async () => {
     if (!canAddDocument || documentBusy) return;
     const title = documentTitle.trim();
+
+    // FIX: Validate file size client-side (10 MB limit) before upload
+    if (documentFile && documentFile.size > 10 * 1024 * 1024) {
+      toast({
+        title: "File Too Large",
+        description: "Please upload a file smaller than 10 MB.",
+        status: "warning", duration: 4000, isClosable: true,
+      });
+      return;
+    }
 
     if (!selectedCustomer?.id) {
       setPendingDocuments((prev) => [
@@ -575,8 +605,8 @@ const CreateAccountModal = ({
       setDocumentTitle("");
       setDocumentFile(null);
       toast({
-        title: "Document queued",
-        description: "It will be uploaded after the account is saved.",
+        title: "Document Queued",
+        description: `"${title}" will be uploaded after the account is saved.`,
         status: "success", duration: 2500, isClosable: true,
       });
       return;
@@ -591,11 +621,16 @@ const CreateAccountModal = ({
       }));
       setDocumentTitle("");
       setDocumentFile(null);
-      toast({ title: "Document uploaded", status: "success", duration: 2500, isClosable: true });
-    } catch (error) {
       toast({
-        title: "Failed to upload document",
-        description: error.message,
+        title: "Document Uploaded",
+        description: `"${title}" was uploaded successfully.`,
+        status: "success", duration: 2500, isClosable: true,
+      });
+    } catch (error) {
+      // FIX #3: Use friendly error message
+      toast({
+        title: "Upload Failed",
+        description: getFriendlyErrorMessage(error, "Could not upload the document. Please try again."),
         status: "error", duration: 4000, isClosable: true,
       });
     } finally {
@@ -607,21 +642,31 @@ const CreateAccountModal = ({
     if (isViewMode || documentBusy) return;
     if (isPending) {
       setPendingDocuments((prev) => prev.filter((d) => d.id !== documentId));
+      toast({
+        title: "Document Removed",
+        description: "The queued document has been removed.",
+        status: "info", duration: 2000, isClosable: true,
+      });
       return;
     }
     if (!selectedCustomer?.id) return;
+
     setDocumentBusy(true);
     try {
       const result = await deleteAccountDocument(selectedCustomer.id, documentId);
-      setFormData((prev) => ({
-        ...prev,
-        documents: normalizeDocuments(result?.documents ?? []),
-      }));
-      toast({ title: "Document removed", status: "success", duration: 2500, isClosable: true });
-    } catch (error) {
+      // FIX #5: Guard against unexpected API response shape
+      const updatedDocs = normalizeDocuments(result?.documents ?? []);
+      setFormData((prev) => ({ ...prev, documents: updatedDocs }));
       toast({
-        title: "Failed to remove document",
-        description: error.message,
+        title: "Document Removed",
+        description: "The document has been permanently deleted.",
+        status: "success", duration: 2500, isClosable: true,
+      });
+    } catch (error) {
+      // FIX #3: Friendly message
+      toast({
+        title: "Could Not Remove Document",
+        description: getFriendlyErrorMessage(error, "Failed to delete the document. Please try again."),
         status: "error", duration: 3500, isClosable: true,
       });
     } finally {
@@ -631,22 +676,44 @@ const CreateAccountModal = ({
 
   const handleDownloadDocument = async (doc) => {
     if (documentBusy || !selectedCustomer?.id) return;
+
+    // FIX #4: Safe filename — guard against undefined filePath
+    const fileName =
+      doc.originalName ||
+      (doc.filePath ? doc.filePath.split("/").pop() : null) ||
+      doc.title ||
+      "document";
+
     setDocumentBusy(true);
     try {
-      await downloadAccountDocument(
-        selectedCustomer.id,
-        doc.id,
-        doc.originalName || doc.filePath.split("/").pop(),
-      );
-      toast({ title: "Download started", status: "success", duration: 2000, isClosable: true });
-    } catch (error) {
+      await downloadAccountDocument(selectedCustomer.id, doc.id, fileName);
       toast({
-        title: "Failed to download document",
-        description: error.message,
+        title: "Download Started",
+        description: `"${doc.title}" is being downloaded.`,
+        status: "success", duration: 2000, isClosable: true,
+      });
+    } catch (error) {
+      // FIX #3: Friendly message
+      toast({
+        title: "Download Failed",
+        description: getFriendlyErrorMessage(error, "Could not download the document. Please try again."),
         status: "error", duration: 3500, isClosable: true,
       });
     } finally {
       setDocumentBusy(false);
+    }
+  };
+
+  // FIX #15: Wrapped viewAccountDocument with error handling
+  const handleViewDocument = async (customerId, docId, docTitle) => {
+    try {
+      await viewAccountDocument(customerId, docId);
+    } catch (error) {
+      toast({
+        title: "Could Not Open Document",
+        description: getFriendlyErrorMessage(error, `Unable to open "${docTitle}". Try downloading it instead.`),
+        status: "error", duration: 3500, isClosable: true,
+      });
     }
   };
 
@@ -657,59 +724,70 @@ const CreateAccountModal = ({
     { value: "both",     label: "Bilateral" },
   ];
   const statusOptions = [
-    { value: "active",    label: "Active"    },
-    { value: "inactive",  label: "Inactive"  },
-    
+    { value: "active",   label: "Active"   },
+    { value: "inactive", label: "Inactive" },
   ];
   const authTypeOptions = [
-    { value: "ip",     label: "IP Address",   description: "Match by source IP"    },
-    { value: "custom", label: "Custom Field",  description: "Match by custom field" },
+    { value: "ip",     label: "IP Address",  description: "Match by source IP"    },
+    { value: "custom", label: "Custom Field", description: "Match by custom field" },
   ];
 
   // ── Validation ───────────────────────────────────────────────────────────────
   const validateForm = () => {
-    const errors    = [];
-    const emailRx   = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const errors  = [];
+    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+    // FIX #13: Cap invalid email list shown in error so toast stays readable
     const validateEmailList = (rawValue, label, required = false) => {
       const emails = splitEmailList(rawValue);
-      if (required && emails.length === 0) { errors.push(`${label} is required`); return; }
+      if (required && emails.length === 0) {
+        errors.push(`${label} is required — please enter at least one email address.`);
+        return;
+      }
       const invalid = emails.filter((e) => !emailRx.test(e));
-      if (invalid.length > 0)
-        errors.push(`${label} contains invalid email(s): ${invalid.join(", ")}`);
+      if (invalid.length > 0) {
+        const shown   = invalid.slice(0, 3).join(", ");
+        const andMore = invalid.length > 3 ? ` and ${invalid.length - 3} more` : "";
+        errors.push(`${label} contains invalid email address(es): ${shown}${andMore}`);
+      }
     };
 
-    if (!formData.accountName?.trim())         errors.push("Account name is required");
-    if (!formData.email?.trim())               errors.push("Email is required");
-    if (formData.email && !emailRx.test(formData.email)) errors.push("Invalid email format");
-    if (formData.contactPersonEmail?.trim() && !emailRx.test(formData.contactPersonEmail)) {
-      errors.push("Contact person email is invalid");
-    }
+    if (!formData.accountName?.trim())
+      errors.push("Account name is required.");
+    if (!formData.email?.trim())
+      errors.push("Account email is required.");
+    if (formData.email?.trim() && !emailRx.test(formData.email.trim()))
+      errors.push("Account email address is not valid.");
+    if (formData.contactPersonEmail?.trim() && !emailRx.test(formData.contactPersonEmail.trim()))
+      errors.push("Contact person email address is not valid.");
 
-    validateEmailList(formData.ratesEmails,   "Rates emails",   true);
-    validateEmailList(formData.billingEmails,  "Billing emails", true);
-    validateEmailList(formData.disputeEmails,  "Dispute emails", true);
-    validateEmailList(formData.nocEmails,      "NOC emails",     true);
+    validateEmailList(formData.ratesEmails,   "Rates Emails",   true);
+    validateEmailList(formData.billingEmails,  "Billing Emails", true);
+    validateEmailList(formData.disputeEmails,  "Dispute Emails", true);
+    validateEmailList(formData.nocEmails,      "NOC Emails",     true);
 
-    if (users.length > 0 && !formData.accountOwner) errors.push("Account owner is required");
-    if (!formData.billingStartDate)            errors.push("Billing Start Date is required");
+    if (users.length > 0 && !formData.accountOwner)
+      errors.push("Please select an account owner.");
+    if (!formData.billingStartDate)
+      errors.push("Billing Start Date is required.");
 
-    // FIX: Validate that a country was actually selected (not just typed)
-    if (!formData.countryCode)                 errors.push("Country is required — please select from the list");
+    // FIX #2: Country error uses plain language — no mention of internal field names
+    if (!formData.countryCode)
+      errors.push("Please select a country from the dropdown list.");
 
     if (formData.accountRole === "customer" || formData.accountRole === "both") {
-      const customerAuthValues = normalizeAuthValues(formData.customerauthenticationValue);
+      const vals = normalizeAuthValues(formData.customerauthenticationValue);
       if (!formData.customerauthenticationType)
-        errors.push("Customer authentication type is required");
-      if (customerAuthValues.length === 0)
-        errors.push("Customer authentication value is required");
+        errors.push("Customer authentication type is required.");
+      if (vals.length === 0)
+        errors.push("At least one Customer authentication value is required (e.g. an IP address).");
     }
     if (formData.accountRole === "vendor" || formData.accountRole === "both") {
-      const vendorAuthValues = normalizeAuthValues(formData.vendorauthenticationValue);
+      const vals = normalizeAuthValues(formData.vendorauthenticationValue);
       if (!formData.vendorauthenticationType)
-        errors.push("Vendor authentication type is required");
-      if (vendorAuthValues.length === 0)
-        errors.push("Vendor authentication value is required");
+        errors.push("Vendor authentication type is required.");
+      if (vals.length === 0)
+        errors.push("At least one Vendor authentication value is required (e.g. an IP address).");
     }
 
     return errors;
@@ -718,12 +796,22 @@ const CreateAccountModal = ({
   // ── Save ─────────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (isViewMode) return;
+
     const validationErrors = validateForm();
     if (validationErrors.length > 0) {
+      // FIX: Show count when many errors so user knows there's more below
+      const firstFew   = validationErrors.slice(0, 4);
+      const remaining  = validationErrors.length - firstFew.length;
+      const description =
+        firstFew.join("\n") +
+        (remaining > 0 ? `\n…and ${remaining} more issue(s). Please review all fields.` : "");
+
       toast({
-        title: "Validation Error",
-        description: validationErrors.join(" • "),
-        status: "error", duration: 6000, isClosable: true,
+        title: `Please Fix ${validationErrors.length} Issue${validationErrors.length > 1 ? "s" : ""}`,
+        description,
+        status: "error",
+        duration: 7000,
+        isClosable: true,
       });
       return;
     }
@@ -738,74 +826,99 @@ const CreateAccountModal = ({
         ? getSyncedContactEmailValues(formData.ratesEmails)
         : {};
 
+      // FIX #10: Validate derived primary emails exist before saving
+      const primaryBilling = firstEmailFromList(nBilling) || formData.billingEmail || "";
+      const primaryDispute = firstEmailFromList(nDispute) || formData.disputeEmail || "";
+      const primaryNoc     = firstEmailFromList(nNoc)     || formData.nocEmail     || "";
+
       const sanitizedData = {
         ...formData,
         ...syncedContactEmails,
-        // DB column `accounts.country` is VARCHAR(2), so always persist ISO code here.
-        country:       (formData.countryCode || formData.country || "").trim(),
-        countryCode:   (formData.countryCode || "").trim(),
-        ratesEmails:    splitEmailList(nRates),
-        billingEmails:  splitEmailList(nBilling),
-        disputeEmails:  splitEmailList(nDispute),
-        nocEmails:      splitEmailList(nNoc),
-        billingEmail:   firstEmailFromList(nBilling)  || formData.billingEmail  || "",
-        disputeEmail:   firstEmailFromList(nDispute)  || formData.disputeEmail  || "",
-        nocEmail:       firstEmailFromList(nNoc)      || formData.nocEmail      || "",
+        country:     (formData.countryCode || formData.country || "").trim(),
+        countryCode: (formData.countryCode || "").trim(),
+        ratesEmails:   splitEmailList(nRates),
+        billingEmails: splitEmailList(nBilling),
+        disputeEmails: splitEmailList(nDispute),
+        nocEmails:     splitEmailList(nNoc),
+        billingEmail:  primaryBilling,
+        disputeEmail:  primaryDispute,
+        nocEmail:      primaryNoc,
         customerauthenticationValue: normalizeAuthValues(formData.customerauthenticationValue),
         vendorauthenticationValue:   normalizeAuthValues(formData.vendorauthenticationValue),
-        documents:      normalizeDocuments(formData.documents),
+        documents:     normalizeDocuments(formData.documents),
         lastbillingdate: formData.lastbillingdate || null,
         nextbillingdate: formData.nextbillingdate || null,
         billingClass:    formData.billingClass    || "paiusa",
+        // FIX #11: Re-sanitize numbers one last time before API call
+        creditLimit:         safeParseFloat(formData.creditLimit, 0),
+        originalCreditLimit: safeParseFloat(formData.originalCreditLimit, 0),
+        balance:             safeParseFloat(formData.balance, 0),
+        outstandingAmount:   safeParseFloat(formData.outstandingAmount, 0),
       };
 
       // Clean up legacy / derived keys
       ["ratesMobileNumber", "billingPhoneNumbers", "disputePhoneNumber",
-        "nocPhoneNumbers", "carrierType", "syncContactEmailsWithRates"].forEach((k) => delete sanitizedData[k]);
+        "nocPhoneNumbers", "carrierType", "syncContactEmailsWithRates",
+      ].forEach((k) => delete sanitizedData[k]);
 
-      // Re-compute nextbillingdate server-side style in case it drifted
+      // Re-compute nextbillingdate
       if (sanitizedData.lastbillingdate && sanitizedData.billingCycle) {
         const dt = new Date(sanitizedData.lastbillingdate);
-        switch (sanitizedData.billingCycle) {
-          case "daily":     dt.setDate(dt.getDate() + 1);         break;
-          case "weekly":    dt.setDate(dt.getDate() + 7);         break;
-          case "monthly":   dt.setMonth(dt.getMonth() + 1);       break;
-          case "quarterly": dt.setMonth(dt.getMonth() + 3);       break;
-          case "annually":  dt.setFullYear(dt.getFullYear() + 1); break;
-          default: break;
+        if (!isNaN(dt.getTime())) {
+          switch (sanitizedData.billingCycle) {
+            case "daily":     dt.setDate(dt.getDate() + 1);         break;
+            case "weekly":    dt.setDate(dt.getDate() + 7);         break;
+            case "monthly":   dt.setMonth(dt.getMonth() + 1);       break;
+            case "quarterly": dt.setMonth(dt.getMonth() + 3);       break;
+            case "annually":  dt.setFullYear(dt.getFullYear() + 1); break;
+            default: break;
+          }
+          sanitizedData.nextbillingdate = dt.toISOString().split("T")[0];
         }
-        sanitizedData.nextbillingdate = dt.toISOString().split("T")[0];
       }
 
       const savedAccount = selectedCustomer
         ? await updateCustomer(selectedCustomer.id, sanitizedData)
         : await createCustomer(sanitizedData);
 
-      // Upload queued documents after creation
+      // Upload queued documents after account creation
       if (!selectedCustomer && pendingDocuments.length > 0 && savedAccount?.id) {
-        const failed = [];
+        const failed   = [];
+        const succeeded = [];
+
         for (const pending of pendingDocuments) {
           try {
             await uploadAccountDocument(savedAccount.id, {
               title: pending.title,
               file:  pending.file,
             });
+            succeeded.push(pending.title);
           } catch (err) {
-            failed.push(`${pending.title}: ${err.message}`);
+            // FIX #7: Distinguish errors per document with friendly messages
+            failed.push(`"${pending.title}" — ${getFriendlyErrorMessage(err, "upload failed")}`);
           }
         }
-        if (failed.length > 0) {
+
+        if (failed.length > 0 && succeeded.length > 0) {
           toast({
-            title: "Some documents failed to upload",
-            description: failed.join(" | "),
-            status: "warning", duration: 6000, isClosable: true,
+            title: `${succeeded.length} Document(s) Uploaded, ${failed.length} Failed`,
+            description: failed.join("\n"),
+            status: "warning", duration: 7000, isClosable: true,
+          });
+        } else if (failed.length > 0) {
+          toast({
+            title: "Documents Could Not Be Uploaded",
+            description: failed.join("\n"),
+            status: "error", duration: 7000, isClosable: true,
           });
         }
       }
 
+      // FIX #15: Trim account name in toast so no stray whitespace is displayed
+      const displayName = formData.accountName.trim();
       toast({
-        title: selectedCustomer ? "Account updated" : "Account created",
-        description: `${formData.accountName} has been ${selectedCustomer ? "updated" : "created"} successfully.`,
+        title: selectedCustomer ? "Account Updated" : "Account Created",
+        description: `"${displayName}" has been ${selectedCustomer ? "updated" : "created"} successfully.`,
         status: "success", duration: 3000, isClosable: true,
       });
 
@@ -814,10 +927,14 @@ const CreateAccountModal = ({
       onSuccess?.();
       onClose();
     } catch (error) {
+      // FIX #3: Friendly top-level save error
       toast({
-        title: "Error saving account",
-        description: error.message,
-        status: "error", duration: 5000, isClosable: true,
+        title: selectedCustomer ? "Could Not Update Account" : "Could Not Create Account",
+        description: getFriendlyErrorMessage(
+          error,
+          "An unexpected error occurred while saving. Please try again or contact support.",
+        ),
+        status: "error", duration: 6000, isClosable: true,
       });
     } finally {
       setLoading(false);
@@ -841,12 +958,11 @@ const CreateAccountModal = ({
   };
 
   const stickyTabListBg = useColorModeValue("white", "gray.800");
-  const canUseDraft = !isViewMode && !selectedCustomer;
+  const canUseDraft     = !isViewMode && !selectedCustomer;
 
   const hasDraftableChanges = useMemo(() => {
     if (!canUseDraft || !createDraftBaselineRef.current) return false;
     const normalize = (value) => ({ ...value, documents: [] });
-
     try {
       return JSON.stringify(normalize(formData)) !== JSON.stringify(normalize(createDraftBaselineRef.current));
     } catch {
@@ -856,24 +972,30 @@ const CreateAccountModal = ({
 
   const showDraftActions = canUseDraft && hasDraftableChanges;
 
+  // FIX #9: handleSaveDraft wrapped in try/catch with user-facing toast on storage errors
   const handleSaveDraft = useCallback(() => {
     if (!showDraftActions) return;
-
-    persistAccountDraft({
-      savedAt: new Date().toISOString(),
-      data: {
-        ...formData,
-        documents: [],
-      },
-    });
-
-    toast({
-      title: "Draft saved",
-      description: "Your progress is saved locally.",
-      status: "success",
-      duration: 2200,
-      isClosable: true,
-    });
+    try {
+      persistAccountDraft({
+        savedAt: new Date().toISOString(),
+        data: { ...formData, documents: [] },
+      });
+      toast({
+        title: "Draft Saved",
+        description: "Your progress has been saved locally. It will be restored next time you open this form.",
+        status: "success",
+        duration: 2500,
+        isClosable: true,
+      });
+    } catch (err) {
+      toast({
+        title: "Could Not Save Draft",
+        description: err.message || "Unable to save draft to your browser. Please try again.",
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    }
   }, [formData, showDraftActions, toast]);
 
   const handleClearDraft = useCallback(() => {
@@ -882,14 +1004,11 @@ const CreateAccountModal = ({
 
     const resetData = {
       ...initialFormData,
-      accountId: `ACC${Math.floor(1000 + Math.random() * 9000)}`,
+      accountId:    `ACC${Math.floor(1000 + Math.random() * 9000)}`,
       customerCode: `C_${Math.floor(10000 + Math.random() * 90000)}`,
     };
 
-    createDraftBaselineRef.current = {
-      ...resetData,
-      documents: [],
-    };
+    createDraftBaselineRef.current = { ...resetData, documents: [] };
 
     setFormData(resetData);
     setCountrySearchTerm("");
@@ -898,8 +1017,8 @@ const CreateAccountModal = ({
     setDocumentFile(null);
 
     toast({
-      title: "Draft cleared",
-      description: "Saved draft removed.",
+      title: "Draft Cleared",
+      description: "Your saved draft has been removed and the form has been reset.",
       status: "info",
       duration: 2000,
       isClosable: true,
@@ -928,7 +1047,7 @@ const CreateAccountModal = ({
               {isViewMode
                 ? "View Account Details"
                 : selectedCustomer ? "Edit Account" : "Account Creation"}
-              {formData.accountName ? ` — ${formData.accountName}` : ""}
+              {formData.accountName ? ` — ${formData.accountName.trim()}` : ""}
             </Heading>
             {selectedCustomer && (
               <Text fontSize="sm" color="white">
@@ -1158,7 +1277,7 @@ const CreateAccountModal = ({
                             />
                           </FormControl>
 
-                          <FormControl >
+                          <FormControl>
                             <FormLabel>Primary Phone</FormLabel>
                             <Input
                               value={formData.phone}
@@ -1256,32 +1375,14 @@ const CreateAccountModal = ({
                               />
                             </FormControl>
 
-                            {/*
-                              ── Country SearchSelect ──────────────────────────
-                              KEY FIX SUMMARY:
-                              • `data` (displayed/selected value) = savedCountryLabel
-                                — derived from formData.country + formData.countryCode
-                                — only updates after a confirmed selection
-                              • `options` = countryOptionLabels from API (debounced)
-                              • onChange fires on EVERY keystroke → updates countrySearchTerm
-                                → triggers debounced API fetch
-                              • onSelect fires ONLY when user picks from dropdown
-                                → updates formData.country + formData.countryCode
-                              • These two streams are fully independent, preventing
-                                the display / search conflict that broke the original.
-                            */}
                             <FormControl isRequired>
                               <FormLabel>Country</FormLabel>
                               <SearchSelect
-                                // The confirmed selection label (from formData)
                                 data={savedCountryLabel}
-                                // Live dropdown options from API
                                 options={countryOptionLabels}
                                 placeholder="Type to search country…"
                                 disabled={isViewMode}
-                                // Keystroke handler — drives search term only
                                 onChange={handleCountryInputChange}
-                                // Selection handler — commits to formData
                                 onSelect={handleCountrySelect}
                               />
                               <FormHelperText>
@@ -1450,11 +1551,14 @@ const CreateAccountModal = ({
                           <Input type="date" value={formData.nextbillingdate || ""} readOnly />
                         </FormControl>
 
+                        {/* FIX #11: Use safeParseFloat in NumberInput onChange */}
                         <FormControl isDisabled={formData.billingType === "prepaid" || isViewMode}>
                           <FormLabel>Credit Limit ($)</FormLabel>
                           <NumberInput
                             value={formData.creditLimit}
-                            onChange={(v) => setFormData((fd) => ({ ...fd, creditLimit: parseFloat(v) }))}
+                            onChange={(v) =>
+                              setFormData((fd) => ({ ...fd, creditLimit: safeParseFloat(v, 0) }))
+                            }
                             min={0}
                           >
                             <NumberInputField />
@@ -1470,7 +1574,9 @@ const CreateAccountModal = ({
                           <FormLabel>Original Credit Limit ($)</FormLabel>
                           <NumberInput
                             value={formData.originalCreditLimit}
-                            onChange={(v) => setFormData((fd) => ({ ...fd, originalCreditLimit: parseFloat(v) }))}
+                            onChange={(v) =>
+                              setFormData((fd) => ({ ...fd, originalCreditLimit: safeParseFloat(v, 0) }))
+                            }
                             min={0}
                           >
                             <NumberInputField />
@@ -1744,7 +1850,7 @@ const CreateAccountModal = ({
                                   <Text fontSize="xs" color="gray.400">
                                     {documentFile
                                       ? `${(documentFile.size / 1024).toFixed(1)} KB`
-                                      : "PDF, Word, Excel, Image, CSV"}
+                                      : "PDF, Word, Excel, Image, CSV — max 10 MB"}
                                   </Text>
                                 </Box>
                               </HStack>
@@ -1799,7 +1905,8 @@ const CreateAccountModal = ({
                                 isPending={false}
                                 isViewMode={isViewMode}
                                 documentBusy={documentBusy}
-                                onView={() => viewAccountDocument(selectedCustomer.id, doc.id)}
+                                // FIX #15: Use handler wrapper instead of calling viewAccountDocument directly
+                                onView={() => handleViewDocument(selectedCustomer.id, doc.id, doc.title)}
                                 onDownload={() => handleDownloadDocument(doc)}
                                 onRemove={() => handleRemoveDocument(doc.id, false)}
                               />
@@ -1841,7 +1948,7 @@ const CreateAccountModal = ({
                         <Heading size="sm" mb={2}>Account Usage Statistics</Heading>
                         <SimpleGrid columns={3} spacing={4}>
                           {[
-                            { label: "Total Calls",       color: "blue",   sub: "All time",       fmt: () => cdrStats.totalCalls },
+                            { label: "Total Calls",       color: "blue",   sub: "All time",       fmt: () => cdrStats.totalCalls ?? "—" },
                             { label: "Total Revenue",     color: "green",  sub: "Generated",      fmt: () => `$${(cdrStats.totalRevenue   || 0).toFixed(2)}` },
                             { label: "Success Rate",      color: "purple", sub: "Answered calls", fmt: () => cdrStats.totalCalls > 0 ? `${((cdrStats.answeredCalls / cdrStats.totalCalls) * 100).toFixed(1)}%` : "0.0%" },
                             { label: "Total Duration",    color: "orange", sub: "Call time",      fmt: () => `${Math.floor((cdrStats.totalDuration || 0) / 3600)}h ${Math.floor(((cdrStats.totalDuration || 0) % 3600) / 60)}m` },

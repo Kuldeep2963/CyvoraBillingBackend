@@ -28,11 +28,11 @@ import {
   Thead,
   Tr,
   VStack,
-  useToast,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import { MemoizedInput as Input } from "../components/memoizedinput/memoizedinput";
 import { SearchIcon } from "@chakra-ui/icons";
-import { FiDownload, FiRefreshCw } from "react-icons/fi";
+import { FiDownload, FiRefreshCw, FiSearch } from "react-icons/fi";
 import { fetchMissingGateways } from "../utils/api";
 import { toDateInput } from "../utils/dateInput";
 import TablePagination from "../components/TablePagination";
@@ -45,7 +45,7 @@ const formatDuration = (seconds) => {
 };
 
 const MissingGateways = () => {
-  const toast = useToast();
+  const toast = useNotify();
   const [from, setFrom] = useState(toDateInput(new Date(Date.now() ))); 
   const [to, setTo] = useState(toDateInput(new Date()));
   const [search, setSearch] = useState("");
@@ -153,14 +153,17 @@ const MissingGateways = () => {
 ];
 
 // ─── Reusable stat card ───────────────────────────────────────────────────────
-const SummaryStatCard = React.memo(({ label, value, subtext, color }) => (
-  <Card bg="white" shadow="lg" _hover={{ boxShadow: "md" }} transition="all 0.2s">
-    <CardBody px={4} py={2}>
-      <Stat>
-        <StatLabel fontSize="sm" fontWeight="bold" mb={2}>{label}</StatLabel>
-        <StatNumber fontSize="2xl" color={color}>{value}</StatNumber>
-        <Text fontSize="xs" color="gray.500" mt={1}>{subtext}</Text>
-      </Stat>
+const SummaryStatCard = React.memo(({ label, value, color }) => (
+  <Card bg="white" shadow="sm" _hover={{ boxShadow: "md" }} transition="all 0.2s">
+    <CardBody px={4} py={3}>
+      <HStack justify="space-between" align="center">
+        <Text fontSize="sm" fontWeight="medium" color="gray.600">
+          {label}
+        </Text>
+        <Text fontSize="lg" fontWeight="bold" color={color}>
+          {value}
+        </Text>
+      </HStack>
     </CardBody>
   </Card>
 ));
@@ -170,8 +173,7 @@ SummaryStatCard.displayName = "SummaryStatCard";
     <VStack spacing={4} align="stretch">
       <Card>
         <CardBody>
-          <VStack spacing={4} align="stretch">
-            <Grid alignItems={"center"} templateColumns={{ base: "1fr", md: "1fr 1fr 1fr 1fr" }} gap={4}>
+            <Grid alignItems={"end"} templateColumns={{ base: "1fr", md: "1fr 1fr 1fr 1fr 1fr" }} gap={4}>
               <FormControl>
                 <FormLabel >From Date</FormLabel>
                 <Input 
@@ -205,29 +207,30 @@ SummaryStatCard.displayName = "SummaryStatCard";
                   />
                 </InputGroup>
               </FormControl>
-            </Grid>
-
-            <HStack spacing={3}>
+             
               <Button 
                 size="sm" 
-                leftIcon={<FiRefreshCw />} 
+                leftIcon={<FiSearch />} 
                 colorScheme="blue"
+                w={"100%"}
                 onClick={handleApplyFilters}
                 isLoading={loading}
               >
-                Apply Filters & Search
+                Search
               </Button>
               <Button 
+                
                 size="sm" 
                 leftIcon={<FiDownload />} 
                 colorScheme="teal"
+                w={"100%"}
                 onClick={exportCSV} 
                 isDisabled={!filtered.length || loading}
               >
                 Export CSV ({filtered.length})
               </Button>
-            </HStack>
-          </VStack>
+            </Grid>
+
         </CardBody>
       </Card>
 
@@ -235,12 +238,11 @@ SummaryStatCard.displayName = "SummaryStatCard";
 
 // ─── Usage ────────────────────────────────────────────────────────────────────
 <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
-  {STAT_CARDS.map(({ label, getValue, subtext, color }) => (
+  {STAT_CARDS.map(({ label, getValue, color }) => (
     <SummaryStatCard
       key={label}
       label={label}
       value={getValue(summary)}
-      subtext={typeof subtext === "function" ? subtext(summary) : subtext}
       color={color}
     />
   ))}
@@ -263,7 +265,7 @@ SummaryStatCard.displayName = "SummaryStatCard";
             </Alert>
           ) : (
             <>
-              <Box overflowX="auto" maxH="600px" overflowY="auto" borderWidth="1px" borderRadius="md">
+              <Box overflowX="auto" minH={"300px"} maxH="300px" overflowY="auto" borderWidth="1px" borderRadius="md">
                 <Table size="sm" variant="simple">
                   <Thead position="sticky" top={0} zIndex={1} bg="gray.100">
                     <Tr>
@@ -313,7 +315,7 @@ SummaryStatCard.displayName = "SummaryStatCard";
                   </Tbody>
                 </Table>
               </Box>
-              <Divider my={3} />
+              {/* <Divider my={3} />
               <HStack justify="space-between" fontSize="sm">
                 <Text color="gray.600">
                   Showing <strong>{filtered.length}</strong> of <strong>{summary.total || 0}</strong> records
@@ -321,7 +323,7 @@ SummaryStatCard.displayName = "SummaryStatCard";
                 <Text color="gray.600">
                   <strong>{new Set(filtered.map(r => r.callerip)).size}</strong> unique missing IPs in view
                 </Text>
-              </HStack>
+              </HStack> */}
             </>
           )}
         {filtered.length > 0 && (

@@ -93,7 +93,6 @@ const ViewInvoiceModal = ({
 
     return (
       item.destination?.toLowerCase().includes(term) ||
-      item.description?.toLowerCase().includes(term) ||
       item.trunk?.toLowerCase().includes(term)
     );
   });
@@ -339,7 +338,6 @@ const ViewInvoiceModal = ({
                             Prefix
                           </Th>
                           <Th color={"black"}>Destination</Th>
-                          <Th color={"black"}>Description</Th>
                           <Th color={"black"} isNumeric>
                             Calls
                           </Th>
@@ -363,7 +361,6 @@ const ViewInvoiceModal = ({
                             <Td>{item.trunk || "-"}</Td>
                             <Td>{item.prefix || "-"}</Td>
                             <Td>{item.destination || "-"}</Td>
-                            <Td>{item.description}</Td>
                             <Td isNumeric>{item.totalCalls}</Td>
                             <Td isNumeric>{item.duration.toFixed(2)} sec</Td>
                             <Td isNumeric>

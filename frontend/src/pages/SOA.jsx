@@ -13,7 +13,6 @@ import {
   Button,
   Badge,
   Divider,
-  useToast,
   Table,
   Thead,
   Tbody,
@@ -26,6 +25,7 @@ import {
   useDisclosure,
   Spacer,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import { SearchIcon } from "@chakra-ui/icons";
 import { FiAlertCircle, FiDownload, FiMail } from "react-icons/fi";
 import {
@@ -537,7 +537,7 @@ const fetchAllVendorData = async (selectedAccount, startDate, endDate) => {
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 const SOAPage = () => {
-  const toast = useToast();
+  const toast = useNotify();
 
   const {
     isOpen: isDisputeOpen,

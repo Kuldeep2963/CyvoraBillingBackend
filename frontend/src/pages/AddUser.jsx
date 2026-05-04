@@ -17,7 +17,6 @@ import {
   Badge,
   Avatar,
   useColorModeValue,
-  useToast,
   Card,
   CardBody,
   CardHeader,
@@ -37,6 +36,7 @@ import {
   MenuItem,
   Tooltip,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import { useState, useEffect, useCallback } from "react";
 import { createUser, fetchUsers, deleteUser } from "../utils/api";
@@ -73,7 +73,7 @@ const UsersTab = ({ onAddNew, refreshSignal }) => {
   const border  = useColorModeValue("gray.200", "gray.700");
   const cardBg  = useColorModeValue("white", "gray.800");
   const hoverBg = useColorModeValue("gray.50", "gray.750");
-  const toast   = useToast();
+  const toast   = useNotify();
 
   const [users, setUsers]       = useState([]);
   const [search, setSearch]     = useState("");
@@ -296,7 +296,7 @@ const UsersTab = ({ onAddNew, refreshSignal }) => {
 
 // ── Add User Form Tab ─────────────────────────────────────────
 const AddUserTab = ({ onSuccess }) => {
-  const toast        = useToast();
+  const toast        = useNotify();
   const cardBg       = useColorModeValue("white", "gray.800");
   const borderColor  = useColorModeValue("gray.200", "gray.700");
   const labelColor   = useColorModeValue("gray.600", "gray.400");

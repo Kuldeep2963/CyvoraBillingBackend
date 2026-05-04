@@ -4,7 +4,7 @@ import {
   VStack,
   Text,
   Button,
-  useToast,
+  
   HStack,
   Badge,
   IconButton,
@@ -28,6 +28,7 @@ import {
   SimpleGrid,
   Progress,
 } from "@chakra-ui/react";
+import useNotify from "../utils/notify";
 import { SearchIcon, CloseIcon } from "@chakra-ui/icons";
 import {
   MemoizedInput as Input,
@@ -73,7 +74,6 @@ import {
   downloadInvoice,
   sendInvoiceEmail,
   runBillingAutomation,
-  getAllDisputes,
 } from "../utils/api";
 import { format, differenceInDays, subDays } from "date-fns";
 
@@ -195,12 +195,14 @@ const InvoiceStatusBadge = React.memo(({ status }) => {
   return (
     <Badge
       colorScheme={getStatusColor(status)}
-      display="flex"
+      display="inline-flex"
       alignItems="center"
+      justifyContent="center"
       gap={2}
       px={3}
       py={1}
       borderRadius="full"
+      whiteSpace="nowrap"
     >
       <Icon />
       {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -275,7 +277,6 @@ const Invoices = () => {
   const [invoices, setInvoices]                     = useState([]);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState([]);
   const [customers, setCustomers]                   = useState([]);
-  const [disputes, setDisputes]                     = useState([]);
   const [searchTerm, setSearchTerm]                 = useState("");
   const [debouncedSearch, setDebouncedSearch]       = useState("");
   const [statusFilter, setStatusFilter]             = useState("all");
@@ -309,27 +310,8 @@ const Invoices = () => {
     isLoading: false,
   });
 
-  const toast  = useToast();
+  const toast  = useNotify();
   const bgColor     = useColorModeValue("white", "gray.800");
-
-  // ── Dispute lookup map – O(1) per row instead of O(n) ─────────────────────
-  // BUG FIX: was O(n²) — Array.find() inside invoices.map()
-  const disputeMap = useMemo(() => {
-    const map = new Map();
-    for (const d of disputes) {
-      if (d.invoiceNumber) {
-        // A dispute's invoiceNumber may be an array or a string
-        const nums = Array.isArray(d.invoiceNumber) ? d.invoiceNumber : [d.invoiceNumber];
-        for (const n of nums) map.set(n, d);
-      }
-    }
-    return map;
-  }, [disputes]);
-
-  const getInvoiceDispute = useCallback(
-    (invoiceNumber) => disputeMap.get(invoiceNumber) ?? null,
-    [disputeMap],
-  );
 
   // ── Debounce search ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -352,10 +334,9 @@ const Invoices = () => {
         ? searchInvoicesByAccountName(debouncedSearch, queryParams)
         : fetchInvoices(queryParams);
 
-      const [invoicesRes, customersData, disputesRes] = await Promise.all([
+      const [invoicesRes, customersData] = await Promise.all([
         invoicesRequest,
         fetchReportAccounts(),
-        getAllDisputes(),
       ]);
 
       const invoicesData = invoicesRes.success ? invoicesRes.data : [];
@@ -369,8 +350,6 @@ const Invoices = () => {
           totalPages: 1,
         },
       );
-
-      setDisputes(disputesRes.success ? disputesRes.data : []);
 
       if (customersData.success) {
         setCustomers(
@@ -774,11 +753,6 @@ const Invoices = () => {
                 <Text fontSize="xs" color="gray.500">
                   {invoiceDateParsed ? format(invoiceDateParsed, "MMM dd, yyyy") : "—"}
                 </Text>
-                {getInvoiceDispute(value) && (
-                  <Badge colorScheme="red" fontSize="10px">
-                    Disputed
-                  </Badge>
-                )}
               </HStack>
             </VStack>
           );
@@ -826,9 +800,9 @@ const Invoices = () => {
             <Text fontWeight="medium" color="green.700" fontSize="md" textAlign="right">
               ${parseFloat(value ?? 0).toFixed(4)}
             </Text>
-            <Text fontSize="xs" color="gray.500">
+            {/* <Text fontSize="xs" color="gray.500">
               {row.items?.length ?? 0} destinations
-            </Text>
+            </Text> */}
           </VStack>
         ),
       },
@@ -861,7 +835,11 @@ const Invoices = () => {
         key: "status",
         header: "Status",
         minWidth: "120px",
-        render: (value) => <InvoiceStatusBadge status={value || "generated"} />,
+        render: (value) => (
+          <Flex justify="center" w="100%">
+            <InvoiceStatusBadge status={value || "generated"} />
+          </Flex>
+        ),
       },
       {
         key: "actions",
@@ -905,18 +883,22 @@ const Invoices = () => {
                 {/* <MenuItem icon={<FiEdit />} fontSize="13px" onClick={() => handleViewInvoice(row)}>
                   View details
                 </MenuItem> */}
-                <MenuDivider />
-                { row.status !== "paid" &&
-                (<MenuItem icon={<FiTrash2 />} fontSize="13px" color="red.500" onClick={() => handleDeleteInvoice(row)}>
-                  Delete Invoice
-                </MenuItem>)}
+                
+                {!['paid', 'sent'].includes(String(row.status || '').toLowerCase()) && (
+                  <>
+                  <MenuDivider />
+                  <MenuItem icon={<FiTrash2 />} fontSize="13px" color="red.500" onClick={() => handleDeleteInvoice(row)}>
+                    Delete Invoice
+                  </MenuItem>
+                  </>
+                )}
               </MenuList>
             </Menu>
           </HStack>
         ),
       },
     ];
-  }, [invoices, selectedInvoiceIds, handleSelectAll, handleRowSelect, handleViewInvoice, handleDownloadInvoice, handleSendEmail, onRecordPaymentClick, handleDeleteInvoice, getInvoiceDispute]);
+  }, [invoices, selectedInvoiceIds, handleSelectAll, handleRowSelect, handleViewInvoice, handleDownloadInvoice, handleSendEmail, onRecordPaymentClick, handleDeleteInvoice]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (

@@ -45,6 +45,7 @@ import {
   Alert,
   AlertIcon,
   AlertTitle,
+
   AlertDescription,
   NumberInput,
   NumberInputField,
@@ -101,6 +102,7 @@ import {
   exportReport,
 } from "../utils/api";
 import MissingGateways from "./missinggateways";
+import useNotify from "../utils/notify";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -332,7 +334,7 @@ const Reports = () => {
   const [selectedOwner, setSelectedOwner] = useState("all");
   const [filters] = useState({ minASR: 0, maxASR: 100, minMargin: -100, maxMargin: 100 });
 
-  const toast = useToast();
+  const toast = useNotify();
   const cardBg = useColorModeValue("white", "gray.800");
   const borderColor = useColorModeValue("gray.200", "gray.700");
   const mutedColor = useColorModeValue("gray.600", "gray.400");
@@ -916,7 +918,7 @@ const Reports = () => {
                     </Badge>
                   </VStack>
                   <HStack spacing={3} align="center" justify={{ base: "flex-start", md: "flex-end" }}>
-                    <InputGroup w={{ base: "full", sm: "280px" }}>
+                    <InputGroup size={"sm"} w={{ base: "full", sm: "280px" }}>
                       <InputLeftElement pointerEvents="none">
                         <SearchIcon color="gray.500" />
                       </InputLeftElement>

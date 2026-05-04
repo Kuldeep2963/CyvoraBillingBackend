@@ -15,9 +15,9 @@ import {
   Box,
   Text,
   Badge,
-  useToast,
   Heading,
 } from "@chakra-ui/react";
+import useNotify from "../../utils/notify";
 import { raiseDispute } from "../../utils/api";
 
 const RaiseDisputeModal = ({
@@ -29,7 +29,7 @@ const RaiseDisputeModal = ({
   disputeAmount,
   onSuccess,
 }) => {
-  const toast = useToast();
+  const toast = useNotify();
   const [comment, setComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
