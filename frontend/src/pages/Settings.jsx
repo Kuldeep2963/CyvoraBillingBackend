@@ -490,6 +490,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
   const [countryCodesTotal, setCountryCodesTotal]         = useState(0);
   const [singleCountryCode, setSingleCountryCode]         = useState('');
   const [singleCountryName, setSingleCountryName]         = useState('');
+  const [editingCountryCode, setEditingCountryCode]       = useState(null);
   const [addingCountryCode, setAddingCountryCode]         = useState(false);
   const [deletingCountryCode, setDeletingCountryCode]     = useState('');
 
@@ -571,11 +572,27 @@ const CountryCodesTab = ({ loadNotifications }) => {
     }
     setAddingCountryCode(true);
     try {
-      const result = await addCountryCode({ code, country_name });
+      const originalCode = String(editingCountryCode?.code || '').trim();
+      let result;
+
+      if (originalCode && originalCode !== code) {
+        // Rename flow: create/update new code first, then remove old code.
+        await addCountryCode({ code, country_name });
+        await deleteCountryCode(originalCode);
+        result = {
+          updated: true,
+          renamed: true,
+          countryCode: { code, country_name },
+        };
+      } else {
+        result = await addCountryCode({ code, country_name });
+      }
+
       if (!isMounted.current) return;
       setSingleCountryCode('');
       setSingleCountryName('');
-          notify({ title: result.updated ? 'Country code updated' : 'Country code added', description: `${result.countryCode.code} - ${result.countryCode.country_name}`, status: 'success', duration: 3000, isClosable: true });
+      setEditingCountryCode(null);
+          notify({ title: result.renamed ? 'Country code updated' : (result.updated ? 'Country code updated' : 'Country code added'), description: `${result.countryCode.code} - ${result.countryCode.country_name}`, status: 'success', duration: 3000, isClosable: true });
       await loadNotifications(true);
       if (countryCodesLoaded) await handleFetchCountryCodes();
     } catch (error) {
@@ -584,6 +601,15 @@ const CountryCodesTab = ({ loadNotifications }) => {
     } finally {
       if (isMounted.current) setAddingCountryCode(false);
     }
+  };
+
+  const handleEditCountryCode = (item) => {
+    const code = String(item?.code || '').trim();
+    const country_name = String(item?.country_name || '').trim();
+    if (!code || !country_name) return;
+    setSingleCountryCode(code);
+    setSingleCountryName(country_name);
+    setEditingCountryCode({ code });
   };
 
   const handleDeleteCountryCode = async (item) => {
@@ -626,25 +652,43 @@ const CountryCodesTab = ({ loadNotifications }) => {
     {
       key: 'action',
       header: '',
-      width: '90px',
+      width: '150px',
       render: (_value, item) => (
-        <Button
-          size="xs"
-          bg="red.50"
-          color="red.500"
-          borderWidth="0.5px"
-          borderColor="red.100"
-          fontWeight="400"
-          fontSize="11px"
-          borderRadius="6px"
-          boxShadow="none"
-          _hover={{ bg: 'red.100' }}
-          onClick={() => handleDeleteCountryCode(item)}
-          isLoading={deletingCountryCode === String(item.code)}
-          isDisabled={Boolean(deletingCountryCode) && deletingCountryCode !== String(item.code)}
-        >
-          Delete
-        </Button>
+        <HStack spacing={2} justify="flex-end">
+          <Button
+            size="xs"
+            bg="gray.50"
+            color="gray.600"
+            borderWidth="0.5px"
+            borderColor="gray.200"
+            fontWeight="400"
+            fontSize="11px"
+            borderRadius="6px"
+            boxShadow="none"
+            _hover={{ bg: 'gray.100' }}
+            onClick={() => handleEditCountryCode(item)}
+            isDisabled={Boolean(deletingCountryCode)}
+          >
+            Edit
+          </Button>
+          <Button
+            size="xs"
+            bg="red.50"
+            color="red.500"
+            borderWidth="0.5px"
+            borderColor="red.100"
+            fontWeight="400"
+            fontSize="11px"
+            borderRadius="6px"
+            boxShadow="none"
+            _hover={{ bg: 'red.100' }}
+            onClick={() => handleDeleteCountryCode(item)}
+            isLoading={deletingCountryCode === String(item.code)}
+            isDisabled={Boolean(deletingCountryCode) && deletingCountryCode !== String(item.code)}
+          >
+            Delete
+          </Button>
+        </HStack>
       ),
     },
   ];
@@ -655,6 +699,11 @@ const CountryCodesTab = ({ loadNotifications }) => {
       <Card {...CARD_PROPS}>
         <CardBody px={5} py={5}>
           <SectionHeader>Add Single Entry</SectionHeader>
+          {editingCountryCode && (
+            <Text fontSize="11px" color="blue.600" mb={2}>
+              Editing country code {editingCountryCode.code}
+            </Text>
+          )}
           <Grid templateColumns={{ base: '1fr', md: '1fr 2fr auto' }} gap={3} alignItems="end">
             <FormControl>
               <FormLabel {...FORM_LABEL_PROPS}>Code</FormLabel>
@@ -674,24 +723,42 @@ const CountryCodesTab = ({ loadNotifications }) => {
                 onChange={(e) => setSingleCountryName(e.target.value)}
               />
             </FormControl>
-            <Button
-              size="sm"
-              leftIcon={<FiSave size={12} />}
-              onClick={handleAddCountryCode}
-              isLoading={addingCountryCode}
-              isDisabled={addingCountryCode}
-              bg="blue.600"
-              color="white"
-              borderRadius="8px"
-              fontWeight="500"
-              fontSize="12px"
-              height="34px"
-              px={4}
-              _hover={{ bg: 'blue.700' }}
-              boxShadow="none"
-            >
-              Save
-            </Button>
+            <HStack spacing={2}>
+              <Button
+                size="sm"
+                leftIcon={<FiSave size={12} />}
+                onClick={handleAddCountryCode}
+                isLoading={addingCountryCode}
+                isDisabled={addingCountryCode}
+                bg="blue.600"
+                color="white"
+                borderRadius="8px"
+                fontWeight="500"
+                fontSize="12px"
+                height="34px"
+                px={4}
+                _hover={{ bg: 'blue.700' }}
+                boxShadow="none"
+              >
+                {editingCountryCode ? 'Update' : 'Save'}
+              </Button>
+              {editingCountryCode && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setSingleCountryCode('');
+                    setSingleCountryName('');
+                    setEditingCountryCode(null);
+                  }}
+                  isDisabled={addingCountryCode}
+                  fontSize="12px"
+                  height="34px"
+                >
+                  Cancel
+                </Button>
+              )}
+            </HStack>
           </Grid>
         </CardBody>
       </Card>
