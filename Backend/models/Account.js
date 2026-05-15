@@ -69,6 +69,12 @@ const Account = sequelize.define('Account', {
     defaultValue: [],
     comment: 'Array of IP addresses or custom field values for vendor authentication'
   },
+
+  trunks: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'User-defined trunks/prefix mappings: [{ name: string, prefix: string }]'
+  },
   
   // Basic Account Information
   accountName: {

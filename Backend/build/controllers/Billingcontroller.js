@@ -34,6 +34,79 @@ const formatTime = (date, hour = 0, isEnd = false) => {
   return d.getTime().toString();
 };
 
+const addDaysAsDateOnly = (dateValue, days) => {
+  if (!dateValue && dateValue !== 0) return null;
+
+  const numericDate = Number(dateValue);
+  const baseMoment = !isNaN(numericDate) ? moment(numericDate) : moment(dateValue);
+  if (!baseMoment.isValid()) return null;
+
+  return baseMoment.add(days, 'days').format('YYYY-MM-DD');
+};
+
+const syncInvoiceBillingDates = async (account, invoiceType, billedThroughDate, transaction) => {
+  if (!account || !billedThroughDate) return;
+
+  const updates = BillingAutomationService.buildStreamUpdates(
+    account,
+    invoiceType,
+    billedThroughDate,
+  );
+
+  if (Object.keys(updates).length > 0) {
+    await account.update(updates, { transaction });
+  }
+};
+
+const getBillingDateSnapshot = (account) => {
+  if (!account) return null;
+
+  const data = account.toJSON ? account.toJSON() : account;
+  return {
+    accountId: data.id,
+    accountCode: data.customerCode || data.vendorCode || data.gatewayId || null,
+    accountRole: data.accountRole || null,
+    customerLastBillingDate: data.customerLastBillingDate || null,
+    customerNextBillingDate: data.customerNextBillingDate || null,
+    vendorLastBillingDate: data.vendorLastBillingDate || null,
+    vendorNextBillingDate: data.vendorNextBillingDate || null,
+  };
+};
+
+const recalculateCustomerBillingDatesAfterDelete = async (account, deletedInvoice, transaction) => {
+  if (!account) return;
+
+  const latestRemainingInvoice = await Invoice.findOne({
+    where: { customerCode: account.customerCode },
+    order: [["billingPeriodEnd", "DESC"], ["createdAt", "DESC"]],
+    transaction,
+  });
+
+  const deletedInvoiceStartDate = deletedInvoice?.billingPeriodStart
+    ? addDaysAsDateOnly(deletedInvoice.billingPeriodStart, 0)
+    : null;
+  const fallbackDate = deletedInvoiceStartDate || addDaysAsDateOnly(account.billingStartDate || account.createdAt, 0);
+  let billedThroughDate = latestRemainingInvoice?.billingPeriodEnd
+    ? addDaysAsDateOnly(latestRemainingInvoice.billingPeriodEnd, 1)
+    : fallbackDate;
+
+  // Safety: deleting an invoice must never move billing cursors forward.
+  const currentLast = addDaysAsDateOnly(account.customerLastBillingDate, 0);
+  if (billedThroughDate && currentLast && billedThroughDate > currentLast) {
+    billedThroughDate = currentLast;
+  }
+
+  if (!billedThroughDate) return;
+
+  const updates = BillingAutomationService.buildStreamUpdates(
+    account,
+    "customer",
+    billedThroughDate,
+  );
+
+  await account.update(updates, { transaction });
+};
+
 /* ===================== HELPER: GET COUNTRY FROM NUMBER ===================== */
 const getCountryFromNumber = (number, countryCodes) => {
   if (!number) return "Unknown";
@@ -53,6 +126,21 @@ const getCountryFromNumber = (number, countryCodes) => {
   }
 
   return "Unknown";
+};
+
+const getCountryCallingCodeFromNumber = (number, countryCodes) => {
+  if (!number) return "";
+
+  const cleaned = number.toString().replace(/^(\+|00)/, "");
+  const sortedCodes = [...countryCodes].sort((a, b) => b.code.length - a.code.length);
+
+  for (const cc of sortedCodes) {
+    if (cleaned.startsWith(cc.code)) {
+      return `+${cc.code}`;
+    }
+  }
+
+  return "";
 };
 
 /* ===================== HELPER: GET TRUNK NAME ===================== */
@@ -218,22 +306,41 @@ const generatePaymentNumber = async () => {
 };
 
 const resolveInvoiceAccount = async (invoice, transaction = null) => {
-  const query = {
-    where: {
-      [Op.or]: [
-        { gatewayId: invoice.customerGatewayId },
-        { customerCode: invoice.customerCode },
-        { vendorCode: invoice.customerCode },
-        { accountName: invoice.customerName },
-      ],
-    },
-  };
+  const tx = transaction ? { transaction } : {};
 
-  if (transaction) {
-    query.transaction = transaction;
+  // Prefer exact customer-code match first to avoid ambiguous OR lookups.
+  if (invoice.customerCode) {
+    const byCustomerCode = await Account.findOne({
+      where: { customerCode: invoice.customerCode },
+      ...tx,
+    });
+    if (byCustomerCode) return byCustomerCode;
   }
 
-  return Account.findOne(query);
+  // Backward compatibility: older invoices may use gatewayId or accountId in this field.
+  if (invoice.customerGatewayId) {
+    const byGatewayOrCodeOrAccountId = await Account.findOne({
+      where: {
+        [Op.or]: [
+          { gatewayId: invoice.customerGatewayId },
+          { customerCode: invoice.customerGatewayId },
+          { accountId: invoice.customerGatewayId },
+        ],
+      },
+      ...tx,
+    });
+    if (byGatewayOrCodeOrAccountId) return byGatewayOrCodeOrAccountId;
+  }
+
+  // Final fallback for legacy/dirty records.
+  if (invoice.customerName) {
+    return Account.findOne({
+      where: { accountName: invoice.customerName },
+      ...tx,
+    });
+  }
+
+  return null;
 };
 
 const adjustAccountForInvoice = async (
@@ -287,7 +394,6 @@ exports.generateInvoice = async (req, res) => {
   try {
     const {
       customerId,
-      invoiceType = "customer",
       billingPeriodStart,
       billingPeriodEnd,
       taxRate = 0,
@@ -297,22 +403,20 @@ exports.generateInvoice = async (req, res) => {
       customerNotes,
     } = req.body;
 
-    const isVendor = invoiceType === "vendor";
-
     // Validate required fields
     if (!customerId || !billingPeriodStart || !billingPeriodEnd) {
       return res.status(400).json({
         success: false,
-        error: `${isVendor ? "vendorId" : "customerId"}, billingPeriodStart, and billingPeriodEnd are required`,
+        error: "customerId, billingPeriodStart, and billingPeriodEnd are required",
       });
     }
 
-    // Get account details - find by gatewayId, customerCode/vendorCode, or accountId
+    // Get account details - find by gatewayId, customerCode, or accountId
     const isNumeric = /^\d+$/.test(customerId);
     const accountWhere = {
       [Op.or]: [
         { gatewayId: customerId },
-        { [isVendor ? "vendorCode" : "customerCode"]: customerId },
+        { customerCode: customerId },
       ],
     };
     if (isNumeric) accountWhere[Op.or].push({ accountId: customerId });
@@ -324,38 +428,58 @@ exports.generateInvoice = async (req, res) => {
     if (!account) {
       return res.status(404).json({
         success: false,
-        error: `${isVendor ? "Vendor" : "Customer"} not found`,
+        error: "Customer not found",
+      });
+    }
+
+    const normalizedBillingPeriodStart = formatTime(billingPeriodStart);
+    const normalizedBillingPeriodEnd = formatTime(billingPeriodEnd, 23, true);
+
+    const duplicateInvoice = await Invoice.findOne({
+      where: {
+        customerCode: account.customerCode,
+        billingPeriodStart: normalizedBillingPeriodStart,
+        billingPeriodEnd: normalizedBillingPeriodEnd,
+      },
+      transaction,
+    });
+
+    if (duplicateInvoice) {
+      await transaction.rollback();
+      return res.status(409).json({
+        success: false,
+        error: "An invoice already exists for this customer and billing period",
       });
     }
 
     // Get country codes for mapping
     const countryCodes = await CountryCode.findAll({ raw: true });
 
-    // ✅ Build CDR WHERE conditions using authentication logic
-    const authConditions = buildAccountConditions(account, isVendor);
+    // ✅ Build CDR WHERE conditions using authentication logic (customer only)
+    const authConditions = buildAccountConditions(account, false);
 
     if (authConditions.length === 0) {
       return res.status(400).json({
         success: false,
-        error: `Unable to build authentication conditions for this ${isVendor ? "vendor" : "customer"}`,
+        error: "Unable to build authentication conditions for this customer",
       });
     }
 
     const cdrWhere = {
       starttime: {
         [Op.between]: [
-          formatTime(billingPeriodStart),
-          formatTime(billingPeriodEnd, 23, true),
+          normalizedBillingPeriodStart,
+          normalizedBillingPeriodEnd,
         ],
       },
       [Op.or]: authConditions,
     };
 
-    // Fetch CDR data for the billing period using authentication conditions
+    // Fetch CDR data for the billing period using authentication conditions (customer view)
     const cdrs = await CDR.findAll({
       attributes: [
-        isVendor ? "agentaccount" : "customeraccount",
-        isVendor ? "agentname" : "customername",
+        "customeraccount",
+        "customername",
         "callere164",
         "calleee164",
         "calleegatewayid",
@@ -363,12 +487,12 @@ exports.generateInvoice = async (req, res) => {
         [fn("SUM", H.completedCall), "completedCalls"],
         [fn("SUM", H.failedCall), "failedCalls"],
         [fn("SUM", H.durationSec), "duration"],
-        [fn("SUM", isVendor ? H.cost : H.revenue), "revenue"],
+        [fn("SUM", H.revenue), "revenue"],
       ],
       where: cdrWhere,
       group: [
-        isVendor ? "agentaccount" : "customeraccount",
-        isVendor ? "agentname" : "customername",
+        "customeraccount",
+        "customername",
         "callere164",
         "calleee164",
         "calleegatewayid",
@@ -379,7 +503,7 @@ exports.generateInvoice = async (req, res) => {
     if (cdrs.length === 0) {
       return res.status(404).json({
         success: false,
-        error: `No CDR records found for this ${isVendor ? "vendor" : "customer"} in the billing period`,
+        error: "No CDR records found for this customer in the billing period",
       });
     }
 
@@ -400,7 +524,7 @@ exports.generateInvoice = async (req, res) => {
 
       if (phoneNumber) {
         destination = getCountryFromNumber(actualCalleee, countryCodes);
-        prefix = phoneNumber.countryCallingCode;
+        prefix = `+${phoneNumber.countryCallingCode}`;
 
         const national = phoneNumber.nationalNumber;
 
@@ -414,33 +538,18 @@ exports.generateInvoice = async (req, res) => {
       } else {
         console.warn("libphonenumber parsing failed for:", actualCalleee);
         destination = getCountryFromNumber(actualCalleee, countryCodes);
-
-        if (actualCalleee.length >= 6) {
-          prefix = actualCalleee.substring(0, 3);
-        } else {
-          prefix = actualCalleee;
-        }
+        prefix = getCountryCallingCodeFromNumber(actualCalleee, countryCodes)
+          || (actualCalleee.length >= 6 ? `+${actualCalleee.substring(0, 3)}` : actualCalleee);
       }
 
       const trunk = getTrunkName(cdr.calleee164);
-
-      // Extract custom description from calleegatewayid (after second --)
-      let customDescription = "";
-      if (cdr.calleegatewayid) {
-        const parts = cdr.calleegatewayid.split("--");
-        if (parts.length >= 3) {
-          customDescription = parts[2].trim();
-        }
-      }
-
-      const key = `${destination}|${prefix}|${trunk}|${customDescription}`;
+      const key = `${destination}|${prefix}|${trunk}`;
 
       if (!groupedData[key]) {
         groupedData[key] = {
           destination,
           trunk,
           prefix,
-          customDescription,
           totalCalls: 0,
           completedCalls: 0,
           failedCalls: 0,
@@ -473,18 +582,16 @@ exports.generateInvoice = async (req, res) => {
 
         return {
           itemType: "call_charges",
-          description:
-            item.customDescription ||
-            `Calls to ${item.destination} (${item.trunk})`,
+          description: "",
           destination: item.destination,
           trunk: item.trunk,
           prefix: item.prefix,
-          quantity: item.totalCalls,
+          quantity: item.completedCalls,
           duration: item.duration,
 
-          unitPrice: item.totalCalls > 0 ? amount / item.totalCalls : 0,
+          unitPrice: item.completedCalls > 0 ? amount / item.completedCalls : 0,
           amount: parseFloat(amount.toFixed(4)),
-          totalCalls: item.totalCalls,
+          totalCalls: item.completedCalls,
           completedCalls: item.completedCalls,
           failedCalls: item.failedCalls,
           asr:
@@ -498,8 +605,8 @@ exports.generateInvoice = async (req, res) => {
               ? parseFloat((item.duration / item.completedCalls).toFixed(2))
               : 0,
           taxable: true,
-          periodStart: formatTime(billingPeriodStart),
-          periodEnd: formatTime(billingPeriodEnd, 23, true),
+          periodStart: normalizedBillingPeriodStart,
+          periodEnd: normalizedBillingPeriodEnd,
           sortOrder: index,
         };
       });
@@ -516,25 +623,22 @@ exports.generateInvoice = async (req, res) => {
     const taxAmount = subtotal * (taxRate / 100);
     const totalAmount = subtotal + taxAmount - discountAmount;
 
-    // Platform linkage should use customer/vendor code, not gateway id.
-    const linkedCustomerCode = isVendor
-      ? account.vendorCode
-      : account.customerCode;
+    // Platform linkage should use customer code
+    const linkedCustomerCode = account.customerCode;
 
     const invoice = await Invoice.create(
       {
         invoiceNumber,
-        invoiceType,
         customerGatewayId: linkedCustomerCode,
         customerName: account.accountName,
-        customerCode: isVendor ? account.vendorCode : account.customerCode,
+        customerCode: account.customerCode,
         customerEmail: account.email,
         customerAddress:
           account.addressLine1 +
           (account.addressLine2 ? ", " + account.addressLine2 : ""),
         customerPhone: account.phone,
-        billingPeriodStart: formatTime(billingPeriodStart),
-        billingPeriodEnd: formatTime(billingPeriodEnd, 23, true),
+        billingPeriodStart: normalizedBillingPeriodStart,
+        billingPeriodEnd: normalizedBillingPeriodEnd,
         invoiceDate,
         dueDate,
         subtotal: parseFloat(subtotal.toFixed(4)),
@@ -563,12 +667,8 @@ exports.generateInvoice = async (req, res) => {
       );
     }
 
-    await adjustAccountForInvoice(
-      account,
-      totalAmount,
-      transaction,
-      "consume",
-    );
+    const billedThroughDate = addDaysAsDateOnly(billingPeriodEnd, 1);
+    await syncInvoiceBillingDates(account, "customer", billedThroughDate, transaction);
 
     await transaction.commit();
 
@@ -618,7 +718,6 @@ exports.getAllInvoices = async (req, res) => {
   try {
     const {
       customerId,
-      invoiceType,
       status,
       startDate,
       endDate,
@@ -628,18 +727,13 @@ exports.getAllInvoices = async (req, res) => {
 
     const where = {};
 
-    if (invoiceType) {
-      where.invoiceType = invoiceType;
-    }
-
     if (customerId) {
       const isNumeric = /^\d+$/.test(customerId);
-      const isVendor = invoiceType === "vendor";
 
       const accountWhere = {
         [Op.or]: [
           { gatewayId: customerId },
-          { [isVendor ? "vendorCode" : "customerCode"]: customerId },
+          { customerCode: customerId },
         ],
       };
 
@@ -652,9 +746,7 @@ exports.getAllInvoices = async (req, res) => {
         where: accountWhere,
       });
       if (account) {
-        where.customerCode = isVendor
-          ? account.vendorCode
-          : account.customerCode;
+        where.customerCode = account.customerCode;
       } else {
         // Fallback: search by customerId directly in the invoice's customerCode column
         where.customerCode = customerId;
@@ -706,7 +798,6 @@ exports.searchInvoicesByAccountName = async (req, res) => {
       accountName,
       accountname,
       search,
-      invoiceType,
       status,
       startDate,
       endDate,
@@ -724,10 +815,6 @@ exports.searchInvoicesByAccountName = async (req, res) => {
     }
 
     const where = {};
-
-    if (invoiceType) {
-      where.invoiceType = invoiceType;
-    }
 
     if (status) {
       where.status = status;
@@ -1111,6 +1198,7 @@ const generateInvoicePDFBuffer = async (invoice) => {
               width: 100%;
               border-collapse: collapse;
               font-size: 12px;
+              table-layout: fixed;
             }
             .invoice-table th {
               background-color: #1a365d;
@@ -1123,11 +1211,22 @@ const generateInvoicePDFBuffer = async (invoice) => {
             .invoice-table td {
               padding: 10px 8px;
               border-bottom: 1px solid #e2e8f0;
+              word-break: break-word;
             }
             .invoice-table tr:nth-child(even) {
               background-color: #f8fafc;
             }
             .text-right { text-align: right; }
+            .invoice-table th:nth-child(4),
+            .invoice-table th:nth-child(5),
+            .invoice-table th:nth-child(6),
+            .invoice-table th:nth-child(7),
+            .invoice-table td:nth-child(4),
+            .invoice-table td:nth-child(5),
+            .invoice-table td:nth-child(6),
+            .invoice-table td:nth-child(7) {
+              text-align: right;
+            }
             .totals-section {
               display: flex;
               justify-content: flex-end;
@@ -1229,12 +1328,20 @@ Tashkent Region, Uzbekistan<br>
 
             <div class="table-section">
               <table class="invoice-table">
+                <colgroup>
+                  <col style="width: 14%;" />
+                  <col style="width: 10%;" />
+                  <col style="width: 26%;" />
+                  <col style="width: 10%;" />
+                  <col style="width: 20%;" />
+                  <col style="width: 12%;" />
+                  <col style="width: 14%;" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Trunk</th>
                     <th>Prefix</th>
                     <th>Destination</th>
-                    <th>Description</th>
                     <th class="text-right">Calls</th>
                     <th class="text-right">Duration (Min)</th>
                     <th class="text-right">Rate</th>
@@ -1249,7 +1356,6 @@ Tashkent Region, Uzbekistan<br>
                       <td>${item.trunk || "-"}</td>
                       <td>${item.prefix || "-"}</td>
                       <td>${item.destination || "-"}</td>
-                      <td>${item.description || "-"}</td>
                       <td class="text-right">${item.totalCalls}</td>
                       <td class="text-right">${(item.duration / 60).toFixed(2)}</td>
                       <td class="text-right">$${parseFloat(item.unitPrice).toFixed(4)}</td>
@@ -1289,7 +1395,7 @@ Tashkent Region, Uzbekistan<br>
 
             <div class="footer">
               Thank you for your business. Please contact accounts.voice@cyvoratech.com for any billing inquiries.<br>
-              Generated by CDR Billing System
+              
             </div>
           </div>
         </body>
@@ -1498,6 +1604,14 @@ exports.updateInvoice = async (req, res) => {
       });
     }
 
+    if (Object.prototype.hasOwnProperty.call(updateData, "status")) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        error: "Manual invoice status updates are disabled. Status is updated by send-email and payment events.",
+      });
+    }
+
     // Prevent updating certain fields if invoice is paid
     if (
       invoice.status === "paid" &&
@@ -1507,24 +1621,6 @@ exports.updateInvoice = async (req, res) => {
         success: false,
         error: "Cannot modify amount of a paid invoice",
       });
-    }
-
-    // keep track of original status/paid amount for side-effects later
-    const prevStatus = invoice.status;
-    const prevPaid = Number(invoice.paidAmount || 0);
-
-    // when marking an invoice paid manually, make sure amounts reflect that
-    if (updateData.status === "paid") {
-      // if no paid amount supplied, assume full
-      if (updateData.paidAmount == null) {
-        updateData.paidAmount = invoice.totalAmount;
-      }
-      updateData.balanceAmount =
-        Number(invoice.totalAmount) - Number(updateData.paidAmount);
-      // set a paymentDate if none given
-      if (!updateData.paymentDate) {
-        updateData.paymentDate = formatTime(new Date());
-      }
     }
 
     // Convert dates to timestamps if present
@@ -1543,46 +1639,6 @@ exports.updateInvoice = async (req, res) => {
       updateData.paymentDate = formatTime(updateData.paymentDate);
 
     await invoice.update(updateData, { transaction });
-
-    // if the status was just flipped to paid (manual update) and the
-    // account is postpaid, return credit corresponding to the unpaid amount.
-    if (prevStatus !== "paid" && updateData.status === "paid") {
-      // determine amount to restore
-      const restoreAmount = Number(invoice.totalAmount || 0) - prevPaid;
-      if (restoreAmount > 0) {
-        const customer = await resolveInvoiceAccount(invoice, transaction);
-
-        if (customer && customer.billingType === "postpaid") {
-          await adjustAccountForInvoice(
-            customer,
-            restoreAmount,
-            transaction,
-            "restore",
-          );
-        }
-      }
-    }
-
-    if (
-      prevStatus !== "paid" &&
-      ["cancelled", "void", "draft"].includes(String(updateData.status || "").toLowerCase())
-    ) {
-      const customer = await resolveInvoiceAccount(invoice, transaction);
-      if (customer) {
-        const restoreAmount =
-          customer.billingType === "postpaid"
-            ? Number(invoice.balanceAmount || 0)
-            : Number(invoice.totalAmount || 0);
-        if (restoreAmount > 0) {
-          await adjustAccountForInvoice(
-            customer,
-            restoreAmount,
-            transaction,
-            "restore",
-          );
-        }
-      }
-    }
 
     await transaction.commit();
 
@@ -1615,7 +1671,7 @@ exports.deleteInvoice = async (req, res) => {
       });
     }
 
-    const invoice = await Invoice.findByPk(id);
+    const invoice = await Invoice.findByPk(id, { transaction });
 
     if (!invoice) {
       return res.status(404).json({
@@ -1625,25 +1681,11 @@ exports.deleteInvoice = async (req, res) => {
     }
 
     // Only allow deletion of draft or cancelled invoices
-    if (!["draft", "pending", "cancelled", "void"].includes(invoice.status)) {
+    if (!["draft", "pending", "cancelled"].includes(invoice.status)) {
       return res.status(400).json({
         success: false,
-        error: "Only draft, cancelled, or void invoices can be deleted",
+        error: "Only draft, cancelled, or pending invoices can be deleted",
       });
-    }
-
-    const account = await resolveInvoiceAccount(invoice, transaction);
-    if (account) {
-      const restoreAmount =
-        account.billingType === "postpaid"
-          ? Number(invoice.balanceAmount || 0)
-          : Number(invoice.totalAmount || 0);
-      await adjustAccountForInvoice(
-        account,
-        restoreAmount,
-        transaction,
-        "restore",
-      );
     }
 
     // Delete invoice items
@@ -1652,14 +1694,45 @@ exports.deleteInvoice = async (req, res) => {
       transaction,
     });
 
+    const account = await resolveInvoiceAccount(invoice, transaction);
+    if (!account) {
+      await transaction.rollback();
+      return res.status(409).json({
+        success: false,
+        error: "Unable to resolve account for this invoice. Billing dates were not updated.",
+        invoiceRef: {
+          id: invoice.id,
+          customerCode: invoice.customerCode || null,
+          customerGatewayId: invoice.customerGatewayId || null,
+          customerName: invoice.customerName || null,
+        },
+      });
+    }
+    const billingDatesBefore = getBillingDateSnapshot(account);
+
     // Delete invoice
     await invoice.destroy({ transaction });
+
+    // Recalculate customer billing cursors based on remaining invoices.
+    await recalculateCustomerBillingDatesAfterDelete(account, invoice, transaction);
+
+    let billingDatesAfter = null;
+    if (account) {
+      await account.reload({ transaction });
+      billingDatesAfter = getBillingDateSnapshot(account);
+    }
 
     await transaction.commit();
 
     res.json({
       success: true,
       message: "Invoice deleted successfully",
+      billingDateRestore: {
+        accountFound: Boolean(account),
+        stream: "customer",
+        before: billingDatesBefore,
+        after: billingDatesAfter,
+      },
     });
   } catch (error) {
     await transaction.rollback();
@@ -1768,6 +1841,30 @@ exports.recordPayment = async (req, res) => {
       });
     }
 
+    if (paymentSource === "account_funds") {
+      if (Math.abs(Number(amount) - totalAllocated) > 0.0001) {
+        return res.status(400).json({
+          success: false,
+          error: "When paying from account funds, amount must match the allocated invoice amount",
+        });
+      }
+
+      const availableFunds =
+        customer.billingType === "postpaid"
+          ? Number(customer.creditLimit || 0)
+          : Number(customer.balance || 0);
+
+      if (availableFunds < totalAllocated) {
+        return res.status(400).json({
+          success: false,
+          error:
+            customer.billingType === "postpaid"
+              ? "Insufficient credit limit for this payment"
+              : "Insufficient balance for this payment",
+        });
+      }
+    }
+
     // Create payment using customerCode
     const payment = await Payment.create(
       {
@@ -1786,6 +1883,7 @@ exports.recordPayment = async (req, res) => {
         referenceNumber,
         allocatedAmount: parseFloat(totalAllocated),
         unappliedAmount: parseFloat(amount - totalAllocated),
+        creditNoteAmount: 0,
         notes:
           paymentSource === "account_funds"
             ? notes
@@ -1860,15 +1958,16 @@ exports.recordPayment = async (req, res) => {
         { transaction },
       );
 
-      if (customer.billingType === "postpaid") {
-        await adjustAccountForInvoice(
-          customer,
-          allocation.amount,
-          transaction,
-          "restore",
-        );
-        await customer.reload({ transaction });
-      }
+    }
+
+    if (paymentSource === "account_funds" && totalAllocated > 0) {
+      await adjustAccountForInvoice(
+        customer,
+        totalAllocated,
+        transaction,
+        "consume",
+      );
+      await customer.reload({ transaction });
     }
 
     await transaction.commit();
@@ -1934,6 +2033,8 @@ exports.getAllPayments = async (req, res) => {
   try {
     const {
       customerId,
+      partyType,
+      paymentDirection,
       search,
       startDate,
       endDate,
@@ -1994,8 +2095,13 @@ exports.getAllPayments = async (req, res) => {
       }
     }
 
-    where.partyType = "customer";
-    where.paymentDirection = "inbound";
+    if (partyType) {
+      where.partyType = String(partyType).trim().toLowerCase();
+    }
+
+    if (paymentDirection) {
+      where.paymentDirection = String(paymentDirection).trim().toLowerCase();
+    }
 
     if (startDate && endDate) {
       where.paymentDate = {
@@ -2201,12 +2307,8 @@ exports.getAgingReport = async (req, res) => {
 /* ===================== GET LITE INVOICES (FOR DROPDOWNS) ===================== */
 exports.getLiteInvoices = async (req, res) => {
   try {
-    const { customerId, status, startDate, endDate, invoiceType } = req.query;
+    const { customerId, status, startDate, endDate, includePaid } = req.query;
     const where = {};
-
-    if (invoiceType) {
-      where.invoiceType = invoiceType;
-    }
 
     if (customerId) {
       const isNumeric = /^\d+$/.test(customerId);
@@ -2229,10 +2331,14 @@ exports.getLiteInvoices = async (req, res) => {
         .trim();
     }
 
+    const shouldIncludePaid = ["true", "1", "yes"].includes(
+      String(includePaid || "").trim().toLowerCase(),
+    );
+
     // Default behavior for payment dropdown: show all invoices except paid.
     if (status) {
       where.status = status;
-    } else {
+    } else if (!shouldIncludePaid) {
       where.status = { [Op.ne]: "paid" };
     }
 
@@ -2259,7 +2365,6 @@ exports.getLiteInvoices = async (req, res) => {
         "dueDate",
         "billingPeriodStart",
         "billingPeriodEnd",
-        "invoiceType",
       ],
       order: [["createdAt", "DESC"]],
     });

@@ -421,6 +421,21 @@ const normalizeTrunkFilter = (trunk) => {
   return '';
 };
 
+const normalizeCountrySelection = (country) => String(country || '').trim().toLowerCase();
+
+const matchesSelectedCountry = (number, countryCodes, selectedCountry, skipPrefix = true) => {
+  const normalizedSelectedCountry = normalizeCountrySelection(selectedCountry);
+  if (!normalizedSelectedCountry || normalizedSelectedCountry === 'all') return true;
+
+  const resolvedCountry = getCountryFromNumber(number, countryCodes, skipPrefix);
+  return String(resolvedCountry || '').trim().toLowerCase() === normalizedSelectedCountry;
+};
+
+const filterRowsByCountry = (rows, countryCodes, selectedCountry, skipPrefix = true) => {
+  if (!selectedCountry || normalizeCountrySelection(selectedCountry) === 'all') return rows;
+  return (rows || []).filter((row) => matchesSelectedCountry(row.calleee164, countryCodes, selectedCountry, skipPrefix));
+};
+
 const getTrunkWhereCondition = (trunk) => {
   const normalized = normalizeTrunkFilter(trunk);
   if (!normalized) return null;
@@ -510,6 +525,7 @@ exports.hourlyReport = async (req, res) => {
       startDate,
       endDate,
       accountId = 'all',
+      country = 'all',
       startHour = 0,
       startMinute = 0,
       endHour = 23,
@@ -518,15 +534,19 @@ exports.hourlyReport = async (req, res) => {
       trunk = 'all',
       ownerName = ''
     } = req.body;
+    const countryCodes = await getCountryCodes();
 
     const startTimeFormatted = formatTime(startDate, startHour, startMinute);
     const endTimeFormatted = formatTime(endDate, endHour, endMinute, true);
+    const selectedStartHour = Number.isInteger(Number(startHour)) ? Number(startHour) : 0;
+    const selectedEndHour = Number.isInteger(Number(endHour)) ? Number(endHour) : 23;
 
     console.log(' Hourly Report Request:', {
       startDate,
       endDate,
       time: `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')} - ${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`,
       accountId,
+      country,
       trunk,
       vendorReport,
       startTimeFormatted,
@@ -538,8 +558,8 @@ exports.hourlyReport = async (req, res) => {
       endDate,
       startHour,
       endHour,
-      startMinute,
-      endMinute,
+      0,
+      59,
       accountId,
       vendorReport,
       trunk
@@ -555,6 +575,7 @@ exports.hourlyReport = async (req, res) => {
     const rows = await CDR.findAll({
       attributes: [
         [H.hour, 'hour'],
+        'calleee164',
         [fn('COUNT', col('*')), 'attempts'],
         [fn('SUM', H.completedCall), 'completed'],
         [fn('SUM', H.failedCall), 'failed'],
@@ -563,23 +584,25 @@ exports.hourlyReport = async (req, res) => {
         [fn('SUM', H.cost), 'cost']
       ],
       where,
-      group: ['hour'],
+      group: ['hour', 'calleee164'],
       order: [[H.hour, 'ASC']],
       raw: true
     });
 
     console.log(`Processed ${rows.length} raw hour groups`);
 
+    const filteredRows = filterRowsByCountry(rows, countryCodes, country, true);
+
     const utcTodayYmd = new Date().toISOString().slice(0, 10);
     const startDateYmd = String(startDate || '').slice(0, 10);
     const endDateYmd = String(endDate || '').slice(0, 10);
     const isSingleUtcToday = startDateYmd === utcTodayYmd && endDateYmd === utcTodayYmd;
-    const maxHour = isSingleUtcToday ? new Date().getUTCHours() : 23;
+    const maxHour = isSingleUtcToday ? Math.min(selectedEndHour, new Date().getUTCHours()) : selectedEndHour;
 
     // Safety aggregation in Node: guarantees one row per hour for expected buckets.
     const hourlyMap = new Map();
 
-    for (let h = 0; h <= maxHour; h += 1) {
+    for (let h = selectedStartHour; h <= maxHour; h += 1) {
       hourlyMap.set(h, {
         hour: h,
         attempts: 0,
@@ -591,10 +614,10 @@ exports.hourlyReport = async (req, res) => {
       });
     }
 
-    for (const r of rows) {
+    for (const r of filteredRows) {
       const hourRaw = String(r.hour ?? '').trim();
       const h = Number.parseInt(hourRaw, 10);
-      if (Number.isNaN(h) || h < 0 || h > maxHour || !hourlyMap.has(h)) continue;
+      if (Number.isNaN(h) || h < selectedStartHour || h > maxHour || !hourlyMap.has(h)) continue;
 
       const agg = hourlyMap.get(h);
       agg.attempts += Number(r.attempts || 0);
@@ -647,11 +670,11 @@ exports.hourlyReport = async (req, res) => {
 /* ===================== MARGIN REPORT ===================== */
 exports.marginReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', country = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes();
 
     console.log('Margin Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
+      startDate, endDate, accountId, country, startHour, startMinute, endHour, endMinute, trunk, vendorReport
     });
 
     const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
@@ -677,16 +700,13 @@ exports.marginReport = async (req, res) => {
       raw: true
     });
 
-    if (cdrs.length === 0) {
+    const filteredCdrs = filterRowsByCountry(cdrs, countryCodes, country, true);
+
+    if (filteredCdrs.length === 0) {
       return res.json({
         success: true,
         data: [],
-        summary: {
-          totalRevenue: 0,
-          totalCost: 0,
-          totalMargin: 0,
-          avgMarginPercent: 0
-        },
+        summary: { totalRevenue: 0, totalCost: 0, totalMargin: 0, avgMarginPercent: 0 },
         message: 'No CDR records found for the selected criteria'
       });
     }
@@ -694,7 +714,7 @@ exports.marginReport = async (req, res) => {
     // Group by account and destination country
     const groupedData = {};
     
-    cdrs.forEach(r => {
+    filteredCdrs.forEach(r => {
       const accountCode = vendorReport ? r.agentaccount : r.customeraccount;
       const accountName = vendorReport ? r.agentname : r.customername;
       
@@ -766,11 +786,11 @@ exports.marginReport = async (req, res) => {
 /* ===================== CUSTOMER TRAFFIC REPORT (customer-to-vendor) ===================== */
 exports.customerTrafficReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', country = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes();
 
     console.log('Customer Traffic Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
+      startDate, endDate, accountId, country, startHour, startMinute, endHour, endMinute, trunk, vendorReport
     });
 
     const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
@@ -794,16 +814,13 @@ exports.customerTrafficReport = async (req, res) => {
       raw: true
     });
 
-    if (cdrs.length === 0) {
+    const filteredCdrs = filterRowsByCountry(cdrs, countryCodes, country, true);
+
+    if (filteredCdrs.length === 0) {
       return res.json({
         success: true,
         data: [],
-        summary: {
-          totalCustomers: 0,
-          totalAttempts: 0,
-          totalRevenue: 0,
-          avgASR: 0
-        },
+        summary: { totalCustomers: 0, totalAttempts: 0, totalRevenue: 0, avgASR: 0 },
         message: 'No CDR records found for the selected criteria'
       });
     }
@@ -811,7 +828,7 @@ exports.customerTrafficReport = async (req, res) => {
     // Group by customer, vendor, and shared destination country (from calleee164)
     const groupedData = {};
 
-    cdrs.forEach(r => {
+    filteredCdrs.forEach(r => {
       // Both customer and vendor destination derived from calleee164 (with prefix skip)
       const destination = getCountryFromNumber(r.calleee164, countryCodes, true);
 
@@ -896,11 +913,11 @@ exports.customerTrafficReport = async (req, res) => {
 /* ===================== CUSTOMER-ONLY TRAFFIC REPORT ===================== */
 exports.customerOnlyTrafficReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, trunk = 'all', ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', country = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes();
 
     console.log('Customer‑only Traffic Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk
+      startDate, endDate, accountId, country, startHour, startMinute, endHour, endMinute, trunk
     });
 
     const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, false, trunk);
@@ -919,7 +936,9 @@ exports.customerOnlyTrafficReport = async (req, res) => {
       raw: true
     });
 
-    if (cdrs.length === 0) {
+    const filteredCdrs = filterRowsByCountry(cdrs, countryCodes, country, true);
+
+    if (filteredCdrs.length === 0) {
       return res.json({
         success: true,
         data: [],
@@ -929,7 +948,7 @@ exports.customerOnlyTrafficReport = async (req, res) => {
     }
 
     const groupedData = {};
-    cdrs.forEach(r => {
+    filteredCdrs.forEach(r => {
       const vendDestination = getCountryFromNumber(r.calleee164, countryCodes, false);
       const key = `${r.customeraccount}|${vendDestination}`;
       if (!groupedData[key]) {
@@ -993,11 +1012,11 @@ exports.customerOnlyTrafficReport = async (req, res) => {
 /* ===================== VENDOR-ONLY TRAFFIC REPORT ===================== */
 exports.vendorTrafficReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, trunk = 'all', ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', country = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes();
 
     console.log('Vendor‑only Traffic Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk
+      startDate, endDate, accountId, country, startHour, startMinute, endHour, endMinute, trunk
     });
 
     const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, true, trunk);
@@ -1016,7 +1035,9 @@ exports.vendorTrafficReport = async (req, res) => {
       raw: true
     });
 
-    if (cdrs.length === 0) {
+    const filteredCdrs = filterRowsByCountry(cdrs, countryCodes, country, true);
+
+    if (filteredCdrs.length === 0) {
       return res.json({
         success: true,
         data: [],
@@ -1026,7 +1047,7 @@ exports.vendorTrafficReport = async (req, res) => {
     }
 
     const groupedData = {};
-    cdrs.forEach(r => {
+    filteredCdrs.forEach(r => {
       const vendCountry = getCountryFromNumber(r.calleee164, countryCodes, true);
       const key = `${r.agentaccount}|${vendCountry}`;
       if (!groupedData[key]) {
@@ -1091,11 +1112,11 @@ exports.vendorTrafficReport = async (req, res) => {
 /* ===================== NEGATIVE MARGIN REPORT ===================== */
 exports.negativeMarginReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', country = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes();
 
     console.log('Negative Margin Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
+      startDate, endDate, accountId, country, startHour, startMinute, endHour, endMinute, trunk, vendorReport
     });
 
     const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
@@ -1120,16 +1141,13 @@ exports.negativeMarginReport = async (req, res) => {
       raw: true
     });
 
-    if (cdrs.length === 0) {
+    const filteredCdrs = filterRowsByCountry(cdrs, countryCodes, country, true);
+
+    if (filteredCdrs.length === 0) {
       return res.json({
         success: true,
         data: [],
-        summary: {
-          totalLoss: 0,
-          negativeMarginCalls: 0,
-          affectedCustomers: 0,
-          affectedDestinations: 0
-        },
+        summary: { totalLoss: 0, negativeMarginCalls: 0, affectedCustomers: 0, affectedDestinations: 0 },
         message: 'No CDR records found for the selected criteria'
       });
     }
@@ -1137,7 +1155,7 @@ exports.negativeMarginReport = async (req, res) => {
     // Group by account and destination country
     const groupedData = {};
     
-    cdrs.forEach(r => {
+    filteredCdrs.forEach(r => {
       const accountCode = vendorReport ? r.agentaccount : r.customeraccount;
       const accountName = vendorReport ? r.agentname : r.customername;
       
@@ -1302,10 +1320,15 @@ exports.getReportAccounts = async (req, res) => {
         'accountId',
         'accountName',
         'accountRole',
+        'gatewayId',
         'customerCode',
-        'lastbillingdate',
-        'nextbillingdate',
         'vendorCode',
+        'billingCycle',
+        'billingStartDate',
+        'customerLastBillingDate',
+        'customerNextBillingDate',
+        'vendorLastBillingDate',
+        'vendorNextBillingDate',
         'accountOwner',
         'customerauthenticationType',
         'customerauthenticationValue',
@@ -1313,6 +1336,8 @@ exports.getReportAccounts = async (req, res) => {
         'balance',
         'creditLimit',
         'originalCreditLimit',
+        'createdAt',
+        'trunks',
       ],
       where: { active: true },
       order: [['accountName', 'ASC']],

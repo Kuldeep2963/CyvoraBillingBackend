@@ -64,6 +64,11 @@ const VendorInvoice = sequelize.define('VendorInvoice', {
     type: DataTypes.JSONB,
     allowNull: true,
     defaultValue: null
+  },
+  billingStateSnapshot: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: null
   }
 }, {
   tableName: 'vendor_invoices',

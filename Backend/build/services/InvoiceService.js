@@ -51,6 +51,21 @@ const getCountryFromNumber = (number, countryCodes) => {
   return 'Unknown';
 };
 
+const getCountryCallingCodeFromNumber = (number, countryCodes) => {
+  if (!number) return '';
+
+  const cleaned = number.toString().replace(/^(\+|00)/, '');
+  const sortedCodes = [...countryCodes].sort((a, b) => b.code.length - a.code.length);
+
+  for (const cc of sortedCodes) {
+    if (cleaned.startsWith(cc.code)) {
+      return `+${cc.code}`;
+    }
+  }
+
+  return '';
+};
+
 /* ===================== HELPER: GET TRUNK NAME ===================== */
 const getTrunkName = (number) => {
   if (!number) return 'Unknown';
@@ -286,6 +301,23 @@ class InvoiceService {
       // Get country codes for mapping
       const countryCodes = await CountryCode.findAll({ raw: true });
 
+      const normalizedBillingPeriodStart = formatTime(billingPeriodStart);
+      const normalizedBillingPeriodEnd = formatTime(billingPeriodEnd, 23, true);
+      const invoiceAccountCode = isVendor ? account.vendorCode : account.customerCode;
+
+      const duplicateInvoice = await Invoice.findOne({
+        where: {
+          customerCode: invoiceAccountCode,
+          billingPeriodStart: normalizedBillingPeriodStart,
+          billingPeriodEnd: normalizedBillingPeriodEnd,
+        },
+        transaction,
+      });
+
+      if (duplicateInvoice) {
+        throw new Error('An invoice already exists for this billing period');
+      }
+
       // ✅ Build CDR WHERE conditions using authentication logic
       const authConditions = buildAccountConditions(account, isVendor);
       
@@ -295,7 +327,7 @@ class InvoiceService {
 
       const cdrWhere = {
         starttime: {
-          [Op.between]: [formatTime(billingPeriodStart), formatTime(billingPeriodEnd, 23, true)]
+          [Op.between]: [normalizedBillingPeriodStart, normalizedBillingPeriodEnd]
         },
         [Op.or]: authConditions
       };
@@ -336,30 +368,21 @@ class InvoiceService {
         
         if (phoneNumber) {
           destination = getCountryFromNumber(actualCalleee, countryCodes);
-          prefix = phoneNumber.countryCallingCode;
+          prefix = `+${phoneNumber.countryCallingCode}`;
         } else {
           destination = getCountryFromNumber(actualCalleee, countryCodes);
-          prefix = actualCalleee.length >= 6 ? actualCalleee.substring(0, 3) : actualCalleee;
+          prefix = getCountryCallingCodeFromNumber(actualCalleee, countryCodes)
+            || (actualCalleee.length >= 6 ? `+${actualCalleee.substring(0, 3)}` : actualCalleee);
         }
 
         const trunk = getTrunkName(cdr.calleee164);
-        
-        let customDescription = '';
-        if (cdr.calleegatewayid) {
-          const parts = cdr.calleegatewayid.split('--');
-          if (parts.length >= 3) {
-            customDescription = parts[2].trim();
-          }
-        }
-
-        const key = `${destination}|${prefix}|${trunk}|${customDescription}`;
+        const key = `${destination}|${prefix}|${trunk}`;
         
         if (!groupedData[key]) {
           groupedData[key] = {
             destination,
             trunk,
             prefix,
-            customDescription,
             totalCalls: 0,
             completedCalls: 0,
             failedCalls: 0,
@@ -393,22 +416,22 @@ class InvoiceService {
 
         return {
           itemType: 'call_charges',
-          description: item.customDescription || `Calls to ${item.destination} (${item.trunk})`,
+          description: '',
           destination: item.destination,
           trunk: item.trunk,
           prefix: item.prefix,
-          quantity: item.totalCalls,
+          quantity: item.completedCalls,
           duration: item.duration,
-          unitPrice: item.totalCalls > 0 ? (amount / item.totalCalls) : 0,
+          unitPrice: item.completedCalls > 0 ? (amount / item.completedCalls) : 0,
           amount: parseFloat(amount.toFixed(4)),
-          totalCalls: item.totalCalls,
+          totalCalls: item.completedCalls,
           completedCalls: item.completedCalls,
           failedCalls: item.failedCalls,
           asr: item.totalCalls > 0 ? parseFloat(((item.completedCalls / item.totalCalls) * 100).toFixed(2)) : 0,
           acd: item.completedCalls > 0 ? parseFloat((item.duration / item.completedCalls).toFixed(2)) : 0,
           taxable: true,
-          periodStart: formatTime(billingPeriodStart),
-          periodEnd: formatTime(billingPeriodEnd, 23, true),
+          periodStart: normalizedBillingPeriodStart,
+          periodEnd: normalizedBillingPeriodEnd,
           sortOrder: index
         };
       });
@@ -433,8 +456,8 @@ class InvoiceService {
         customerEmail: account.email,
         customerAddress: account.addressLine1 + (account.addressLine2 ? ', ' + account.addressLine2 : ''),
         customerPhone: account.phone,
-        billingPeriodStart: formatTime(billingPeriodStart),
-        billingPeriodEnd: formatTime(billingPeriodEnd, 23, true),
+        billingPeriodStart: normalizedBillingPeriodStart,
+        billingPeriodEnd: normalizedBillingPeriodEnd,
         invoiceDate,
         dueDate,
         subtotal: parseFloat(subtotal.toFixed(4)),
@@ -456,8 +479,6 @@ class InvoiceService {
           ...item
         }, { transaction });
       }
-
-      await adjustAccountForInvoice(account, totalAmount, transaction, 'consume');
 
       await transaction.commit();
 
@@ -627,15 +648,6 @@ class InvoiceService {
 
       if (Number(invoice.paidAmount) > 0) {
         throw new Error('Cannot void an invoice with payments. Refund payments first.');
-      }
-
-      const account = await resolveInvoiceAccount(invoice, transaction);
-      if (account) {
-        const restoreAmount =
-          account.billingType === 'postpaid'
-            ? Number(invoice.balanceAmount || 0)
-            : Number(invoice.totalAmount || 0);
-        await adjustAccountForInvoice(account, restoreAmount, transaction, 'restore');
       }
 
       await invoice.update({

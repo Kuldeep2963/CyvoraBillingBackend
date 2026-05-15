@@ -100,6 +100,7 @@ import {
   fetchReportAccounts,
   generateReport,
   exportReport,
+  fetchCountryCodes,
 } from "../utils/api";
 import MissingGateways from "./missinggateways";
 import useNotify from "../utils/notify";
@@ -132,8 +133,12 @@ const TRUNK_OPTIONS = [
   { value: "ORTP/TDM", label: "ORTP/TDM" },
   { value: "CC", label: "CC" },
 ];
-
+const pad2 = (value) => String(value).padStart(2, "0");
 const ROWS_PER_PAGE_OPTIONS = [50, 100, 250];
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
+  value: String(hour),
+  label: `${pad2(hour)}:00`,
+}));
 
 // ─── Helper: DatePicker custom input (forwardRef required by react-datepicker) ─
 
@@ -180,7 +185,6 @@ const formatDuration = (seconds) => {
   const s = Math.floor(seconds % 60);
   return [h, m, s].map((v) => v.toString().padStart(2, "0")).join(":");
 };
-const pad2 = (value) => String(value).padStart(2, "0");
 
 const formatDateAsYmd = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 
@@ -250,9 +254,9 @@ const EmptyState = ({ onGenerateReport }) => (
     textAlign="center"
     w="full"
   >
-    <Box p={4} bg="white" borderRadius="full" shadow="sm">
+    {/* <Box p={4} bg="white" borderRadius="full" shadow="sm">
       <Icon as={FiBarChart2} boxSize={8} color="blue.500" />
-    </Box>
+    </Box> */}
     
     <VStack spacing={2}>
       <Heading size="md" color="gray.700">
@@ -269,7 +273,7 @@ const EmptyState = ({ onGenerateReport }) => (
 // Each tab renders a different table. Column configs are static.
 const HOURLY_COLUMNS = [
   { label: "Hour", key: "hour" },
-  { label: "Account Owner", key: "accountOwner" },
+  // { label: "Account Owner", key: "accountOwner" },
   { label: "Attempts", key: "attempts", isNumeric: true },
   { label: "Completed", key: "completed", isNumeric: true },
   { label: "ASR %", key: "asr", isNumeric: true },
@@ -332,6 +336,9 @@ const Reports = () => {
   const [rowsPerPage, setRowsPerPage] = useState(50);
   const [selectedTrunk, setSelectedTrunk] = useState("all");
   const [selectedOwner, setSelectedOwner] = useState("all");
+  const [selectedCountry, setSelectedCountry] = useState("all");
+  const [countryOptions, setCountryOptions] = useState([]);
+  const [countryLoading, setCountryLoading] = useState(false);
   const [filters] = useState({ minASR: 0, maxASR: 100, minMargin: -100, maxMargin: 100 });
 
   const toast = useNotify();
@@ -341,6 +348,7 @@ const Reports = () => {
 
   // ── Effects ────────────────────────────────────────────────────────────────
   useEffect(() => { loadAccounts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadCountryOptions(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset page whenever filtered data changes (search, sort, filters)
   // We do this via a ref to detect actual data/search/sort changes
@@ -373,6 +381,55 @@ const Reports = () => {
       });
     } finally {
       setAccountsLoading(false);
+    }
+  }, [toast]);
+
+  const loadCountryOptions = useCallback(async () => {
+    setCountryLoading(true);
+    try {
+      const allRows = [];
+      let pageNumber = 1;
+
+      while (true) {
+        const result = await fetchCountryCodes({ page: pageNumber, limit: 100 });
+        allRows.push(...(result.countryCodes || []));
+        if (!result.totalPages || pageNumber >= result.totalPages) break;
+        pageNumber += 1;
+      }
+
+      const countryMap = new Map();
+      allRows.forEach((row) => {
+        const countryName = String(row.country_name || '').trim();
+        if (!countryName) return;
+        const key = countryName.toLowerCase();
+        const existing = countryMap.get(key) || {
+          value: countryName,
+          label: countryName,
+          codes: new Set(),
+        };
+        if (row.code) existing.codes.add(String(row.code).trim());
+        countryMap.set(key, existing);
+      });
+
+      const options = Array.from(countryMap.values())
+        .map((item) => ({
+          value: item.value,
+          label: item.label,
+          codes: Array.from(item.codes).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+
+      setCountryOptions(options);
+    } catch (error) {
+      toast({
+        title: 'Error loading country list',
+        description: error.message,
+        status: 'warning',
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setCountryLoading(false);
     }
   }, [toast]);
 
@@ -443,7 +500,7 @@ const Reports = () => {
       toast({ title: "Invalid hour range", description: "End hour must be after or equal to start hour", status: "warning", duration: 3000, isClosable: true });
       return;
     }
-    if (dateRange.endHour === dateRange.startHour && dateRange.endMinute < dateRange.startMinute) {
+    if (activeTab !== 0 && dateRange.endHour === dateRange.startHour && dateRange.endMinute < dateRange.startMinute) {
       toast({ title: "Invalid time range", description: "End time must be after start time", status: "warning", duration: 3000, isClosable: true });
       return;
     }
@@ -469,8 +526,16 @@ const Reports = () => {
         5: "vendor-traffic",
       };
 
-      const startPayload = utcSelectionToBackendPayload(dateRange.startDate, dateRange.startHour, dateRange.startMinute);
-      const endPayload = utcSelectionToBackendPayload(dateRange.endDate, dateRange.endHour, dateRange.endMinute);
+      const startPayload = utcSelectionToBackendPayload(
+        dateRange.startDate,
+        dateRange.startHour,
+        activeTab === 0 ? 0 : dateRange.startMinute,
+      );
+      const endPayload = utcSelectionToBackendPayload(
+        dateRange.endDate,
+        dateRange.endHour,
+        activeTab === 0 ? 59 : dateRange.endMinute,
+      );
 
       const params = {
         startDate: startPayload.date,
@@ -480,6 +545,7 @@ const Reports = () => {
         endHour: endPayload.hour,
         endMinute: endPayload.minute,
         accountId: selectedAccount,
+        country: selectedCountry,
         vendorReport: activeTab === 4 ? false : activeTab === 5 ? true : isVendorReport,
         trunk: selectedTrunk,
         ownerName: selectedAccountObj?.ownerName ?? "",
@@ -544,7 +610,7 @@ const Reports = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, accounts, dateRange, isVendorReport, selectedAccount, selectedTrunk, toast]);
+  }, [activeTab, accounts, dateRange, isVendorReport, selectedAccount, selectedCountry, selectedTrunk, toast]);
 
   // BUG FIX: export filteredData (respects search/sort), not raw reportData
   const handleExport = useCallback(
@@ -772,7 +838,7 @@ const Reports = () => {
         }
       />
 
-      <Box mt={6}>
+      <Box mt={6} px={2}>
         {/* ── Report type + date controls ──────────────────────────────────── */}
         <Flex direction={{ base: "column", lg: "row" }} gap={4} align={{ base: "stretch", lg: "flex-end" }}>
           <FormControl maxW={{ base: "100%", md: "320px" }}>
@@ -829,8 +895,23 @@ const Reports = () => {
                 </Box>
               </WrapItem>
 
-              {/* Time pickers – hidden for Hourly Report (tab 0) */}
-              {activeTab !== 0 && (
+              {/* Hourly report uses hour-only filters; other reports keep minute precision */}
+              {activeTab === 0 ? (
+                <>
+                  <HourPickerButton
+                    size="xs"
+                    label="From (UTC)"
+                    hour={dateRange.startHour}
+                    onHourChange={setStartHour}
+                  />
+                  <HourPickerButton
+                    size="xs"
+                    label="To (UTC)"
+                    hour={dateRange.endHour}
+                    onHourChange={setEndHour}
+                  />
+                </>
+              ) : (
                 <>
                   <TimePickerButton
                     label="From Time (UTC)"
@@ -865,6 +946,10 @@ const Reports = () => {
               selectedOwner={selectedOwner}
               setSelectedOwner={setSelectedOwner}
               ownerOptions={ownerOptions}
+              selectedCountry={selectedCountry}
+              setSelectedCountry={setSelectedCountry}
+              countryOptions={countryOptions}
+              countryLoading={countryLoading}
               selectedTrunk={selectedTrunk}
               setSelectedTrunk={setSelectedTrunk}
               accounts={ownerFilteredAccounts}
@@ -904,7 +989,7 @@ const Reports = () => {
                   <VStack align="start" spacing={1}>
                     {/* BUG FIX: use REPORT_TITLES map instead of broken array index */}
                     <Heading size="md">{REPORT_TITLES[activeTab] ?? "Report"}</Heading>
-                    <Text fontSize="sm" color={mutedColor}>
+                    <Text>{selectedAccount}</Text>                    <Text fontSize="sm" color={mutedColor}>
                       Generated on {new Date().toLocaleDateString()} | Data range:{" "}
                       {dateRange.startDate.toLocaleDateString()} to {dateRange.endDate.toLocaleDateString()}
                     </Text>
@@ -975,10 +1060,11 @@ const ReportControls = React.memo(({
   activeTab, isVendorReport, setIsVendorReport,
   selectedAccount, setSelectedAccount,
   selectedOwner, setSelectedOwner, ownerOptions,
+  selectedCountry, setSelectedCountry, countryOptions, countryLoading,
   selectedTrunk, setSelectedTrunk, accounts, accountsLoading,
   marginThreshold, setMarginThreshold, loading, dateRange, onGenerate, cardBg,
 }) => (
-  <Box mb={4} p={4} bg={cardBg} shadow="lg" borderRadius="md">
+  <Box mb={4} p={4} bg={cardBg} shadow="sm" borderRadius="md" >
     <VStack spacing={6} align="stretch">
       <Flex direction={{ base: "column", lg: "row" }} gap={6} align={{ base: "stretch", lg: "flex-end" }}>
         {/* Report side radio (Hourly, Margin, Customer-Vendor) */}
@@ -1003,6 +1089,7 @@ const ReportControls = React.memo(({
         <FormControl maxW={{ base: "100%", lg: "220px" }}>
           <FormLabel>Account Owner</FormLabel>
           <Select
+            size="sm"
             value={selectedOwner}
             onChange={(e) => {
               setSelectedOwner(e.target.value);
@@ -1024,6 +1111,7 @@ const ReportControls = React.memo(({
             <FiUser />{isVendorReport ? "Vendor Account" : "Customer Account"}
           </FormLabel>
           <Select
+            size="sm"
             value={selectedAccount}
             onChange={(e) => setSelectedAccount(e.target.value)}
             isDisabled={accountsLoading}
@@ -1035,7 +1123,7 @@ const ReportControls = React.memo(({
                 key={account.id ?? account._id}
                 value={isVendorReport ? account.vendorCode : account.customerCode}
               >
-                {account.customerCode ?? account.vendorCode} ({account.accountName})
+                {account.accountName} ({isVendorReport ? account.vendorCode : account.customerCode})
               </option>
             ))}
           </Select>
@@ -1044,6 +1132,7 @@ const ReportControls = React.memo(({
         <FormControl maxW={{ base: "100%", lg: "180px" }}>
           <FormLabel>Trunk</FormLabel>
           <Select
+            size="sm"
             value={selectedTrunk}
             onChange={(e) => setSelectedTrunk(e.target.value)}
             isDisabled={loading}
@@ -1056,10 +1145,19 @@ const ReportControls = React.memo(({
           </Select>
         </FormControl>
 
+        <CountrySearchSelect
+          label="Country"
+          value={selectedCountry}
+          options={countryOptions}
+          onChange={setSelectedCountry}
+          placeholder={countryLoading ? 'Loading countries...' : 'All Countries'}
+          loading={countryLoading || loading}
+        />
+
         {/* Negative margin threshold */}
         {activeTab === 2 && (
           <FormControl>
-            <FormLabel fontWeight="bold" display="flex" alignItems="center" gap={2}>
+            <FormLabel fontWeight="medium" display="flex" alignItems="center" gap={2}>
               <FiTrendingDown />Negative Margin Threshold
             </FormLabel>
             <NumberInput
@@ -1197,6 +1295,144 @@ const TimePickerButton = React.memo(({ label, hour, minute, onHourChange, onMinu
   </WrapItem>
 ));
 TimePickerButton.displayName = "TimePickerButton";
+
+const HourPickerButton = React.memo(({ label, hour, onHourChange }) => (
+  <WrapItem>
+    <Box>
+      <FormLabel fontSize="sm" display="flex" alignItems="center" gap={2} mb={2}>
+        <FiClock />{label}
+      </FormLabel>
+      <Box w="120px">
+        <Select
+          size="xs"
+          value={String(hour)}
+          onChange={(e) => {
+            const nextHour = Number(e.target.value);
+            if (!Number.isInteger(nextHour) || nextHour < 0 || nextHour > 23) return;
+            onHourChange(nextHour);
+          }}
+          options={HOUR_OPTIONS}
+        />
+      </Box>
+    </Box>
+  </WrapItem>
+));
+HourPickerButton.displayName = "HourPickerButton";
+
+const CountrySearchSelect = React.memo(({ label, value, options, onChange, placeholder = 'All Countries', loading = false }) => {
+  const wrapperRef = useRef(null);
+  const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+
+  const selectedOption = useMemo(() => (
+    options.find((option) => option.value === value) || null
+  ), [options, value]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery(value === 'all' ? '' : selectedOption?.label || '');
+    }
+  }, [isOpen, selectedOption, value]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredOptions = useMemo(() => {
+    const normalizedTerm = query.trim().toLowerCase();
+    const baseOptions = [{ value: 'all', label: 'All Countries', codes: [] }, ...options];
+
+    if (!normalizedTerm) {
+      return baseOptions;
+    }
+
+    return baseOptions.filter((option) => {
+      const haystack = `${option.label} ${(option.codes || []).join(' ')}`.toLowerCase();
+      return haystack.includes(normalizedTerm);
+    });
+  }, [options, query]);
+
+  return (
+    <FormControl maxW={{ base: '100%', lg: '260px' }}>
+      <FormLabel>{label}</FormLabel>
+      <Box ref={wrapperRef} position="relative">
+        <Input
+          size="sm"
+          value={query}
+          placeholder={placeholder}
+          onFocus={() => setIsOpen(true)}
+          onChange={(e) => {
+            const nextValue = e.target.value;
+            setQuery(nextValue);
+            setIsOpen(true);
+            if (!nextValue.trim()) {
+              onChange('all');
+            }
+          }}
+          onClick={() => setIsOpen(true)}
+          disabled={loading}
+        />
+        {isOpen && (
+          <Box
+            position="absolute"
+            top="calc(100% + 6px)"
+            left={0}
+            right={0}
+            zIndex={20}
+            bg="white"
+            borderWidth="1px"
+            borderColor="gray.200"
+            borderRadius="md"
+            boxShadow="lg"
+            maxH="260px"
+            overflowY="auto"
+          >
+            {filteredOptions.length > 0 ? filteredOptions.map((option) => (
+              <Button
+                key={option.value}
+                variant="ghost"
+                w="full"
+                justifyContent="flex-start"
+                borderRadius={0}
+                px={3}
+                py={2}
+                h="auto"
+                onClick={() => {
+                  onChange(option.value);
+                  setQuery(option.value === 'all' ? '' : option.label);
+                  setIsOpen(false);
+                }}
+              >
+                <VStack spacing={0} align="start" w="full">
+                  <Text fontSize="sm" fontWeight={option.value === value ? '700' : '500'}>
+                    {option.label}
+                  </Text>
+                  {option.codes?.length > 0 && option.value !== 'all' ? (
+                    <Text fontSize="xs" color="gray.500">
+                      {option.codes.join(', ')}
+                    </Text>
+                  ) : null}
+                </VStack>
+              </Button>
+            )) : (
+              <Box px={3} py={2}>
+                <Text fontSize="sm" color="gray.500">No matching countries</Text>
+              </Box>
+            )}
+          </Box>
+        )}
+      </Box>
+    </FormControl>
+  );
+});
+CountrySearchSelect.displayName = 'CountrySearchSelect';
 
 // ─── ReportTable ──────────────────────────────────────────────────────────────
 
@@ -1403,7 +1639,7 @@ const HourlyTableBody = React.memo(({ rows }) => (
     {rows.map((row, i) => (
       <Tr key={i}>
         <Td>{row.hour}</Td>
-        <Td>{row.accountOwner ?? "-"}</Td>
+        {/* <Td>{row.accountOwner ?? "-"}</Td> */}
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric>{formatNumber(row.completed)}</Td>
         <Td isNumeric>

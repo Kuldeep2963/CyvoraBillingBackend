@@ -36,7 +36,6 @@ const sampleHeaders = [
   "country",
   "billingType",
   "billingCycle",
-  "lastbillingdate",
   "customerCode",
   "vendorCode",
   "gatewayId",
@@ -156,7 +155,6 @@ const BulkAccountUploadModal = ({ isOpen, onClose, onUploaded }) => {
       billingTimezone: pick("billingtimezone") || "UTC",
       billingStartDate: pick("billingstartdate") || today,
       billingCycle: (pick("billingcycle") || "monthly").toLowerCase(),
-      lastbillingdate: pick("lastbillingdate", "last_billing_date"),
       customerCode: pick("customercode", "customer_code"),
       vendorCode: pick("vendorcode", "vendor_code"),
       gatewayId: pick("gatewayid", "gateway_id"),
@@ -243,7 +241,7 @@ const BulkAccountUploadModal = ({ isOpen, onClose, onUploaded }) => {
                 disabled={isUploading}
               />
               <FormHelperText>
-                Required columns: accountId, accountName, email, phone, addressLine1, city, postalCode, country, lastbillingdate.
+                Required columns: accountId, accountName, email, phone, addressLine1, city, postalCode, country, billingCycle.
               </FormHelperText>
             </FormControl>
 

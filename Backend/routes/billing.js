@@ -40,6 +40,7 @@ router.put('/invoices/:id', billingController.updateInvoice);
 
 // Delete invoice
 router.delete('/invoices/:id', billingController.deleteInvoice);
+router.post('/invoices/bulk-delete', billingController.deleteInvoices);
 
 // Raise dispute
 router.post('/dispute/raise', billingController.raiseDispute);

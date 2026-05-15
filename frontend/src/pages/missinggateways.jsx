@@ -177,6 +177,7 @@ SummaryStatCard.displayName = "SummaryStatCard";
               <FormControl>
                 <FormLabel >From Date</FormLabel>
                 <Input 
+                  size="sm"
                   type="date" 
                   value={from} 
                   onChange={(e) => setFrom(e.target.value)}
@@ -186,6 +187,7 @@ SummaryStatCard.displayName = "SummaryStatCard";
               <FormControl>
                 <FormLabel >To Date</FormLabel>
                 <Input 
+                  size="sm"
                   type="date" 
                   value={to} 
                   onChange={(e) => setTo(e.target.value)}
@@ -199,6 +201,7 @@ SummaryStatCard.displayName = "SummaryStatCard";
                     <SearchIcon color="gray.400"  />
                   </InputLeftElement>
                   <Input
+                    size="sm"
                     pl={10}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}

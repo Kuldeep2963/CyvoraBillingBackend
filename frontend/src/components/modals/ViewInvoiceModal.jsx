@@ -268,7 +268,7 @@ const ViewInvoiceModal = ({
                   <Heading size="sm">Call Details & Actions</Heading>
                   <HStack spacing={2}>
                     <InputGroup size="sm" w="200px" borderRadius={"md"}>
-                      <InputLeftElement bg={"gray.100"} pointerEvents="none">
+                      <InputLeftElement borderLeftRadius={"full"} bg={"gray.100"} pointerEvents="none">
                         <FiSearch color="gray" />
                       </InputLeftElement>
                       <Input
@@ -279,7 +279,7 @@ const ViewInvoiceModal = ({
                       />
                     </InputGroup>
                     <Button
-                      borderRadius="2px"
+                      borderRadius="4px"
                       size="sm"
                       leftIcon={<FiCreditCard />}
                       colorScheme="blue"
@@ -290,7 +290,7 @@ const ViewInvoiceModal = ({
                     </Button>
 
                     <Button
-                      borderRadius="2px"
+                      borderRadius="4px"
                       size="sm"
                       leftIcon={<FiMail />}
                       colorScheme="green"
@@ -299,7 +299,7 @@ const ViewInvoiceModal = ({
                       Send on Mail
                     </Button>
                     <Button
-                      borderRadius="2px"
+                      borderRadius="4px"
                       size="sm"
                       leftIcon={<FiDownload />}
                       variant="outline"
@@ -335,7 +335,7 @@ const ViewInvoiceModal = ({
                             Trunk
                           </Th>
                           <Th isNumeric color={"black"}>
-                            Prefix
+                             Country Code
                           </Th>
                           <Th color={"black"}>Destination</Th>
                           <Th color={"black"} isNumeric>
@@ -358,12 +358,14 @@ const ViewInvoiceModal = ({
                       <Tbody>
                         {filteredItems.map((item, index) => (
                           <Tr key={index} _hover={{ bg: "gray.50" }}>
-                            <Td>{item.trunk || "-"}</Td>
-                            <Td>{item.prefix || "-"}</Td>
-                            <Td>{item.destination || "-"}</Td>
-                            <Td isNumeric>{item.totalCalls}</Td>
-                            <Td isNumeric>{item.duration.toFixed(2)} sec</Td>
-                            <Td isNumeric>
+                            <Td textAlign={"center"}>{item.trunk || "-"}</Td>
+                            <Td textAlign={"center"}>{item.prefix || "-"}</Td>
+                            <Td textAlign={"center"}>{item.destination || "-"}</Td>
+                            <Td textAlign={"center"} isNumeric>{item.totalCalls}</Td>
+                            <Td textAlign={"center"} isNumeric>
+                              {item.duration.toFixed(2)} sec
+                            </Td>
+                            <Td textAlign={"center"} isNumeric>
                               {(item.duration / 60).toFixed(2)} min
                             </Td>
                             <Td color={"blue"} isNumeric>

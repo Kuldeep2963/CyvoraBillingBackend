@@ -74,7 +74,7 @@ const buildConditionsFromAuth = (account, vendorSide = false) => {
   }
 
   // Legacy fallback when auth is not configured.
-  if (or.length === 0) {
+  if (or.length === 0 && authType !== 'ip' && authType !== 'custom') {
     if (vendorSide) {
       const vCode = account.vendorCode || account.gatewayId;
       if (vCode) or.push(trimmedEq('agentaccount', vCode));
@@ -136,8 +136,8 @@ const unknownCustomerConditionSql = (alias) => `
               regexp_replace(
                 COALESCE(a."customerauthenticationValue"::text, ''),
                 '(^\\s*\\[|\\]\\s*$)',
-                TRIM(COALESCE(${alias}."customeraccount"::text, '')) = BTRIM(auth.v, ' "')
-                OR TRIM(COALESCE(${alias}."customername"::text, '')) = BTRIM(auth.v, ' "')
+                '',
+                'g'
               ),
               '\\s*,\\s*'
             ) AS auth(v)
@@ -146,13 +146,13 @@ const unknownCustomerConditionSql = (alias) => `
                 TRIM(COALESCE(${alias}."customeraccount"::text, '')) = BTRIM(auth.v, ' "')
                 OR TRIM(COALESCE(${alias}."customername"::text, '')) = BTRIM(auth.v, ' "')
               )
-              NULLIF(TRIM(COALESCE(a."customerCode"::text, '')), '') IS NOT NULL
-              AND TRIM(COALESCE(${alias}."customeraccount"::text, '')) = TRIM(a."customerCode"::text)
+          )
+        )
         OR
         (
           COALESCE(a."customerauthenticationType"::text, '') NOT IN ('ip', 'custom')
-              NULLIF(TRIM(COALESCE(a."gatewayId"::text, '')), '') IS NOT NULL
-              AND TRIM(COALESCE(${alias}."customeraccount"::text, '')) = TRIM(a."gatewayId"::text)
+          AND (
+            (
               NULLIF(TRIM(COALESCE(a."customerCode"::text, '')), '') IS NOT NULL
               AND TRIM(COALESCE(${alias}."customeraccount"::text, '')) = TRIM(a."customerCode"::text)
             )

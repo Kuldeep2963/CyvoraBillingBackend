@@ -71,6 +71,7 @@ const handleUpload = (req, res, next) => {
   });
 };
 
+router.post('/usage-preview', vendorInvoiceController.previewVendorUsage);
 router.post('/', handleUpload, vendorInvoiceController.createVendorInvoice);
 router.get('/', vendorInvoiceController.getVendorInvoices);
 router.get('/:id/files', vendorInvoiceController.getVendorInvoiceFiles);

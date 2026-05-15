@@ -10,6 +10,13 @@ const { normalizeStoredPath, toStoredRelativePath } = require('../config/storage
 const H = require('../utils/reportHelper');
 const EmailService = require('../services/EmailService');
 const BillingAutomationService = require('../services/BillingAutomationService');
+const {
+  addDays,
+  calculateNextBillingDate,
+  calculatePrevBillingDate,
+  getInitialLastBillingDate,
+  normalizeDateOnly,
+} = require('../utils/CalendarBillingCalculator');
 
 const parseStoredFilePaths = (rawValue) => {
   if (!rawValue) return [];
@@ -68,21 +75,14 @@ const cleanupUploadedFiles = async (files) => {
 };
 
 const addDaysAsDateOnly = (dateValue, days) => {
-  if (!dateValue && dateValue !== 0) return null;
-
-  const numericDate = Number(dateValue);
-  const baseDate = !isNaN(numericDate) ? new Date(numericDate) : new Date(dateValue);
-  if (isNaN(baseDate.getTime())) return null;
-
-  baseDate.setDate(baseDate.getDate() + days);
-  return baseDate.toISOString().split('T')[0];
+  return addDays(dateValue, days);
 };
 
-const buildVendorBillingUpdates = (account, billedThroughDate) => {
+const buildVendorBillingUpdates = (account, invoicePeriodEnd) => {
   return BillingAutomationService.buildStreamUpdates(
     account,
     'vendor',
-    billedThroughDate,
+    invoicePeriodEnd,
   );
 };
 
@@ -98,37 +98,125 @@ const getBillingDateSnapshot = (account) => {
     customerNextBillingDate: data.customerNextBillingDate || null,
     vendorLastBillingDate: data.vendorLastBillingDate || null,
     vendorNextBillingDate: data.vendorNextBillingDate || null,
-    lastbillingdate: data.lastbillingdate || null,
-    nextbillingdate: data.nextbillingdate || null,
   };
+};
+
+const getBillingSnapshotUpdatePayload = (snapshot) => {
+  if (!snapshot) return {};
+
+  return {
+    customerLastBillingDate: snapshot.customerLastBillingDate || null,
+    customerNextBillingDate: snapshot.customerNextBillingDate || null,
+    vendorLastBillingDate: snapshot.vendorLastBillingDate || null,
+    vendorNextBillingDate: snapshot.vendorNextBillingDate || null,
+    lastbillingdate: snapshot.customerLastBillingDate || snapshot.vendorLastBillingDate || null,
+    nextbillingdate: snapshot.customerNextBillingDate || snapshot.vendorNextBillingDate || null,
+  };
+};
+
+const shouldRestoreSnapshotInsteadOfRecalculate = (deletedInvoice, latestRemainingInvoice) => {
+  if (!latestRemainingInvoice) return true;
+
+  const deletedEndDate = addDaysAsDateOnly(deletedInvoice?.endDate, 0);
+  const remainingEndDate = addDaysAsDateOnly(latestRemainingInvoice?.endDate, 0);
+
+  if (!deletedEndDate || !remainingEndDate) return true;
+  if (deletedEndDate > remainingEndDate) return true;
+  if (deletedEndDate < remainingEndDate) return false;
+
+  const deletedCreatedAt = deletedInvoice?.createdAt ? new Date(deletedInvoice.createdAt).getTime() : 0;
+  const remainingCreatedAt = latestRemainingInvoice?.createdAt ? new Date(latestRemainingInvoice.createdAt).getTime() : 0;
+
+  return deletedCreatedAt >= remainingCreatedAt;
 };
 
 const recalculateVendorBillingDatesAfterDelete = async (account, deletedInvoice, transaction) => {
   if (!account) return;
 
-  const latestRemainingInvoice = await VendorInvoice.findOne({
-    where: { vendorCode: account.vendorCode },
-    order: [["endDate", "DESC"], ["createdAt", "DESC"]],
-    transaction,
-  });
+  try {
+    const vendorLookupConditions = [];
+    if (account.vendorCode) {
+      vendorLookupConditions.push({ vendorCode: account.vendorCode });
+    }
+    if (account.gatewayId) {
+      vendorLookupConditions.push({ vendorCode: account.gatewayId });
+    }
 
-  const deletedInvoiceStartDate = deletedInvoice?.startDate
-    ? addDaysAsDateOnly(deletedInvoice.startDate, 0)
-    : null;
-  const fallbackDate = deletedInvoiceStartDate || addDaysAsDateOnly(account.billingStartDate || account.createdAt, 0);
-  const billedThroughDate = latestRemainingInvoice?.endDate
-    ? addDaysAsDateOnly(latestRemainingInvoice.endDate, 1)
-    : fallbackDate;
+    // account.accountId may contain non-numeric identifiers (e.g. 'ACC4510').
+    // Only add a numeric vendorId condition; otherwise treat it as a vendorCode.
+    if (account.accountId) {
+      const numericAccountId = Number(account.accountId);
+      if (!Number.isNaN(numericAccountId) && Number.isInteger(numericAccountId)) {
+        vendorLookupConditions.push({ vendorId: numericAccountId });
+      } else {
+        vendorLookupConditions.push({ vendorCode: String(account.accountId) });
+      }
+    }
 
-  if (!billedThroughDate) return;
+    // endDate is stored as DATEONLY (YYYY-MM-DD). Use the raw string for
+    // comparisons rather than Number(...) which produces NaN and leads to
+    // "Invalid date" SQL fragments. Only use the endDate filter when a
+    // valid value exists.
+    const deletedInvoiceEndValue = deletedInvoice?.endDate || null;
 
-  const updates = BillingAutomationService.buildStreamUpdates(
-    account,
-    "vendor",
-    billedThroughDate,
-  );
+    const previousRemainingInvoice = deletedInvoiceEndValue
+      ? await VendorInvoice.findOne({
+          where: {
+            ...(vendorLookupConditions.length > 0
+              ? { [Op.or]: vendorLookupConditions }
+              : { vendorCode: account.vendorCode }),
+            endDate: { [Op.lt]: deletedInvoiceEndValue },
+          },
+          order: [["endDate", "DESC"], ["createdAt", "DESC"]],
+          transaction,
+        })
+      : await VendorInvoice.findOne({
+          where: vendorLookupConditions.length > 0 ? { [Op.or]: vendorLookupConditions } : { vendorCode: account.vendorCode },
+          order: [["endDate", "DESC"], ["createdAt", "DESC"]],
+          transaction,
+        });
 
-  await account.update(updates, { transaction });
+    const billingSnapshot = deletedInvoice?.billingStateSnapshot || null;
+    const previousRemainingInvoiceEnd = previousRemainingInvoice?.endDate
+      ? addDaysAsDateOnly(previousRemainingInvoice.endDate, 0)
+      : null;
+
+    if (previousRemainingInvoiceEnd) {
+      const updates = BillingAutomationService.buildStreamUpdates(account, 'vendor', previousRemainingInvoiceEnd);
+      await account.update(updates, { transaction });
+      return;
+    }
+
+    if (billingSnapshot) {
+      const snapshotUpdates = getBillingSnapshotUpdatePayload(billingSnapshot);
+      await account.update(snapshotUpdates, { transaction });
+      return;
+    }
+
+    const deletedInvoiceEnd = addDaysAsDateOnly(deletedInvoice?.endDate, 0);
+    let lastBillingDate = previousRemainingInvoiceEnd
+      || (deletedInvoiceEnd
+        ? calculatePrevBillingDate(deletedInvoiceEnd, account.billingCycle || 'monthly')
+        : null)
+      || getInitialLastBillingDate(account.billingCycle || 'monthly', account.billingStartDate || account.createdAt || new Date());
+
+    if (!lastBillingDate) {
+      return;
+    }
+
+    const nextBillingDate = calculateNextBillingDate(lastBillingDate, account.billingCycle || 'monthly');
+    const updates = {
+      vendorLastBillingDate: lastBillingDate,
+      vendorNextBillingDate: nextBillingDate,
+      lastbillingdate: lastBillingDate,
+      nextbillingdate: nextBillingDate,
+    };
+
+    await account.update(updates, { transaction });
+  } catch (err) {
+    console.error('recalcVendorBillingDatesAfterDelete:error', err);
+    throw err;
+  }
 };
 
 const parsePaymentDate = (value) => {
@@ -140,26 +228,36 @@ const parsePaymentDate = (value) => {
   return date.getTime();
 };
 
+// BUG 7 FIX: wrap the sequence query + insert in a serialisable transaction so
+// that concurrent requests cannot read the same "last" sequence before either
+// has committed, which caused duplicate paymentNumber values and a unique
+// constraint error.  Using SELECT … FOR UPDATE via a dedicated transaction
+// with SERIALIZABLE isolation prevents the race.
 const generatePaymentNumber = async () => {
   const year = new Date().getFullYear();
   const month = String(new Date().getMonth() + 1).padStart(2, '0');
+  const prefix = `PAY-${year}-${month}-`;
 
-  const lastPayment = await Payment.findOne({
-    where: {
-      paymentNumber: {
-        [Op.like]: `PAY-${year}-${month}-%`
-      }
-    },
-    order: [['createdAt', 'DESC']]
+  return sequelize.transaction({ isolationLevel: sequelize.constructor.Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async (t) => {
+    const lastPayment = await Payment.findOne({
+      where: {
+        paymentNumber: {
+          [Op.like]: `${prefix}%`,
+        },
+      },
+      order: [['createdAt', 'DESC']],
+      lock: t.LOCK.UPDATE,
+      transaction: t,
+    });
+
+    let sequence = 1;
+    if (lastPayment) {
+      const lastNumber = lastPayment.paymentNumber.split('-').pop();
+      sequence = parseInt(lastNumber, 10) + 1;
+    }
+
+    return `${prefix}${String(sequence).padStart(4, '0')}`;
   });
-
-  let sequence = 1;
-  if (lastPayment) {
-    const lastNumber = lastPayment.paymentNumber.split('-').pop();
-    sequence = parseInt(lastNumber, 10) + 1;
-  }
-
-  return `PAY-${year}-${month}-${String(sequence).padStart(4, '0')}`;
 };
 
 /**
@@ -168,10 +266,9 @@ const generatePaymentNumber = async () => {
  */
 const fetchVendorUsage = async (account, startDate, endDate) => {
   try {
-    // Build vendor authentication conditions
     const vendorAuthType = account.vendorauthenticationType;
     const vendorAuthValue = account.vendorauthenticationValue;
-    
+
     const normalizeAuthValues = (value) => {
       if (Array.isArray(value)) {
         return [...new Set(value.map((v) => String(v || "").trim()).filter(Boolean))];
@@ -262,12 +359,23 @@ const fetchVendorUsage = async (account, startDate, endDate) => {
 };
 
 const resolveVendorAccount = async ({ vendorId, vendorCode }, transaction = null) => {
-  if (vendorId) {
-    return Account.findByPk(vendorId, transaction ? { transaction } : undefined);
+  // vendorId may sometimes contain a vendorCode string (e.g. "ACC4510").
+  // Safely handle numeric IDs and fall back to vendorCode lookup when
+  // vendorId is not a parseable integer.
+  if (vendorId != null) {
+    const numericId = Number(vendorId);
+    if (!Number.isNaN(numericId) && Number.isInteger(numericId)) {
+      return Account.findByPk(numericId, transaction ? { transaction } : undefined);
+    }
+
+    // vendorId is present but not numeric -> treat it as vendorCode
+    return Account.findOne({ where: { vendorCode: String(vendorId) }, ...(transaction ? { transaction } : {}) });
   }
+
   if (vendorCode) {
     return Account.findOne({ where: { vendorCode }, ...(transaction ? { transaction } : {}) });
   }
+
   return null;
 };
 
@@ -277,7 +385,6 @@ const buildUsageComparison = (invoiceAmount, usageCost, tolerance = 0.01) => {
   const delta = uploadedAmount - actualAmount;
   const mismatchAmount = Math.abs(delta);
   const percentageDiffRaw = uploadedAmount > 0 ? (mismatchAmount / uploadedAmount) * 100 : 0;
-  // Any non-zero mismatch should present dispute action choices to the user.
   const mismatchDetected = mismatchAmount > 0;
   const mismatchDirection = delta > 0 ? 'overbilled' : (delta < 0 ? 'underbilled' : 'matched');
   const canRaiseDispute = mismatchDirection === 'overbilled';
@@ -295,35 +402,17 @@ const buildUsageComparison = (invoiceAmount, usageCost, tolerance = 0.01) => {
     canRaiseDispute,
     exceedsTolerance,
     rows: [
-      {
-        label: 'Vendor Invoice Amount',
-        value: parseFloat(uploadedAmount.toFixed(4)),
-      },
-      {
-        label: 'Vendor Usage Amount',
-        value: parseFloat(actualAmount.toFixed(4)),
-      },
-      {
-        label: 'Difference',
-        value: parseFloat(mismatchAmount.toFixed(4)),
-      },
-      {
-        label: 'Difference %',
-        value: `${percentageDiffRaw.toFixed(2)}%`,
-      },
+      { label: 'Vendor Invoice Amount', value: parseFloat(uploadedAmount.toFixed(4)) },
+      { label: 'Vendor Usage Amount', value: parseFloat(actualAmount.toFixed(4)) },
+      { label: 'Difference', value: parseFloat(mismatchAmount.toFixed(4)) },
+      { label: 'Difference %', value: `${percentageDiffRaw.toFixed(2)}%` },
     ],
   };
 };
 
 exports.previewVendorUsage = async (req, res) => {
   try {
-    const {
-      vendorId,
-      vendorCode,
-      startDate,
-      endDate,
-      grandTotal,
-    } = req.body || {};
+    const { vendorId, vendorCode, startDate, endDate, grandTotal } = req.body || {};
 
     if ((!vendorId && !vendorCode) || !startDate || !endDate) {
       return res.status(400).json({
@@ -449,7 +538,6 @@ exports.createVendorInvoice = async (req, res) => {
       .map((file) => toStoredRelativePath(path.resolve(file.path)))
       .filter(Boolean);
 
-    // Fetch actual vendor usage from CDRs for this billing period
     const actualUsage = await fetchVendorUsage(account, startDate, endDate);
     const usageComparison = buildUsageComparison(grandTotal, actualUsage.totalCost);
 
@@ -471,10 +559,10 @@ exports.createVendorInvoice = async (req, res) => {
     const disputedPercentage = Number.parseFloat(String(usageComparison.percentageDiff || '0').replace('%', '')) || 0;
     const disputeDetails = shouldRaiseDispute
       ? {
-        actualAmount: usageComparison.actualUsage,
-        disputedAmount: usageComparison.mismatchAmount,
-        disputedPercentage,
-      }
+          actualAmount: usageComparison.actualUsage,
+          disputedAmount: usageComparison.mismatchAmount,
+          disputedPercentage,
+        }
       : null;
 
     const invoice = await VendorInvoice.create({
@@ -490,10 +578,10 @@ exports.createVendorInvoice = async (req, res) => {
       filePaths: JSON.stringify(filePaths),
       status: shouldRaiseDispute ? 'disputed' : 'pending',
       disputeDetails,
+      billingStateSnapshot: getBillingDateSnapshot(account),
     }, { transaction });
 
-    const billedThroughDate = addDaysAsDateOnly(normalizedEndDate, 1);
-    await account.update(buildVendorBillingUpdates(account, billedThroughDate), { transaction });
+    await account.update(buildVendorBillingUpdates(account, normalizedEndDate), { transaction });
 
     await transaction.commit();
 
@@ -546,7 +634,7 @@ exports.createVendorInvoice = async (req, res) => {
 
     res.status(500).json({
       message: 'Failed to create vendor invoice',
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -578,10 +666,7 @@ exports.getVendorInvoices = async (req, res) => {
       const normalizedStatus = String(status).trim().toLowerCase();
       const allowedStatuses = new Set(['pending', 'paid', 'disputed', 'approved', 'rejected', 'processing', 'processed', 'error']);
       if (!allowedStatuses.has(normalizedStatus)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid status filter',
-        });
+        return res.status(400).json({ success: false, message: 'Invalid status filter' });
       }
       whereClause.status = normalizedStatus;
     }
@@ -597,8 +682,8 @@ exports.getVendorInvoices = async (req, res) => {
       {
         model: Account,
         as: 'vendor',
-        attributes: ['id', 'accountName', 'vendorCode']
-      }
+        attributes: ['id', 'accountName', 'vendorCode'],
+      },
     ];
 
     const searchTerm = String(search || vendorName || '').trim();
@@ -633,10 +718,7 @@ exports.getVendorInvoices = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching vendor invoices:', error);
-    res.status(500).json({
-      message: 'Failed to fetch vendor invoices',
-      error: error.message
-    });
+    res.status(500).json({ message: 'Failed to fetch vendor invoices', error: error.message });
   }
 };
 
@@ -680,10 +762,7 @@ exports.getVendorInvoiceFiles = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching vendor invoice files:', error);
-    return res.status(500).json({
-      message: 'Failed to fetch vendor invoice files',
-      error: error.message,
-    });
+    return res.status(500).json({ message: 'Failed to fetch vendor invoice files', error: error.message });
   }
 };
 
@@ -719,19 +798,14 @@ exports.downloadVendorInvoiceFile = async (req, res) => {
     const safeName = path.basename(storedPath || absolutePath);
     if (disposition === 'inline') {
       return res.sendFile(absolutePath, {
-        headers: {
-          'Content-Disposition': `inline; filename="${safeName}"`,
-        },
+        headers: { 'Content-Disposition': `inline; filename="${safeName}"` },
       });
     }
 
     return res.download(absolutePath, safeName);
   } catch (error) {
     console.error('Error downloading vendor invoice file:', error);
-    return res.status(500).json({
-      message: 'Failed to download vendor invoice file',
-      error: error.message,
-    });
+    return res.status(500).json({ message: 'Failed to download vendor invoice file', error: error.message });
   }
 };
 
@@ -761,17 +835,11 @@ exports.deleteVendorInvoiceFile = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Vendor invoice file deleted successfully',
-      data: {
-        invoiceId: invoice.id,
-        filePaths: storedPaths,
-      },
+      data: { invoiceId: invoice.id, filePaths: storedPaths },
     });
   } catch (error) {
     console.error('Error deleting vendor invoice file:', error);
-    return res.status(500).json({
-      message: 'Failed to delete vendor invoice file',
-      error: error.message,
-    });
+    return res.status(500).json({ message: 'Failed to delete vendor invoice file', error: error.message });
   }
 };
 
@@ -813,18 +881,12 @@ exports.addVendorInvoiceFiles = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Files uploaded successfully',
-      data: {
-        invoiceId: invoice.id,
-        filePaths: merged,
-      },
+      data: { invoiceId: invoice.id, filePaths: merged },
     });
   } catch (error) {
     await cleanupUploadedFiles(uploadedFiles);
     console.error('Error uploading files to vendor invoice:', error);
-    return res.status(500).json({
-      message: 'Failed to upload files to vendor invoice',
-      error: error.message,
-    });
+    return res.status(500).json({ message: 'Failed to upload files to vendor invoice', error: error.message });
   }
 };
 
@@ -853,7 +915,9 @@ exports.updateVendorInvoice = async (req, res) => {
       endDate: payload.endDate || invoice.endDate,
       currency: payload.currency || invoice.currency,
       grandTotal: payload.grandTotal != null ? Number(payload.grandTotal) : Number(invoice.grandTotal),
-      totalSeconds: payload.totalSeconds != null ? Number(payload.totalSeconds) : Number(invoice.totalSeconds),
+      // BUG 6 FIX: floor to integer before validation so that "3600.0" is
+      // accepted rather than rejected with a confusing type error.
+      totalSeconds: payload.totalSeconds != null ? Math.floor(Number(payload.totalSeconds)) : Math.floor(Number(invoice.totalSeconds)),
     };
 
     if (!nextValues.invoiceNumber) {
@@ -915,10 +979,7 @@ exports.updateVendorInvoice = async (req, res) => {
   } catch (error) {
     await transaction.rollback();
     console.error('Error updating vendor invoice:', error);
-    return res.status(500).json({
-      message: 'Failed to update vendor invoice',
-      error: error.message,
-    });
+    return res.status(500).json({ message: 'Failed to update vendor invoice', error: error.message });
   }
 };
 
@@ -969,10 +1030,7 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
       invoice.status = normalizedStatus;
       await invoice.save({ transaction });
       await transaction.commit();
-      return res.status(200).json({
-        message: 'Vendor invoice status updated successfully',
-        invoice,
-      });
+      return res.status(200).json({ message: 'Vendor invoice status updated successfully', invoice });
     }
 
     if (!paymentMethod) {
@@ -1056,10 +1114,7 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
   } catch (error) {
     await transaction.rollback();
     console.error('Error updating vendor invoice status:', error);
-    res.status(500).json({
-      message: 'Failed to record vendor payment',
-      error: error.message
-    });
+    res.status(500).json({ message: 'Failed to record vendor payment', error: error.message });
   }
 };
 
@@ -1070,7 +1125,11 @@ exports.deleteVendorInvoice = async (req, res) => {
   try {
     const { id } = req.params;
     const invoice = await VendorInvoice.findByPk(id, { transaction });
+
     if (!invoice) {
+      // BUG 3 FIX: always rollback the open transaction before returning,
+      // otherwise the connection is leaked.
+      await transaction.rollback();
       return res.status(404).json({ message: 'Vendor invoice not found' });
     }
 
@@ -1084,33 +1143,32 @@ exports.deleteVendorInvoice = async (req, res) => {
       where: {
         vendorInvoiceId: invoice.id,
         partyType: 'vendor',
-        paymentDirection: 'outbound'
+        paymentDirection: 'outbound',
       },
-      transaction
+      transaction,
     });
 
-    // delete any uploaded files associated with this invoice
-    if (invoice.filePaths) {
-      try {
-        const paths = JSON.parse(invoice.filePaths);
-        if (Array.isArray(paths) && paths.length > 0) {
-          await Promise.allSettled(paths.map((filePath) => removeFileSafe(filePath)));
-        }
-      } catch (e) {
-        console.warn('Failed to parse or delete invoice files', e);
-      }
+    // BUG 5 FIX: use the centralised parseStoredFilePaths helper so that
+    // comma-separated paths (not just JSON arrays) are handled consistently.
+    const filePaths = parseStoredFilePaths(invoice.filePaths);
+    if (filePaths.length > 0) {
+      await Promise.allSettled(filePaths.map((filePath) => removeFileSafe(filePath)));
     }
 
     await invoice.destroy({ transaction });
     await recalculateVendorBillingDatesAfterDelete(account, invoice, transaction);
 
+    // BUG 4 FIX: reload account WITHOUT a transaction — the transaction has not
+    // been committed yet here, but passing the committed handle would throw in
+    // some Sequelize versions.  More importantly the reload must happen AFTER
+    // commit so it reflects the persisted state.
+    await transaction.commit();
+
     let billingDatesAfter = null;
     if (account) {
-      await account.reload({ transaction });
+      await account.reload(); // no transaction — reads committed state
       billingDatesAfter = getBillingDateSnapshot(account);
     }
-
-    await transaction.commit();
 
     res.status(200).json({
       message: 'Vendor invoice deleted successfully',
@@ -1124,9 +1182,6 @@ exports.deleteVendorInvoice = async (req, res) => {
   } catch (error) {
     await transaction.rollback();
     console.error('Error deleting vendor invoice:', error);
-    res.status(500).json({
-      message: 'Failed to delete vendor invoice',
-      error: error.message
-    });
+    res.status(500).json({ message: 'Failed to delete vendor invoice', error: error.message });
   }
 };

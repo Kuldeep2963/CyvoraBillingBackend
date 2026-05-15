@@ -7,7 +7,7 @@ const CountryCode = require('../models/CountryCode');
 const Invoice = require('../models/Invoice');
 const Payment = require('../models/Payment');
 const PaymentAllocation = require('../models/PaymentAllocation');
-const Dispute = require('../models/Dispute');
+const VendorInvoice = require('../models/Vendorinvoice');
 const H = require('../utils/reportHelper');
 const { secondsToMMSS } = require('../utils/timeUtils');
 const ExcelJS = require('exceljs');
@@ -61,8 +61,28 @@ const getCountryCodes = async () => {
 const formatTime = (date, hour, minute = 0, isEnd = false) => {
   if (!date) return null;
 
+  const parsedHour = Number(hour);
+  const parsedMinute = Number(minute);
+  const safeHour = Number.isFinite(parsedHour) ? parsedHour : 0;
+  const safeMinute = Number.isFinite(parsedMinute) ? parsedMinute : 0;
+
   // Parse the date - handle both string dates and timestamps
   const numericDate = Number(date);
+
+  // Parse date-only values as UTC midnight to avoid server-local timezone drift.
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [year, month, day] = date.split('-').map((value) => Number(value));
+    return Date.UTC(
+      year,
+      month - 1,
+      day,
+      safeHour,
+      safeMinute,
+      isEnd ? 59 : 0,
+      isEnd ? 999 : 0
+    );
+  }
+
   let d;
   
   if (!isNaN(numericDate) && numericDate > 0) {
@@ -77,10 +97,10 @@ const formatTime = (date, hour, minute = 0, isEnd = false) => {
 
   if (isEnd) {
     // For end range: go to end of that minute (59 seconds, 999 milliseconds)
-    d.setHours(hour, minute, 59, 999);
+    d.setUTCHours(safeHour, safeMinute, 59, 999);
   } else {
     // For start range: go to start of that minute (00 seconds, 000 milliseconds)
-    d.setHours(hour, minute, 0, 0);
+    d.setUTCHours(safeHour, safeMinute, 0, 0);
   }
   
   // Return Unix timestamp in milliseconds as a number (database field is bigint)
@@ -389,10 +409,40 @@ const buildAllAccountsWhereClause = async (timerangeLiteral, vendorReport) => {
   return where;
 };
 
+const normalizeTrunkFilter = (trunk) => {
+  const raw = String(trunk || '').trim().toUpperCase();
+  if (!raw || raw === 'ALL') return '';
+
+  if (raw === 'NCLI') return 'NCLI';
+  if (raw === 'CLI') return 'CLI';
+  if (raw === 'CC') return 'CC';
+  if (raw === 'ORTP/TDM' || raw === 'ORTP_TDM' || raw === 'ORTP-TDM' || raw === 'ORTPTDM') return 'ORTP/TDM';
+
+  return '';
+};
+
+const getTrunkWhereCondition = (trunk) => {
+  const normalized = normalizeTrunkFilter(trunk);
+  if (!normalized) return null;
+
+  const prefixByTrunk = {
+    NCLI: '10',
+    CLI: '20',
+    'ORTP/TDM': '30',
+    CC: '40',
+  };
+
+  const prefix = prefixByTrunk[normalized];
+  if (!prefix) return null;
+
+  return { calleee164: { [Op.like]: `${prefix}%` } };
+};
+
 /* ===================== HELPER: BUILD WHERE CLAUSE ===================== */
-const buildWhereClause = async (startDate, endDate, startHour, endHour, startMinute = 0, endMinute = 59, accountId, vendorReport) => {
+const buildWhereClause = async (startDate, endDate, startHour, endHour, startMinute = 0, endMinute = 59, accountId, vendorReport, trunk = 'all') => {
   const startTs = Number(formatTime(startDate, startHour, startMinute));
   const endTs = Number(formatTime(endDate, endHour, endMinute, true));
+  const trunkCondition = getTrunkWhereCondition(trunk);
 
   // Create the SQL CASE statement for time range filtering
   const timerangeLiteral = sequelize.literal(
@@ -401,7 +451,11 @@ const buildWhereClause = async (startDate, endDate, startHour, endHour, startMin
 
   // 🎯 OPTIMIZATION: Handle "all" accounts with authentication-based matching
   if (!accountId || accountId === 'all') {
-    return await buildAllAccountsWhereClause(timerangeLiteral, vendorReport);
+    const where = await buildAllAccountsWhereClause(timerangeLiteral, vendorReport);
+    if (trunkCondition) {
+      where[Op.and].push(trunkCondition);
+    }
+    return where;
   }
 
   // Original single-account logic
@@ -441,6 +495,10 @@ const buildWhereClause = async (startDate, endDate, startHour, endHour, startMin
     where[Op.and].push({ [Op.or]: conditions });
   }
 
+  if (trunkCondition) {
+    where[Op.and].push(trunkCondition);
+  }
+
   return where;
 };
 
@@ -457,6 +515,7 @@ exports.hourlyReport = async (req, res) => {
       endHour = 23,
       endMinute = 59,
       vendorReport = false,
+      trunk = 'all',
       ownerName = ''
     } = req.body;
 
@@ -468,6 +527,7 @@ exports.hourlyReport = async (req, res) => {
       endDate,
       time: `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')} - ${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`,
       accountId,
+      trunk,
       vendorReport,
       startTimeFormatted,
       endTimeFormatted
@@ -481,7 +541,8 @@ exports.hourlyReport = async (req, res) => {
       startMinute,
       endMinute,
       accountId,
-      vendorReport
+      vendorReport,
+      trunk
     );
 
     console.log(' Applied WHERE clause (time range):', {
@@ -509,25 +570,31 @@ exports.hourlyReport = async (req, res) => {
 
     console.log(`Processed ${rows.length} raw hour groups`);
 
-    // Safety aggregation in Node: guarantees one row per hour (0..23)
+    const utcTodayYmd = new Date().toISOString().slice(0, 10);
+    const startDateYmd = String(startDate || '').slice(0, 10);
+    const endDateYmd = String(endDate || '').slice(0, 10);
+    const isSingleUtcToday = startDateYmd === utcTodayYmd && endDateYmd === utcTodayYmd;
+    const maxHour = isSingleUtcToday ? new Date().getUTCHours() : 23;
+
+    // Safety aggregation in Node: guarantees one row per hour for expected buckets.
     const hourlyMap = new Map();
+
+    for (let h = 0; h <= maxHour; h += 1) {
+      hourlyMap.set(h, {
+        hour: h,
+        attempts: 0,
+        completed: 0,
+        failed: 0,
+        duration: 0,
+        revenue: 0,
+        cost: 0
+      });
+    }
 
     for (const r of rows) {
       const hourRaw = String(r.hour ?? '').trim();
       const h = Number.parseInt(hourRaw, 10);
-      if (Number.isNaN(h) || h < 0 || h > 23) continue;
-
-      if (!hourlyMap.has(h)) {
-        hourlyMap.set(h, {
-          hour: h,
-          attempts: 0,
-          completed: 0,
-          failed: 0,
-          duration: 0,
-          revenue: 0,
-          cost: 0
-        });
-      }
+      if (Number.isNaN(h) || h < 0 || h > maxHour || !hourlyMap.has(h)) continue;
 
       const agg = hourlyMap.get(h);
       agg.attempts += Number(r.attempts || 0);
@@ -541,11 +608,8 @@ exports.hourlyReport = async (req, res) => {
     const data = Array.from(hourlyMap.values())
       .sort((a, b) => a.hour - b.hour)
       .map((r) => {
-        const start = `${String(r.hour).padStart(2, '0')}:00`;
-        const end = `${String((r.hour + 1) % 24).padStart(2, '0')}:00`;
-
         return {
-          hour: `${start} - ${end}`,
+          hour: r.hour,
           accountOwner: ownerName,
           attempts: r.attempts,
           completed: r.completed,
@@ -557,20 +621,6 @@ exports.hourlyReport = async (req, res) => {
           margin: parseFloat((r.revenue - r.cost).toFixed(4))
         };
       });
-
-    if (data.length === 0) {
-      return res.json({
-        success: true,
-        data: [],
-        summary: {
-          totalAttempts: 0,
-          totalCompleted: 0,
-          totalRevenue: 0,
-          avgASR: 0
-        },
-        message: 'No CDR records found for the selected criteria'
-      });
-    }
 
     const totalAttempts = data.reduce((sum, r) => sum + r.attempts, 0);
     const totalCompleted = data.reduce((sum, r) => sum + r.completed, 0);
@@ -597,21 +647,21 @@ exports.hourlyReport = async (req, res) => {
 /* ===================== MARGIN REPORT ===================== */
 exports.marginReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, ownerName = '' } = req.body;
-    const countryCodes = await getCountryCodes(); // ✅ Using cache
+    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
+    const countryCodes = await getCountryCodes();
 
     console.log('Margin Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, vendorReport
+      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
     });
 
-    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport);
+    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
 
     // Get all CDRs with country information
     const cdrs = await CDR.findAll({
       attributes: [
         vendorReport ? 'agentaccount' : 'customeraccount',
         vendorReport ? 'agentname' : 'customername',
-        'calleee164', // ✅ FIXED: Use callee for destination, not caller
+        'calleee164',
         [fn('COUNT', col('*')), 'attempts'],
         [fn('SUM', H.completedCall), 'completed'],
         [fn('SUM', H.durationSec), 'duration'],
@@ -648,7 +698,6 @@ exports.marginReport = async (req, res) => {
       const accountCode = vendorReport ? r.agentaccount : r.customeraccount;
       const accountName = vendorReport ? r.agentname : r.customername;
       
-      // ✅ FIXED: Use calleee164 (destination) with prefix skip for vendor routing
       const destination = getCountryFromNumber(r.calleee164, countryCodes, true);
       
       const key = `${accountCode}|${destination}`;
@@ -717,19 +766,19 @@ exports.marginReport = async (req, res) => {
 /* ===================== CUSTOMER TRAFFIC REPORT (customer-to-vendor) ===================== */
 exports.customerTrafficReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, ownerName = '' } = req.body;
-    const countryCodes = await getCountryCodes(); // ✅ Using cache
+    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
+    const countryCodes = await getCountryCodes();
 
     console.log('Customer Traffic Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, vendorReport
+      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
     });
 
-    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport);
+    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
 
-    // Get all CDRs grouped by individual numbers first
+    // Get all CDRs grouped by destination (calleee164) — callere164 not needed
     const cdrs = await CDR.findAll({
       attributes: [
-        'customeraccount', 'customername', 'callere164',
+        'customeraccount', 'customername',
         'agentaccount', 'agentname', 'calleee164',
         [fn('COUNT', col('*')), 'attempts'],
         [fn('SUM', H.completedCall), 'completed'],
@@ -739,7 +788,7 @@ exports.customerTrafficReport = async (req, res) => {
       ],
       where,
       group: [
-        'customeraccount', 'customername', 'callere164',
+        'customeraccount', 'customername',
         'agentaccount', 'agentname', 'calleee164'
       ],
       raw: true
@@ -759,28 +808,22 @@ exports.customerTrafficReport = async (req, res) => {
       });
     }
 
-    // The ownerName is passed from the frontend (from getReportAccounts endpoint)
-    // Simply use it directly - no need to fetch or map anything
-
-    // Group by customer, vendor, and destination countries
+    // Group by customer, vendor, and shared destination country (from calleee164)
     const groupedData = {};
-    
+
     cdrs.forEach(r => {
-      // Customer destination (caller origin) - no prefix skip
-      const custCountry = getCountryFromNumber(r.callere164, countryCodes, false);
-      // Vendor destination (callee/destination) - skip first 5 digits for routing prefix
-      const vendCountry = getCountryFromNumber(r.calleee164, countryCodes, true);
-      
-      const key = `${r.customeraccount}|${r.agentaccount}|${custCountry}|${vendCountry}`;
-      
+      // Both customer and vendor destination derived from calleee164 (with prefix skip)
+      const destination = getCountryFromNumber(r.calleee164, countryCodes, true);
+
+      const key = `${r.customeraccount}|${r.agentaccount}|${destination}`;
+
       if (!groupedData[key]) {
         groupedData[key] = {
           customeraccount: r.customeraccount,
           customername: r.customername,
-          custDestination: custCountry,
+          destination,
           agentaccount: r.agentaccount,
           agentname: r.agentname,
-          vendDestination: vendCountry,
           attempts: 0,
           completed: 0,
           duration: 0,
@@ -788,12 +831,12 @@ exports.customerTrafficReport = async (req, res) => {
           cost: 0
         };
       }
-      
-      groupedData[key].attempts += Number(r.attempts);
+
+      groupedData[key].attempts  += Number(r.attempts);
       groupedData[key].completed += Number(r.completed);
-      groupedData[key].duration += Number(r.duration);
-      groupedData[key].revenue += Number(r.revenue);
-      groupedData[key].cost += Number(r.cost);
+      groupedData[key].duration  += Number(r.duration);
+      groupedData[key].revenue   += Number(r.revenue);
+      groupedData[key].cost      += Number(r.cost);
     });
 
     console.log(`Processed ${cdrs.length} individual rows into ${Object.keys(groupedData).length} grouped rows`);
@@ -805,17 +848,14 @@ exports.customerTrafficReport = async (req, res) => {
       const dur = r.duration;
       const comp = r.completed;
 
-      // Get the owner for this account (passed from frontend via ownerName param)
-      const accountOwner = ownerName;
-
       return {
         custAccountCode: r.customeraccount,
         vendAccountCode: r.agentaccount,
-        accountOwner: accountOwner,
+        accountOwner: ownerName,
         customer: r.customername,
-        custDestination: r.custDestination,
+        custDestination: r.destination,   // same as vendDestination — both from calleee164
         vendor: r.agentname,
-        vendDestination: r.vendDestination,
+        vendDestination: r.destination,   // same as custDestination — both from calleee164
         attempts: r.attempts,
         completed: comp,
         asr: r.attempts > 0 ? parseFloat(((comp / r.attempts) * 100).toFixed(4)) : 0,
@@ -856,18 +896,18 @@ exports.customerTrafficReport = async (req, res) => {
 /* ===================== CUSTOMER-ONLY TRAFFIC REPORT ===================== */
 exports.customerOnlyTrafficReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes();
 
     console.log('Customer‑only Traffic Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute
+      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk
     });
 
-    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, false);
+    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, false, trunk);
 
     const cdrs = await CDR.findAll({
       attributes: [
-        'customeraccount', 'customername', 'callere164',
+        'customeraccount', 'customername', 'calleee164',
         [fn('COUNT', col('*')), 'attempts'],
         [fn('SUM', H.completedCall), 'completed'],
         [fn('SUM', H.durationSec), 'duration'],
@@ -875,7 +915,7 @@ exports.customerOnlyTrafficReport = async (req, res) => {
         [fn('SUM', H.cost), 'cost']
       ],
       where,
-      group: ['customeraccount', 'customername', 'callere164'],
+      group: ['customeraccount', 'customername', 'calleee164'],
       raw: true
     });
 
@@ -888,17 +928,15 @@ exports.customerOnlyTrafficReport = async (req, res) => {
       });
     }
 
-    // The ownerName is passed from frontend (from getReportAccounts which includes owner info)
-    // Simply use it directly
     const groupedData = {};
     cdrs.forEach(r => {
-      const custCountry = getCountryFromNumber(r.callere164, countryCodes, false);
-      const key = `${r.customeraccount}|${custCountry}`;
+      const vendDestination = getCountryFromNumber(r.calleee164, countryCodes, false);
+      const key = `${r.customeraccount}|${vendDestination}`;
       if (!groupedData[key]) {
         groupedData[key] = {
           customeraccount: r.customeraccount,
           customername: r.customername,
-          custDestination: custCountry,
+          vendDestination: vendDestination,
           attempts: 0,
           completed: 0,
           duration: 0,
@@ -923,7 +961,7 @@ exports.customerOnlyTrafficReport = async (req, res) => {
         custAccountCode: r.customeraccount,
         accountOwner: ownerName,
         customer: r.customername,
-        custDestination: r.custDestination,
+        vendDestination: r.vendDestination,
         attempts: r.attempts,
         completed: comp,
         asr: r.attempts > 0 ? parseFloat(((comp / r.attempts) * 100).toFixed(4)) : 0,
@@ -955,14 +993,14 @@ exports.customerOnlyTrafficReport = async (req, res) => {
 /* ===================== VENDOR-ONLY TRAFFIC REPORT ===================== */
 exports.vendorTrafficReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, ownerName = '' } = req.body;
+    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, trunk = 'all', ownerName = '' } = req.body;
     const countryCodes = await getCountryCodes();
 
     console.log('Vendor‑only Traffic Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute
+      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk
     });
 
-    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, true);
+    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, true, trunk);
 
     const cdrs = await CDR.findAll({
       attributes: [
@@ -987,10 +1025,6 @@ exports.vendorTrafficReport = async (req, res) => {
       });
     }
 
-    // prepare owner map for vendor-only report
-    // The ownerName is passed from frontend (from getReportAccounts which includes owner info)
-    // Simply use it directly
-
     const groupedData = {};
     cdrs.forEach(r => {
       const vendCountry = getCountryFromNumber(r.calleee164, countryCodes, true);
@@ -1013,6 +1047,7 @@ exports.vendorTrafficReport = async (req, res) => {
       groupedData[key].revenue += Number(r.revenue);
       groupedData[key].cost += Number(r.cost);
     });
+
     const data = Object.values(groupedData).map(r => {
       const rev = r.revenue;
       const cst = r.cost;
@@ -1030,7 +1065,6 @@ exports.vendorTrafficReport = async (req, res) => {
         acd: comp > 0 ? parseFloat((dur / comp).toFixed(4)) : 0,
         revenue: parseFloat(rev.toFixed(6)),
         cost: parseFloat(cst.toFixed(6)),
-        // calculate cost per minute similar to other reports
         costPerMin: dur > 0 ? parseFloat((cst / (dur / 60)).toFixed(6)) : 0,
         margin: parseFloat(margin.toFixed(6)),
         marginPercent: rev > 0 ? parseFloat(((margin / rev) * 100).toFixed(4)) : 0
@@ -1057,21 +1091,20 @@ exports.vendorTrafficReport = async (req, res) => {
 /* ===================== NEGATIVE MARGIN REPORT ===================== */
 exports.negativeMarginReport = async (req, res) => {
   try {
-    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, ownerName = '' } = req.body;
-    const countryCodes = await getCountryCodes(); // ✅ Using cache
+    const { startDate, endDate, accountId = 'all', startHour = 0, startMinute = 0, endHour = 23, endMinute = 59, vendorReport = false, trunk = 'all', ownerName = '' } = req.body;
+    const countryCodes = await getCountryCodes();
 
     console.log('Negative Margin Report Request:', {
-      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, vendorReport
+      startDate, endDate, accountId, startHour, startMinute, endHour, endMinute, trunk, vendorReport
     });
 
-    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport);
+    const where = await buildWhereClause(startDate, endDate, startHour, endHour, startMinute, endMinute, accountId, vendorReport, trunk);
 
-    // Get all CDRs grouped by individual numbers first
     const cdrs = await CDR.findAll({
       attributes: [
         vendorReport ? 'agentaccount' : 'customeraccount',
         vendorReport ? 'agentname' : 'customername',
-        'calleee164', // ✅ FIXED: Use destination number
+        'calleee164',
         [fn('COUNT', col('*')), 'attempts'],
         [fn('SUM', H.completedCall), 'completed'],
         [fn('SUM', H.durationSec), 'duration'],
@@ -1108,7 +1141,6 @@ exports.negativeMarginReport = async (req, res) => {
       const accountCode = vendorReport ? r.agentaccount : r.customeraccount;
       const accountName = vendorReport ? r.agentname : r.customername;
       
-      // ✅ FIXED: Use calleee164 (destination) with prefix skip
       const destination = getCountryFromNumber(r.calleee164, countryCodes, true);
       
       const key = `${accountCode}|${destination}`;
@@ -1262,48 +1294,66 @@ exports.debugMapping = async (req, res) => {
 };
 
 /* ===================== REPORT ACCOUNTS ===================== */
-  exports.getReportAccounts = async (req, res) => {
-    try {
-      const accounts = await Account.findAll({
-        attributes: ['id', 'accountId', 'accountName', 'accountRole', 'customerCode','lastbillingdate','nextbillingdate', 'vendorCode','accountOwner','customerauthenticationType','customerauthenticationValue'],
-        where: { active: true },
-        order: [['accountName', 'ASC']],
-        raw: true
-      });
+exports.getReportAccounts = async (req, res) => {
+  try {
+    const accounts = await Account.findAll({
+      attributes: [
+        'id',
+        'accountId',
+        'accountName',
+        'accountRole',
+        'customerCode',
+        'vendorCode',
+        'customerLastBillingDate',
+        'customerNextBillingDate',
+        'vendorLastBillingDate',
+        'vendorNextBillingDate',
+        'accountOwner',
+        'customerauthenticationType',
+        'customerauthenticationValue',
+        'billingType',
+        'balance',
+        'creditLimit',
+        'originalCreditLimit',
+      ],
+      where: { active: true },
+      order: [['accountName', 'ASC']],
+      raw: true
+    });
 
-      // Fetch all owners for these accounts
-      const ownerIds = [...new Set(accounts.filter(a => a.accountOwner).map(a => a.accountOwner))];
-      const owners = ownerIds.length > 0
-        ? await User.findAll({
-            where: { id: { [Op.in]: ownerIds } },
-            attributes: ['id', 'first_name', 'last_name'],
-            raw: true
-          })
-        : [];
-      const ownerMapByUserId = {};
-      owners.forEach(o => {
-        ownerMapByUserId[o.id] = `${o.first_name} ${o.last_name}`;
-      });
+    // Fetch all owners for these accounts
+    const ownerIds = [...new Set(accounts.filter(a => a.accountOwner).map(a => a.accountOwner))];
+    const owners = ownerIds.length > 0
+      ? await User.findAll({
+          where: { id: { [Op.in]: ownerIds } },
+          attributes: ['id', 'first_name', 'last_name'],
+          raw: true
+        })
+      : [];
+    const ownerMapByUserId = {};
+    owners.forEach(o => {
+      ownerMapByUserId[o.id] = `${o.first_name} ${o.last_name}`;
+    });
 
-      // Add owner name to each account
-      const accountsWithOwners = accounts.map(a => ({
-        ...a,
-        ownerName: a.accountOwner ? ownerMapByUserId[a.accountOwner] || '' : ''
-      }));
+    // Add owner name to each account
+    const accountsWithOwners = accounts.map(a => ({
+      ...a,
+      ownerName: a.accountOwner ? ownerMapByUserId[a.accountOwner] || '' : ''
+    }));
 
-      const customers = accountsWithOwners.filter(a => ['customer', 'both'].includes(a.accountRole));
-      const vendors = accountsWithOwners.filter(a => ['vendor', 'both'].includes(a.accountRole));
+    const customers = accountsWithOwners.filter(a => ['customer', 'both'].includes(a.accountRole));
+    const vendors = accountsWithOwners.filter(a => ['vendor', 'both'].includes(a.accountRole));
 
-      res.json({
-        success: true,
-        customers,
-        vendors
-      });
-    } catch (e) {
-      console.error('Get Report Accounts Error:', e);
-      res.status(500).json({ success: false, error: e.message });
-    }
-  };
+    res.json({
+      success: true,
+      customers,
+      vendors
+    });
+  } catch (e) {
+    console.error('Get Report Accounts Error:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+};
 
 /* ===================== ACCOUNT EXPOSURE (CDR BASED) ===================== */
 exports.getAccountExposure = async (req, res) => {
@@ -1512,65 +1562,98 @@ exports.exportSOA = async (req, res) => {
     }
 
     const { accountName, customerCode, vendorCode } = account;
+    const normalizedRole = String(account.accountRole || '').toLowerCase();
+    const includeCustomer = normalizedRole
+      ? ['customer', 'both'].includes(normalizedRole)
+      : Boolean(customerCode);
+    const includeVendor = normalizedRole
+      ? ['vendor', 'both'].includes(normalizedRole)
+      : Boolean(vendorCode);
+    const vendorPaymentDirection = normalizedRole === 'vendor' ? 'inbound' : 'outbound';
+
+    if (!includeCustomer && !includeVendor) {
+      return res.status(400).json({ error: 'Account role does not support SOA generation' });
+    }
 
     // Dates for filtering
-    const start = startDate ? new Date(startDate).getTime() : 0;
-    const end = endDate ? new Date(endDate).getTime() : Date.now();
+    const normalizedStartDate = String(startDate || '').trim();
+    const normalizedEndDate = String(endDate || '').trim();
+    const start = normalizedStartDate ? new Date(normalizedStartDate) : new Date(0);
+    const end = normalizedEndDate ? new Date(normalizedEndDate) : new Date();
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return res.status(400).json({ error: 'Invalid date range' });
+    }
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    const startTs = start.getTime();
+    const endTs = end.getTime();
+    const startYmd = normalizedStartDate;
+    const endYmd = normalizedEndDate;
 
-    // 1. Fetch Customer Invoices (Invoices we issue to them)
-    const customerInvoices = await Invoice.findAll({
-      where: {
-        customerCode: customerCode,
-        invoiceType: 'customer',
-        invoiceDate: { [Op.between]: [start, end] }
-      },
-      order: [['invoiceDate', 'ASC']],
-      raw: true
-    });
+    const vendorInvoiceWhere = { vendorCode };
+    const vendorDateConditions = [];
+    if (endYmd) {
+      vendorDateConditions.push({ startDate: { [Op.lte]: endYmd } });
+    }
+    if (startYmd) {
+      vendorDateConditions.push({ endDate: { [Op.gte]: startYmd } });
+    }
+    if (vendorDateConditions.length > 0) {
+      vendorInvoiceWhere[Op.and] = vendorDateConditions;
+    }
 
-    // 2. Fetch Customer Payments (Payments from them to us)
-    const customerPayments = await Payment.findAll({
-      where: {
-        customerCode: customerCode,
-        partyType: 'customer',
-        paymentDirection: 'inbound',
-        paymentDate: { [Op.between]: [start, end] }
-      },
-      order: [['paymentDate', 'ASC']],
-      raw: true
-    });
+    const [customerInvoices, customerPayments, vendorInvoices, vendorPayments] = await Promise.all([
+      includeCustomer && customerCode
+        ? Invoice.findAll({
+            where: {
+              customerCode,
+              invoiceDate: { [Op.between]: [startTs, endTs] }
+            },
+            order: [['invoiceDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeCustomer && customerCode
+        ? Payment.findAll({
+            where: {
+              customerCode,
+              partyType: 'customer',
+              paymentDirection: 'inbound',
+              paymentDate: { [Op.between]: [startTs, endTs] }
+            },
+            order: [['paymentDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeVendor && vendorCode
+        ? VendorInvoice.findAll({
+            where: vendorInvoiceWhere,
+            order: [['createdAt', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeVendor && vendorCode
+        ? Payment.findAll({
+            where: {
+              customerCode: vendorCode,
+              partyType: 'vendor',
+              paymentDirection: vendorPaymentDirection,
+              paymentDate: { [Op.between]: [startTs, endTs] }
+            },
+            order: [['paymentDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+    ]);
 
-    // 3. Fetch Vendor Invoices (Invoices they issue to us)
-    const vendorInvoices = await Invoice.findAll({
-      where: {
-        customerCode: vendorCode,
-        invoiceType: 'vendor',
-        invoiceDate: { [Op.between]: [start, end] }
-      },
-      order: [['invoiceDate', 'ASC']],
-      raw: true
-    });
-
-    // 4. Fetch Vendor Payments (Payments from us to them)
-    const vendorPayments = await Payment.findAll({
-      where: {
-        customerCode: vendorCode,
-        partyType: 'vendor',
-        paymentDirection: 'outbound',
-        paymentDate: { [Op.between]: [start, end] }
-      },
-      order: [['paymentDate', 'ASC']],
-      raw: true
-    });
-
-    // 5. Fetch Disputes
-    const disputes = await Dispute.findAll({
-      where: {
-        customerCode: customerCode,
-        status: { [Op.ne]: 'closed' }
-      },
-      raw: true
-    });
+    // Derive dispute rows from disputed vendor invoices
+    const disputes = vendorInvoices
+      .filter((invoice) => String(invoice.status || '').toLowerCase() === 'disputed')
+      .map((invoice) => ({
+        invoiceNumber: invoice.invoiceNumber,
+        disputeAmount: Number(invoice.disputeDetails?.disputedAmount || invoice.grandTotal || 0),
+        status: 'open',
+      }));
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('SOA');
@@ -1590,39 +1673,51 @@ exports.exportSOA = async (req, res) => {
     mainHeader.alignment = { horizontal: 'center' };
 
     // --- GROUP HEADERS (Row 4) ---
-    // Left Group: Customer Usage (Cyvoratech Pvt Ltd. INVOICE)
     worksheet.mergeCells('A4:C4');
     const leftInvoiceHeader = worksheet.getCell('A4');
-    leftInvoiceHeader.value = 'Cyvoratech Pvt Ltd. INVOICE';
+    leftInvoiceHeader.value = includeCustomer ? 'Cyvoratech Pvt Ltd. INVOICE' : '';
     leftInvoiceHeader.font = { bold: true };
     leftInvoiceHeader.alignment = { horizontal: 'center' };
 
     worksheet.mergeCells('F4:G4');
     const leftPaymentHeader = worksheet.getCell('F4');
-    leftPaymentHeader.value = `${accountName} PAYMENT`;
+    leftPaymentHeader.value = includeCustomer ? `${accountName} PAYMENT` : '';
     leftPaymentHeader.font = { bold: true };
     leftPaymentHeader.alignment = { horizontal: 'center' };
 
-    // Right Group: Vendor Usage (Account INVOICE)
     worksheet.mergeCells('I4:K4');
     const rightInvoiceHeader = worksheet.getCell('I4');
-    rightInvoiceHeader.value = `${accountName} INVOICE`;
+    rightInvoiceHeader.value = includeVendor ? `${accountName} INVOICE` : '';
     rightInvoiceHeader.font = { bold: true };
     rightInvoiceHeader.alignment = { horizontal: 'center' };
 
     worksheet.mergeCells('N4:O4');
     const rightPaymentHeader = worksheet.getCell('N4');
-    rightPaymentHeader.value = `Cyvoratech Pvt Ltd. PAYMENT`;
+    rightPaymentHeader.value = includeVendor
+      ? (vendorPaymentDirection === 'inbound' ? `${accountName} PAYMENT` : 'Cyvoratech Pvt Ltd. PAYMENT')
+      : '';
     rightPaymentHeader.font = { bold: true };
     rightPaymentHeader.alignment = { horizontal: 'center' };
 
     // --- COLUMN HEADERS (Row 5) ---
-    const headers = {
-      1: 'INVOICE NO', 2: 'PERIOD COVERED', 3: 'AMOUNT', 4: 'PENDING DISPUTE',
-      6: 'DATE', 7: `${accountName} PAYMENT`, 8: 'BALANCE',
-      9: 'INVOICE NO', 10: 'PERIOD COVERED', 11: 'AMOUNT', 12: 'PENDING DISPUTE',
-      14: 'DATE', 15: `Cyvoratech Pvt Ltd. PAYMENT`
-    };
+    const headers = {};
+    if (includeCustomer) {
+      headers[1] = 'INVOICE NO';
+      headers[2] = 'PERIOD COVERED';
+      headers[3] = 'AMOUNT';
+      headers[4] = 'PENDING DISPUTE';
+      headers[6] = 'DATE';
+      headers[7] = `${accountName} PAYMENT`;
+      headers[8] = 'BALANCE';
+    }
+    if (includeVendor) {
+      headers[9] = 'INVOICE NO';
+      headers[10] = 'PERIOD COVERED';
+      headers[11] = 'AMOUNT';
+      headers[12] = 'PENDING DISPUTE';
+      headers[14] = 'DATE';
+      headers[15] = vendorPaymentDirection === 'inbound' ? `${accountName} PAYMENT` : 'Cyvoratech Pvt Ltd. PAYMENT';
+    }
 
     const headerRow = worksheet.getRow(5);
     Object.entries(headers).forEach(([col, val]) => {
@@ -1651,14 +1746,13 @@ exports.exportSOA = async (req, res) => {
       const row = worksheet.getRow(currentRow);
       
       // Customer Invoices
-      if (customerInvoices[i]) {
+      if (includeCustomer && customerInvoices[i]) {
         row.getCell(1).value = customerInvoices[i].invoiceNumber;
         row.getCell(2).value = `${fmtDate(customerInvoices[i].billingPeriodStart)}-${fmtDate(customerInvoices[i].billingPeriodEnd)}`;
         row.getCell(3).value = Number(customerInvoices[i].totalAmount);
         row.getCell(3).numFmt = '#,##0.0000';
         totalCustInv += Number(customerInvoices[i].totalAmount);
         
-        // Check for dispute
         const dispute = disputes.find(d => d.invoiceNumber && d.invoiceNumber.includes(customerInvoices[i].invoiceNumber));
         if (dispute) {
           row.getCell(4).value = Number(dispute.disputeAmount);
@@ -1667,7 +1761,7 @@ exports.exportSOA = async (req, res) => {
       }
 
       // Customer Payments
-      if (customerPayments[i]) {
+      if (includeCustomer && customerPayments[i]) {
         row.getCell(6).value = fmtDate(customerPayments[i].paymentDate);
         row.getCell(7).value = Number(customerPayments[i].amount);
         row.getCell(7).numFmt = '#,##0.0000';
@@ -1675,18 +1769,16 @@ exports.exportSOA = async (req, res) => {
       }
 
       // Vendor Invoices
-      if (vendorInvoices[i]) {
+      if (includeVendor && vendorInvoices[i]) {
         row.getCell(9).value = vendorInvoices[i].invoiceNumber;
-        row.getCell(10).value = `${fmtDate(vendorInvoices[i].billingPeriodStart)}-${fmtDate(vendorInvoices[i].billingPeriodEnd)}`;
-        row.getCell(11).value = Number(vendorInvoices[i].totalAmount);
+        row.getCell(10).value = `${vendorInvoices[i].startDate || ''}-${vendorInvoices[i].endDate || ''}`;
+        row.getCell(11).value = Number(vendorInvoices[i].grandTotal || 0);
         row.getCell(11).numFmt = '#,##0.0000';
-        totalVendInv += Number(vendorInvoices[i].totalAmount);
-
-        // Vendor side disputes (if any, though disputes model seems customer-centric in this DB)
+        totalVendInv += Number(vendorInvoices[i].grandTotal || 0);
       }
 
       // Vendor Payments
-      if (vendorPayments[i]) {
+      if (includeVendor && vendorPayments[i]) {
         row.getCell(14).value = fmtDate(vendorPayments[i].paymentDate);
         row.getCell(15).value = Number(vendorPayments[i].amount);
         row.getCell(15).numFmt = '#,##0.0000';
@@ -1772,65 +1864,89 @@ exports.sendSOAEmail = async (req, res) => {
     }
 
     const { accountName, customerCode, vendorCode } = account;
+    const normalizedRole = String(account.accountRole || '').toLowerCase();
+    const includeCustomer = normalizedRole
+      ? ['customer', 'both'].includes(normalizedRole)
+      : Boolean(customerCode);
+    const includeVendor = normalizedRole
+      ? ['vendor', 'both'].includes(normalizedRole)
+      : Boolean(vendorCode);
+    const vendorPaymentDirection = normalizedRole === 'vendor' ? 'inbound' : 'outbound';
+
+    if (!includeCustomer && !includeVendor) {
+      return res.status(400).json({ error: 'Account role does not support SOA generation' });
+    }
 
     // Dates for filtering
     const start = startDate ? new Date(startDate).getTime() : 0;
     const end = endDate ? new Date(endDate).getTime() : Date.now();
 
-    // 1. Fetch Customer Invoices (Invoices we issue to them)
-    const customerInvoices = await Invoice.findAll({
-      where: {
-        customerCode: customerCode,
-        invoiceType: 'customer',
-        invoiceDate: { [Op.between]: [start, end] }
-      },
-      order: [['invoiceDate', 'ASC']],
-      raw: true
-    });
+    const normalizedStartDate = String(startDate || '').trim();
+    const normalizedEndDate = String(endDate || '').trim();
+    const vendorInvoiceWhere = { vendorCode };
+    const vendorDateConditions = [];
+    if (normalizedEndDate) {
+      vendorDateConditions.push({ startDate: { [Op.lte]: normalizedEndDate } });
+    }
+    if (normalizedStartDate) {
+      vendorDateConditions.push({ endDate: { [Op.gte]: normalizedStartDate } });
+    }
+    if (vendorDateConditions.length > 0) {
+      vendorInvoiceWhere[Op.and] = vendorDateConditions;
+    }
 
-    // 2. Fetch Customer Payments (Payments from them to us)
-    const customerPayments = await Payment.findAll({
-      where: {
-        customerCode: customerCode,
-        partyType: 'customer',
-        paymentDirection: 'inbound',
-        paymentDate: { [Op.between]: [start, end] }
-      },
-      order: [['paymentDate', 'ASC']],
-      raw: true
-    });
+    const [customerInvoices, customerPayments, vendorInvoices, vendorPayments] = await Promise.all([
+      includeCustomer && customerCode
+        ? Invoice.findAll({
+            where: {
+              customerCode,
+              invoiceDate: { [Op.between]: [start, end] }
+            },
+            order: [['invoiceDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeCustomer && customerCode
+        ? Payment.findAll({
+            where: {
+              customerCode,
+              partyType: 'customer',
+              paymentDirection: 'inbound',
+              paymentDate: { [Op.between]: [start, end] }
+            },
+            order: [['paymentDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeVendor && vendorCode
+        ? VendorInvoice.findAll({
+            where: vendorInvoiceWhere,
+            order: [['createdAt', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+      includeVendor && vendorCode
+        ? Payment.findAll({
+            where: {
+              customerCode: vendorCode,
+              partyType: 'vendor',
+              paymentDirection: vendorPaymentDirection,
+              paymentDate: { [Op.between]: [start, end] }
+            },
+            order: [['paymentDate', 'ASC']],
+            raw: true
+          })
+        : Promise.resolve([]),
+    ]);
 
-    // 3. Fetch Vendor Invoices (Invoices they issue to us)
-    const vendorInvoices = await Invoice.findAll({
-      where: {
-        customerCode: vendorCode,
-        invoiceType: 'vendor',
-        invoiceDate: { [Op.between]: [start, end] }
-      },
-      order: [['invoiceDate', 'ASC']],
-      raw: true
-    });
-
-    // 4. Fetch Vendor Payments (Payments from us to them)
-    const vendorPayments = await Payment.findAll({
-      where: {
-        customerCode: vendorCode,
-        partyType: 'vendor',
-        paymentDirection: 'outbound',
-        paymentDate: { [Op.between]: [start, end] }
-      },
-      order: [['paymentDate', 'ASC']],
-      raw: true
-    });
-
-    // 5. Fetch Disputes
-    const disputes = await Dispute.findAll({
-      where: {
-        customerCode: customerCode,
-        status: { [Op.ne]: 'closed' }
-      },
-      raw: true
-    });
+    // Derive dispute rows from disputed vendor invoices
+    const disputes = vendorInvoices
+      .filter((invoice) => String(invoice.status || '').toLowerCase() === 'disputed')
+      .map((invoice) => ({
+        invoiceNumber: invoice.invoiceNumber,
+        disputeAmount: Number(invoice.disputeDetails?.disputedAmount || invoice.grandTotal || 0),
+        status: 'open',
+      }));
 
     // Get the full account details for email
     const accountDetails = await Account.findOne({
@@ -1857,7 +1973,7 @@ exports.sendSOAEmail = async (req, res) => {
       totals: {
         customerRevenue: customerInvoices.reduce((sum, inv) => sum + Number(inv.totalAmount || 0), 0),
         customerPayments: customerPayments.reduce((sum, pay) => sum + Number(pay.amount || 0), 0),
-        vendorCosts: vendorInvoices.reduce((sum, inv) => sum + Number(inv.totalAmount || 0), 0),
+        vendorCosts: vendorInvoices.reduce((sum, inv) => sum + Number(inv.grandTotal || 0), 0),
         vendorPayments: vendorPayments.reduce((sum, pay) => sum + Number(pay.amount || 0), 0)
       }
     };

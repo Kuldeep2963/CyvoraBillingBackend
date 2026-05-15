@@ -85,6 +85,12 @@ const Payment = sequelize.define('Payment', {
     defaultValue: 0,
     comment: 'Remaining amount not yet applied to invoices'
   },
+
+  creditNoteAmount: {
+    type: DataTypes.DECIMAL(15, 4),
+    defaultValue: 0,
+    comment: 'Credit note amount applied to a payment'
+  },
   
   // Notes
   notes: {

@@ -174,6 +174,59 @@ const normalizeCountryFields = (payload) => {
   return data;
 };
 
+const normalizeDateFields = (payload) => {
+  const data = { ...payload };
+  const dateFields = [
+    'billingStartDate',
+    'lastbillingdate',
+    'customerLastBillingDate',
+    'customerNextBillingDate',
+    'vendorLastBillingDate',
+    'vendorNextBillingDate',
+    'nextbillingdate',
+  ];
+
+  for (const field of dateFields) {
+    if (data[field] === '') {
+      data[field] = null;
+    }
+  }
+
+  return data;
+};
+
+const normalizeTrunks = (input) => {
+  let parsed = input;
+
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch (_err) {
+      // allow comma-separated simple prefixes or leave as single string
+      parsed = parsed.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+  }
+
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map((item) => {
+      if (!item && item !== 0) return null;
+      if (typeof item === 'string') {
+        // treat string items as prefix-only entries
+        return { name: String(item).trim(), prefix: String(item).trim() };
+      }
+      if (typeof item === 'object') {
+        const name = String(item.name ?? item.label ?? item.trunk ?? '').trim();
+        const prefix = String(item.prefix ?? item.value ?? item.code ?? '').trim();
+        if (!name && !prefix) return null;
+        return { name: name || prefix, prefix: prefix || name };
+      }
+      return null;
+    })
+    .filter(Boolean);
+};
+
 const normalizeDocuments = (input) => {
   let parsed = input;
 
@@ -683,10 +736,15 @@ router.post('/bulk', async (req, res) => {
 
   const prepared = inputAccounts.map((raw) => {
     const data = normalizeCountryFields(
-      normalizeAuthFields(normalizeContactChannels({ ...(raw || {}) }))
+      normalizeDateFields(
+        normalizeAuthFields(normalizeContactChannels({ ...(raw || {}) }))
+      )
     );
     if (Object.prototype.hasOwnProperty.call(data, 'documents')) {
       data.documents = normalizeDocuments(data.documents);
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'trunks')) {
+      data.trunks = normalizeTrunks(data.trunks);
     }
     return applyBillingTypeAdjustments(data);
   });
@@ -784,10 +842,15 @@ router.post('/bulk', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const data = normalizeCountryFields(
-      normalizeAuthFields(normalizeContactChannels({ ...req.body }))
+      normalizeDateFields(
+        normalizeAuthFields(normalizeContactChannels({ ...req.body }))
+      )
     );
     if (Object.prototype.hasOwnProperty.call(data, 'documents')) {
       data.documents = normalizeDocuments(data.documents);
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'trunks')) {
+      data.trunks = normalizeTrunks(data.trunks);
     }
 
     applyBillingTypeAdjustments(data);
@@ -815,10 +878,15 @@ router.put('/:id', async (req, res) => {
     if (!account) return res.status(404).json({ error: 'Account not found' });
 
     const updates = normalizeCountryFields(
-      normalizeAuthFields(normalizeContactChannels({ ...req.body }))
+      normalizeDateFields(
+        normalizeAuthFields(normalizeContactChannels({ ...req.body }))
+      )
     );
     if (Object.prototype.hasOwnProperty.call(updates, 'documents')) {
       updates.documents = normalizeDocuments(updates.documents);
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'trunks')) {
+      updates.trunks = normalizeTrunks(updates.trunks);
     }
 
     // if billing type is changing, clear/seed appropriate fields

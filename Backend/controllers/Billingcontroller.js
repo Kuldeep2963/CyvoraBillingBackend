@@ -17,6 +17,13 @@ const Dispute = require("../models/Dispute");
 const BillingAutomationService = require("../services/BillingAutomationService");
 const EmailService = require("../services/EmailService");
 const { createNotification } = require("../services/notification-service");
+const {
+  addDays,
+  calculateNextBillingDate,
+  calculatePrevBillingDate,
+  getInitialLastBillingDate,
+  normalizeDateOnly,
+} = require("../utils/CalendarBillingCalculator");
 
 let hasLoggedPuppeteerExecutablePath = false;
 
@@ -35,23 +42,16 @@ const formatTime = (date, hour = 0, isEnd = false) => {
 };
 
 const addDaysAsDateOnly = (dateValue, days) => {
-  if (!dateValue && dateValue !== 0) return null;
-
-  const numericDate = Number(dateValue);
-  const baseDate = !isNaN(numericDate) ? new Date(numericDate) : new Date(dateValue);
-  if (isNaN(baseDate.getTime())) return null;
-
-  baseDate.setDate(baseDate.getDate() + days);
-  return baseDate.toISOString().split('T')[0];
+  return addDays(dateValue, days);
 };
 
-const syncInvoiceBillingDates = async (account, invoiceType, billedThroughDate, transaction) => {
-  if (!account || !billedThroughDate) return;
+const syncInvoiceBillingDates = async (account, invoiceType, invoicePeriodEnd, transaction) => {
+  if (!account || !invoicePeriodEnd) return;
 
   const updates = BillingAutomationService.buildStreamUpdates(
     account,
     invoiceType,
-    billedThroughDate,
+    invoicePeriodEnd,
   );
 
   if (Object.keys(updates).length > 0) {
@@ -71,37 +71,175 @@ const getBillingDateSnapshot = (account) => {
     customerNextBillingDate: data.customerNextBillingDate || null,
     vendorLastBillingDate: data.vendorLastBillingDate || null,
     vendorNextBillingDate: data.vendorNextBillingDate || null,
-    lastbillingdate: data.lastbillingdate || null,
-    nextbillingdate: data.nextbillingdate || null,
   };
 };
 
 const recalculateCustomerBillingDatesAfterDelete = async (account, deletedInvoice, transaction) => {
   if (!account) return;
 
-  const latestRemainingInvoice = await Invoice.findOne({
-    where: { customerCode: account.customerCode },
-    order: [["billingPeriodEnd", "DESC"], ["createdAt", "DESC"]],
-    transaction,
-  });
+  const customerLookupConditions = [];
+  if (account.customerCode) {
+    customerLookupConditions.push({ customerCode: account.customerCode });
+  }
+  if (account.gatewayId) {
+    customerLookupConditions.push({ customerCode: account.gatewayId });
+    customerLookupConditions.push({ customerGatewayId: account.gatewayId });
+  }
+  if (account.accountId) {
+    customerLookupConditions.push({ customerGatewayId: account.accountId });
+  }
 
-  const deletedInvoiceStartDate = deletedInvoice?.billingPeriodStart
-    ? addDaysAsDateOnly(deletedInvoice.billingPeriodStart, 0)
+  const deletedInvoiceBillingEnd = deletedInvoice?.billingPeriodEnd != null
+    ? Number(deletedInvoice.billingPeriodEnd)
     : null;
-  const fallbackDate = deletedInvoiceStartDate || addDaysAsDateOnly(account.billingStartDate || account.createdAt, 0);
-  const billedThroughDate = latestRemainingInvoice?.billingPeriodEnd
-    ? addDaysAsDateOnly(latestRemainingInvoice.billingPeriodEnd, 1)
-    : fallbackDate;
 
-  if (!billedThroughDate) return;
+  const previousRemainingInvoice = deletedInvoiceBillingEnd != null
+    ? await Invoice.findOne({
+        where: {
+          ...(customerLookupConditions.length > 0
+            ? { [Op.or]: customerLookupConditions }
+            : { customerCode: account.customerCode }),
+          billingPeriodEnd: { [Op.lt]: deletedInvoiceBillingEnd },
+        },
+        order: [["billingPeriodEnd", "DESC"], ["createdAt", "DESC"]],
+        transaction,
+      })
+    : await Invoice.findOne({
+        where: customerLookupConditions.length > 0 ? { [Op.or]: customerLookupConditions } : { customerCode: account.customerCode },
+        order: [["billingPeriodEnd", "DESC"], ["createdAt", "DESC"]],
+        transaction,
+      });
 
-  const updates = BillingAutomationService.buildStreamUpdates(
-    account,
-    "customer",
-    billedThroughDate,
-  );
+  const previousRemainingInvoiceEnd = previousRemainingInvoice?.billingPeriodEnd
+    ? addDaysAsDateOnly(previousRemainingInvoice.billingPeriodEnd, 0)
+    : null;
+  const deletedInvoiceEnd = addDaysAsDateOnly(deletedInvoice?.billingPeriodEnd, 0);
+  let lastBillingDate = previousRemainingInvoiceEnd
+    || (deletedInvoiceEnd
+      ? calculatePrevBillingDate(deletedInvoiceEnd, account.billingCycle || 'monthly')
+      : null)
+    || getInitialLastBillingDate(account.billingCycle || 'monthly', account.billingStartDate || account.createdAt || new Date());
+
+  // Safety: deleting an invoice must never move billing cursors forward.
+  const currentLast = normalizeDateOnly(account.customerLastBillingDate);
+  let wasClampedToCurrentLast = false;
+  if (lastBillingDate && currentLast && lastBillingDate > currentLast) {
+    lastBillingDate = currentLast;
+    wasClampedToCurrentLast = true;
+  }
+
+  if (!lastBillingDate) return;
+
+  const nextBillingDate = calculateNextBillingDate(lastBillingDate, account.billingCycle || 'monthly');
+  const updates = previousRemainingInvoiceEnd && !wasClampedToCurrentLast
+    ? BillingAutomationService.buildStreamUpdates(account, "customer", previousRemainingInvoiceEnd)
+    : {
+        customerLastBillingDate: lastBillingDate,
+        customerNextBillingDate: nextBillingDate,
+        lastbillingdate: lastBillingDate,
+        nextbillingdate: nextBillingDate,
+      };
 
   await account.update(updates, { transaction });
+};
+
+const deleteInvoiceWithBillingRestore = async (invoiceId) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const isNumeric = /^\d+$/.test(String(invoiceId));
+    if (!isNumeric) {
+      await transaction.rollback();
+      return {
+        success: false,
+        status: 404,
+        body: {
+          success: false,
+          error: "Invoice not found",
+        },
+      };
+    }
+
+    const invoice = await Invoice.findByPk(invoiceId, { transaction });
+    if (!invoice) {
+      await transaction.rollback();
+      return {
+        success: false,
+        status: 404,
+        body: {
+          success: false,
+          error: "Invoice not found",
+        },
+      };
+    }
+
+    if (!["draft", "pending", "cancelled"].includes(invoice.status)) {
+      await transaction.rollback();
+      return {
+        success: false,
+        status: 400,
+        body: {
+          success: false,
+          error: "Only draft, cancelled, or pending invoices can be deleted",
+        },
+      };
+    }
+
+    await InvoiceItem.destroy({
+      where: { invoiceId: invoice.id },
+      transaction,
+    });
+
+    const account = await resolveInvoiceAccount(invoice, transaction);
+    if (!account) {
+      await transaction.rollback();
+      return {
+        success: false,
+        status: 409,
+        body: {
+          success: false,
+          error: "Unable to resolve account for this invoice. Billing dates were not updated.",
+          invoiceRef: {
+            id: invoice.id,
+            customerCode: invoice.customerCode || null,
+            customerGatewayId: invoice.customerGatewayId || null,
+            customerName: invoice.customerName || null,
+          },
+        },
+      };
+    }
+
+    const billingDatesBefore = getBillingDateSnapshot(account);
+
+    await invoice.destroy({ transaction });
+    await recalculateCustomerBillingDatesAfterDelete(account, invoice, transaction);
+
+    let billingDatesAfter = null;
+    if (account) {
+      await account.reload({ transaction });
+      billingDatesAfter = getBillingDateSnapshot(account);
+    }
+
+    await transaction.commit();
+
+    return {
+      success: true,
+      status: 200,
+      body: {
+        success: true,
+        message: "Invoice deleted successfully",
+        billingDateRestore: {
+          accountFound: Boolean(account),
+          stream: "customer",
+          before: billingDatesBefore,
+          after: billingDatesAfter,
+        },
+      },
+    };
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
 };
 
 /* ===================== HELPER: GET COUNTRY FROM NUMBER ===================== */
@@ -303,22 +441,41 @@ const generatePaymentNumber = async () => {
 };
 
 const resolveInvoiceAccount = async (invoice, transaction = null) => {
-  const query = {
-    where: {
-      [Op.or]: [
-        { gatewayId: invoice.customerGatewayId },
-        { customerCode: invoice.customerCode },
-        { vendorCode: invoice.customerCode },
-        { accountName: invoice.customerName },
-      ],
-    },
-  };
+  const tx = transaction ? { transaction } : {};
 
-  if (transaction) {
-    query.transaction = transaction;
+  // Prefer exact customer-code match first to avoid ambiguous OR lookups.
+  if (invoice.customerCode) {
+    const byCustomerCode = await Account.findOne({
+      where: { customerCode: invoice.customerCode },
+      ...tx,
+    });
+    if (byCustomerCode) return byCustomerCode;
   }
 
-  return Account.findOne(query);
+  // Backward compatibility: older invoices may use gatewayId or accountId in this field.
+  if (invoice.customerGatewayId) {
+    const byGatewayOrCodeOrAccountId = await Account.findOne({
+      where: {
+        [Op.or]: [
+          { gatewayId: invoice.customerGatewayId },
+          { customerCode: invoice.customerGatewayId },
+          { accountId: invoice.customerGatewayId },
+        ],
+      },
+      ...tx,
+    });
+    if (byGatewayOrCodeOrAccountId) return byGatewayOrCodeOrAccountId;
+  }
+
+  // Final fallback for legacy/dirty records.
+  if (invoice.customerName) {
+    return Account.findOne({
+      where: { accountName: invoice.customerName },
+      ...tx,
+    });
+  }
+
+  return null;
 };
 
 const adjustAccountForInvoice = async (
@@ -645,8 +802,7 @@ exports.generateInvoice = async (req, res) => {
       );
     }
 
-    const billedThroughDate = addDaysAsDateOnly(billingPeriodEnd, 1);
-    await syncInvoiceBillingDates(account, "customer", billedThroughDate, transaction);
+    await syncInvoiceBillingDates(account, "customer", billingPeriodEnd, transaction);
 
     await transaction.commit();
 
@@ -1637,72 +1793,82 @@ exports.updateInvoice = async (req, res) => {
 
 /* ===================== DELETE INVOICE ===================== */
 exports.deleteInvoice = async (req, res) => {
-  const transaction = await sequelize.transaction();
-
   try {
-    const { id } = req.params;
-    const isNumeric = /^\d+$/.test(id);
-    if (!isNumeric) {
-      return res.status(404).json({
-        success: false,
-        error: "Invoice not found",
-      });
-    }
+    const result = await deleteInvoiceWithBillingRestore(req.params.id);
+    return res.status(result.status).json(result.body);
+  } catch (error) {
+    console.error("Delete Invoice Error:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
 
-    const invoice = await Invoice.findByPk(id, { transaction });
-
-    if (!invoice) {
-      return res.status(404).json({
-        success: false,
-        error: "Invoice not found",
-      });
-    }
-
-    // Only allow deletion of draft or cancelled invoices
-    if (!["draft", "pending", "cancelled"].includes(invoice.status)) {
+exports.deleteInvoices = async (req, res) => {
+  try {
+    const invoiceIds = Array.isArray(req.body?.invoiceIds) ? req.body.invoiceIds : [];
+    if (invoiceIds.length === 0) {
       return res.status(400).json({
         success: false,
-        error: "Only draft, cancelled, or pending invoices can be deleted",
+        error: "invoiceIds array is required",
       });
     }
 
-    // Delete invoice items
-    await InvoiceItem.destroy({
-      where: { invoiceId: id },
-      transaction,
+    const invoices = await Invoice.findAll({
+      where: {
+        id: { [Op.in]: invoiceIds },
+      },
+      order: [["billingPeriodEnd", "DESC"], ["createdAt", "DESC"]],
     });
 
-    const account = await resolveInvoiceAccount(invoice, transaction);
-    const billingDatesBefore = getBillingDateSnapshot(account);
+    const invoiceMap = new Map(invoices.map((invoice) => [String(invoice.id), invoice]));
+    const sortedInvoiceIds = [...invoiceIds]
+      .map((value) => String(value))
+      .sort((leftId, rightId) => {
+        const leftInvoice = invoiceMap.get(leftId);
+        const rightInvoice = invoiceMap.get(rightId);
 
-    // Delete invoice
-    await invoice.destroy({ transaction });
+        const leftEnd = leftInvoice?.billingPeriodEnd ? addDaysAsDateOnly(leftInvoice.billingPeriodEnd, 0) : null;
+        const rightEnd = rightInvoice?.billingPeriodEnd ? addDaysAsDateOnly(rightInvoice.billingPeriodEnd, 0) : null;
 
-    // Recalculate customer billing cursors based on remaining invoices.
-    await recalculateCustomerBillingDatesAfterDelete(account, invoice, transaction);
+        if (leftEnd && rightEnd && leftEnd !== rightEnd) {
+          return rightEnd.localeCompare(leftEnd);
+        }
+        if (leftEnd && !rightEnd) return -1;
+        if (!leftEnd && rightEnd) return 1;
 
-    let billingDatesAfter = null;
-    if (account) {
-      await account.reload({ transaction });
-      billingDatesAfter = getBillingDateSnapshot(account);
+        const leftCreated = leftInvoice?.createdAt ? new Date(leftInvoice.createdAt).getTime() : 0;
+        const rightCreated = rightInvoice?.createdAt ? new Date(rightInvoice.createdAt).getTime() : 0;
+        if (leftCreated !== rightCreated) {
+          return rightCreated - leftCreated;
+        }
+
+        return Number(rightId) - Number(leftId);
+      });
+
+    const results = [];
+    for (const invoiceId of sortedInvoiceIds) {
+      const result = await deleteInvoiceWithBillingRestore(invoiceId);
+      results.push({ invoiceId, ...result });
     }
 
-    await transaction.commit();
+    const succeeded = results.filter((item) => item.success).length;
+    const failed = results.length - succeeded;
 
-    res.json({
+    return res.status(200).json({
       success: true,
-      message: "Invoice deleted successfully",
-      billingDateRestore: {
-        accountFound: Boolean(account),
-        stream: "customer",
-        before: billingDatesBefore,
-        after: billingDatesAfter,
+      message: `Deleted ${succeeded} invoice${succeeded !== 1 ? 's' : ''}`,
+      results,
+      summary: {
+        requested: invoiceIds.length,
+        succeeded,
+        failed,
       },
     });
   } catch (error) {
-    await transaction.rollback();
-    console.error("Delete Invoice Error:", error);
-    res.status(500).json({
+    console.error("Delete Invoices Error:", error);
+    return res.status(500).json({
       success: false,
       error: error.message,
     });

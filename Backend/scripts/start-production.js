@@ -1,41 +1,42 @@
 #!/usr/bin/env node
 
+/**
+ * Production startup script for Backend
+ * 1. Builds the backend from source files to /build
+ * 2. Installs dependencies in build folder
+ * 3. Starts the server from the build folder
+ * 
+ * Usage: pnpm build:start
+ */
+
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 
 const buildDir = path.join(__dirname, "..", "build");
+const backendRoot = path.join(__dirname, "..");
 
-console.log("Starting production setup...");
+const log = (msg) => console.log(`\n📦 ${msg}`);
+const error = (msg) => console.error(`\n❌ ${msg}`);
 
-// Step 1: Check if build folder exists
-if (!fs.existsSync(buildDir)) {
-  console.log("Build folder not found. Running build...");
-  try {
-    execSync("node scripts/build-backend.js", { cwd: path.join(__dirname, ".."), stdio: "inherit" });
-  } catch (error) {
-    console.error("Build failed:", error.message);
+try {
+  log("Step 1/3: Building backend from source...");
+  execSync("node scripts/build-backend.js", { cwd: backendRoot, stdio: "inherit" });
+
+  if (!fs.existsSync(buildDir)) {
+    error("Build folder was not created");
     process.exit(1);
   }
-}
+  log("✓ Build completed successfully");
 
-console.log("Build folder exists at:", buildDir);
-
-// Step 2: Install dependencies in build folder
-console.log("Installing dependencies in build folder...");
-try {
+  log("Step 2/3: Installing production dependencies...");
   execSync("npm install --production", { cwd: buildDir, stdio: "inherit" });
-  console.log("Dependencies installed successfully");
-} catch (error) {
-  console.error("Dependency installation failed:", error.message);
-  process.exit(1);
-}
+  log("✓ Dependencies installed");
 
-// Step 3: Start the server
-console.log("Starting backend server from build folder...");
-try {
+  log("Step 3/3: Starting server from build folder...");
+  console.log("");
   execSync("node index.js", { cwd: buildDir, stdio: "inherit" });
-} catch (error) {
-  console.error("Server startup failed:", error.message);
+} catch (err) {
+  error(`Production startup failed: ${err.message}`);
   process.exit(1);
 }

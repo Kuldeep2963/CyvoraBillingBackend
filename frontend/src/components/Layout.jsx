@@ -156,8 +156,15 @@ const SidebarContent = () => {
       subItems: [
         {
           path: "/invoices",
-          label: "Invoices",
+          label: "Customer Invoices",
           icon: FiFileText,
+          roles: ["admin", "sales-manager", "rates-dept", "view only"],
+        },
+        
+        {
+          path: "/vendorinvoice",
+          label: "Vendor Invoices",
+          icon: FiFile,
           roles: ["admin", "sales-manager", "rates-dept", "view only"],
         },
         {
@@ -165,12 +172,6 @@ const SidebarContent = () => {
           label: "Account Statement",
           icon: FiDollarSign,
           roles: ["admin", "sales-manager", "view only"],
-        },
-        {
-          path: "/vendorinvoice",
-          label: "Vendor Invoices",
-          icon: FiFile,
-          roles: ["admin", "sales-manager", "rates-dept", "view only"],
         },
       ],
     },
@@ -227,7 +228,7 @@ const SidebarContent = () => {
     {
       path: "/adduser",
       label: "Users",
-      icon: FiUser,
+      icon: FiUsers,
       roles: ["admin"],
     },
     {
@@ -285,8 +286,9 @@ const SidebarContent = () => {
           <Flex
             p={3}
             borderRadius="md"
-            color={isActive ? "blue.500" : "gray.500"}
+            color={isActive ? "blue.600" : "gray.500"}
             fontWeight={isActive ? "600" : "500"}
+            fontSize={"sm"}
             _hover={{ textDecoration: "none" }}
             alignItems="center"
             justifyContent="space-between"
@@ -312,8 +314,9 @@ const SidebarContent = () => {
                   pl={6}
                   borderRadius="md"
                   color={
-                    location.pathname === subItem.path ? "blue.500" : "gray.500"
+                    location.pathname === subItem.path ? "blue.600" : "gray.500"
                   }
+                  fontsize="sm"
                   fontWeight={
                     location.pathname === subItem.path ? "600" : "500"
                   }
@@ -340,7 +343,8 @@ const SidebarContent = () => {
         key={item.path}
         p={3}
         borderRadius="md"
-        color={location.pathname === item.path ? "blue.500" : "gray.500"}
+        color={location.pathname === item.path ? "blue.600" : "gray.500"}
+        fontSize={"sm"}
         fontWeight={location.pathname === item.path ? "600" : "500"}
         _hover={{ textDecoration: "none" }}
         display="flex"

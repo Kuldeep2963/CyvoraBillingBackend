@@ -21,7 +21,6 @@ import {
   Tooltip,
   Flex,
 } from "@chakra-ui/react";
-import useNotify from "../utils/notify";
 import {
   MemoizedInput as Input,
   MemoizedSelect as Select,
@@ -41,6 +40,7 @@ import {
   FiUpload,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
+import useNotify from "../utils/notify";
 import ConfirmDialog from "../components/ConfirmDialog";
 import CreateAccountModal from "../components/modals/CreateAccountModal";
 import TopupModal from "../components/modals/TopupModal";
@@ -161,6 +161,12 @@ const Accounts = () => {
   const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
   const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
   const [selectedAccountForTopup, setSelectedAccountForTopup] = useState(null);
+  const userMap = users.reduce((map, currentUser) => {
+    if (currentUser && currentUser.id != null) {
+      map[currentUser.id] = currentUser;
+    }
+    return map;
+  }, {});
 
   const toast = useNotify();
   const cardBg = useColorModeValue("white", "gray.800");
@@ -688,13 +694,56 @@ const Accounts = () => {
       key: "lastbillingdate",
       header: "Last Billing",
       maxWidth: "100px",
-      render: (value) => value || "-",
+      render: (value, row) => {
+        const role = String(row.accountRole || "").toLowerCase();
+        const cust = row.customerLastBillingDate || row.lastbillingdate || "-";
+        const vend = row.vendorLastBillingDate || "-";
+
+        if (role === "customer") {
+          return <Text color={"blue.600"} fontSize="sm">C: {cust}</Text>;
+        }
+        if (role === "vendor") {
+          return <Text color={"green.600"} fontSize="sm">V: {vend}</Text>;
+        }
+        if (role === "both") {
+          return (
+            <Box>
+              <Text color={"blue.600"} fontSize="sm">C: {cust}</Text>
+              <Text color={"green.600"} fontSize="sm">V: {vend}</Text>
+            </Box>
+          );
+        }
+
+        // Fallback: show legacy field or both if available
+        return <Text fontSize="sm">{value || cust || vend || "-"}</Text>;
+      },
     },
     {
       key: "nextbillingdate",
       header: "Next Billing",
       maxWidth: "100px",
-      render: (value) => value || "-",
+      render: (value, row) => {
+        const role = String(row.accountRole || "").toLowerCase();
+        const cust = row.customerNextBillingDate || row.nextbillingdate || "-";
+        const vend = row.vendorNextBillingDate || "-";
+
+        if (role === "customer") {
+          return <Text color={"blue.600"} fontSize="sm">C: {cust}</Text>;
+        }
+        if (role === "vendor") {
+          return <Text color={"green.600"} fontSize="sm">V: {vend}</Text>;
+        }
+        if (role === "both") {
+          return (
+            <Box>
+              <Text color={"blue.600"} fontSize="sm">C: {cust}</Text>
+              <Text color={"green.600"} fontSize="sm">V: {vend}</Text>
+            </Box>
+          );
+        }
+
+        return <Text fontSize="sm">{value || cust || vend || "-"}</Text>;
+      },
     },
   ];
 

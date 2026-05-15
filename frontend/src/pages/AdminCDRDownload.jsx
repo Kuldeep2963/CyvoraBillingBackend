@@ -24,11 +24,11 @@ import {
   SimpleGrid,
   useColorModeValue,
 } from "@chakra-ui/react";
-import useNotify from "../utils/notify";
 import {
   MemoizedInput as Input,
   MemoizedSelect as Select,
 } from "../components/memoizedinput/memoizedinput";
+import useNotify from "../utils/notify";
 import {
   FiDownload,
   FiClock,

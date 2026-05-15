@@ -8,18 +8,18 @@ const { createNotification } = require('./notification-service');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const POLL_INTERVAL_MS        = 60_000;   // poll every 60 seconds
-const FETCH_BATCH_SIZE        = 500;      // rows fetched per query
-const INSERT_BATCH_SIZE       = 500;      // rows per bulkCreate call
-const STARTUP_DELAY_MS        = 20_000;   // wait for app to fully boot
-const MIN_POLL_GAP_MS         = 30_000;   // debounce guard
-const SSH_TUNNEL_RESTART_DELAY= 5_000;   // wait before restarting dead SSH tunnel
-const CHECKPOINT_KEY          = 'mysql_cdr_last_flowno';
+const POLL_INTERVAL_MS         = 5 * 60_000;   // 5 minutes
+const FETCH_BATCH_SIZE         = 500;
+const INSERT_BATCH_SIZE        = 500;
+const PENDING_IN_CHUNK_SIZE    = 1_000;         // FIX: chunk IN() queries to avoid max_allowed_packet
+const STARTUP_DELAY_MS         = 5_000;
+const MIN_POLL_GAP_MS          = 30_000;
+const SSH_TUNNEL_RESTART_DELAY = 5_000;
+const CHECKPOINT_KEY           = 'mysql_cdr_last_flowno';
 
-// ─── How many past days the live poller checks ─────────────────────────────────
-// 2 = today + yesterday. Protects against midnight boundary data loss.
-// The live poller intentionally stays lightweight (not all history).
-const LIVE_POLL_DAYS_BACK     = 2;
+const LIVE_POLL_DAYS_BACK = 2;
+
+// ─── Env helpers ─────────────────────────────────────────────────────────────
 
 function isEmptyEnv(value) {
   if (value === undefined || value === null) return true;
@@ -33,28 +33,31 @@ function firstNonEmptyValue(...values) {
   return undefined;
 }
 
-// ─── Column mapping: source → CDR model ──────────────────────────────────────
+// ─── Column mapping ───────────────────────────────────────────────────────────
 
 /**
- * Maps a raw row from e_cdr_YYYYMMDD to your CDR model fields.
- * Returns null if the row should be skipped.
+ * Maps a raw source DB row to a local CDR shape.
+ *
+ * INSERTION RULE — stoptime only:
+ *   Ongoing  →  stoptime IS NULL or stoptime = 0  →  returns null (queued to pending_cdrs)
+ *   All other rows  →  insert immediately (completed, failed, rejected, etc.)
+ *
+ * NOTE: includeIncomplete=true bypasses the stoptime guard (used for historical backfill).
  */
 function mapRowToCDR(row, sourceTag, opts = {}) {
   const { includeIncomplete = false } = opts;
 
-  // Live poller keeps completed-call filtering; backfill can opt out.
-  if (!includeIncomplete && (!row.stoptime || row.stoptime <= row.starttime)) {
-    return null;
+  if (!includeIncomplete) {
+    const stoptimeVal = row.stoptime;
+    const isOngoing   = stoptimeVal == null || Number(stoptimeVal) === 0;
+    if (isOngoing) return null;
   }
 
   return {
-    // Identity
     flowno:               row.flowno?.toString()           ?? null,
     softswitchcallid:     row.softswitchcallid?.toString() ?? null,
     callercallid:         row.callercallid                 ?? null,
     calleroriginalcallid: row.calleroriginalcallid         ?? null,
-
-    // Caller info
     callere164:           row.callere164                   ?? null,
     calleraccesse164:     row.calleraccesse164             ?? null,
     callerip:             row.callerip                     ?? null,
@@ -64,8 +67,6 @@ function mapRowToCDR(row, sourceTag, opts = {}) {
     callertogatewaye164:  row.callertogatewaye164          ?? null,
     callertype:           row.callertype                   ?? null,
     callerareacode:       row.callerareacode               ?? null,
-
-    // Callee info
     calleee164:           row.calleee164                   ?? null,
     calleeaccesse164:     row.calleeaccesse164             ?? null,
     calleeip:             row.calleeip                     ?? null,
@@ -75,8 +76,6 @@ function mapRowToCDR(row, sourceTag, opts = {}) {
     calleetogatewaye164:  row.calleetogatewaye164          ?? null,
     calleetype:           row.calleetype                   ?? null,
     calleeareacode:       row.calleeareacode               ?? null,
-
-    // Timing (already in ms)
     starttime:            row.starttime?.toString()        ?? null,
     stoptime:             row.stoptime?.toString()         ?? null,
     feetime:              row.feetime                      ?? 0,
@@ -86,8 +85,6 @@ function mapRowToCDR(row, sourceTag, opts = {}) {
     holdtime:             row.holdtime                     ?? 0,
     callerpdd:            row.callerpdd                    ?? 0,
     calleepdd:            row.calleepdd                    ?? 0,
-
-    // Billing
     fee:                  row.fee                          ?? 0,
     tax:                  row.tax                          ?? 0,
     suitefee:             row.suitefee                     ?? 0,
@@ -100,21 +97,15 @@ function mapRowToCDR(row, sourceTag, opts = {}) {
     billingtype:          row.billingtype                  ?? 0,
     calllevel:            row.calllevel                    ?? 0,
     cdrlevel:             row.cdrlevel                     ?? 0,
-
-    // Customer
     customeraccount:      row.customeraccount              ?? null,
     customername:         row.customername                 ?? null,
     agentaccount:         row.agentaccount                 ?? null,
     agentname:            row.agentname                    ?? null,
     agentcdr_id:          row.agentcdr_id                  ?? null,
-
-    // Call result
     enddirection:         row.enddirection                 ?? null,
     endreason:            row.endreason                    ?? null,
     rtpforward:           row.rtpforward                   ?? 0,
     softswitchname:       row.softswitchname               ?? null,
-
-    // Source tracking — tells you which server this CDR came from
     source_file:          sourceTag,
   };
 }
@@ -128,31 +119,26 @@ function toBigIntCheckpoint(value) {
   if (typeof value === 'string') {
     const trimmed = value.trim();
     if (!trimmed) return 0n;
-
-    // Handle JSON-stringified checkpoint values like '"204"'.
-    try {
-      return toBigIntCheckpoint(JSON.parse(trimmed));
-    } catch {
-      // Keep parsing below.
-    }
-
+    try { return toBigIntCheckpoint(JSON.parse(trimmed)); } catch { /* fall through */ }
     let normalized = trimmed;
     while (normalized.length >= 2) {
       const first = normalized[0];
-      const last = normalized[normalized.length - 1];
-      if ((first === '"' && last === '"') || (first === '\'' && last === '\'')) {
+      const last  = normalized[normalized.length - 1];
+      if (
+        (first === '"' && last === '"') ||
+        (first === "'" && last === "'")
+      ) {
         normalized = normalized.slice(1, -1).trim();
       } else {
         break;
       }
     }
-
     if (/^-?\d+$/.test(normalized)) return BigInt(normalized);
     return 0n;
   }
   if (typeof value === 'object') {
-    if (value.flowno  != null) return toBigIntCheckpoint(value.flowno);
-    if (value.value   != null) return toBigIntCheckpoint(value.value);
+    if (value.flowno != null) return toBigIntCheckpoint(value.flowno);
+    if (value.value  != null) return toBigIntCheckpoint(value.value);
   }
   return 0n;
 }
@@ -167,10 +153,7 @@ async function getCheckpoint(sourceId, tableName) {
 async function saveCheckpoint(sourceId, tableName, flowno) {
   const SystemSetting = require('../models/SystemSetting');
   const key = `${CHECKPOINT_KEY}_${sourceId}_${tableName}`;
-  await SystemSetting.upsert({
-    key,
-    value: { flowno: flowno.toString() },
-  });
+  await SystemSetting.upsert({ key, value: { flowno: flowno.toString() } });
 }
 
 // ─── Table name helpers ───────────────────────────────────────────────────────
@@ -188,138 +171,345 @@ function getUtcTableName(dayOffset = 0) {
   return `e_cdr_${y}${m}${d}`;
 }
 
-/** Returns table names for today and N-1 days back, newest first. */
 function getRecentTableNames(daysBack = LIVE_POLL_DAYS_BACK) {
   return Array.from({ length: daysBack }, (_, i) => getUtcTableName(-i));
 }
 
-// ─── Shared table fetch logic (used by both live poller & backfill) ───────────
+// ─── Bulk insert helper ───────────────────────────────────────────────────────
 
 /**
- * Fetches new CDRs from a single table after `lastFlowno`,
- * inserts them, and returns stats + the new max flowno.
+ * Deduplicates against existing DB rows, then bulk-inserts only genuinely new rows.
  *
- * Uses paginated fetching so large tables (>500 rows) are fully consumed
- * in a single call rather than waiting for the next poll interval.
+ * Returns the count of rows actually sent to bulkCreate (pre-verified as absent).
+ * ignoreDuplicates:true is kept as a last-resort race-condition guard only.
+ */
+async function bulkInsertCDRs(mapped, sourceTag) {
+  if (!mapped.length) return 0;
+
+  const flownos = mapped.map(c => c.flowno).filter(Boolean);
+  let existingFlownos = new Set();
+
+  if (flownos.length) {
+    const existingRows = await CDR.findAll({
+      attributes: ['flowno'],
+      where:      { source_file: sourceTag, flowno: flownos },
+      raw:        true,
+    });
+    existingFlownos = new Set(existingRows.map(r => String(r.flowno)));
+  }
+
+  const deduped = mapped.filter(
+    c => c.flowno && !existingFlownos.has(String(c.flowno))
+  );
+
+  if (!deduped.length) return 0;
+
+  for (let i = 0; i < deduped.length; i += INSERT_BATCH_SIZE) {
+    const batch = deduped.slice(i, i + INSERT_BATCH_SIZE);
+    await CDR.bulkCreate(batch, {
+      ignoreDuplicates: true,   // safety net for race conditions only
+      validate:         false,
+    });
+  }
+
+  // Return deduped.length — the rows we verified don't exist before inserting.
+  // bulkCreate result.length is always equal to input size on MySQL with
+  // ignoreDuplicates, so it cannot be used for accurate insert counting.
+  return deduped.length;
+}
+
+// ─── Core fetch function ──────────────────────────────────────────────────────
+
+/**
+ * Fetches CDRs from a single source table and inserts them locally.
  *
- * @param {object} pool         - mysql2 pool
- * @param {string} sourceId     - e.g. 'company_b'
- * @param {string} tableName    - e.g. 'e_cdr_20260325'
- * @param {bigint} lastFlowno   - checkpoint to resume from
- * @param {object} [opts]
- * @param {boolean} [opts.updateCheckpoint=true] - save checkpoint after insert
- * @param {boolean} [opts.includeIncomplete=false] - include rows with stoptime <= starttime
- * @returns {{ fetched: number, inserted: number, maxFlowno: bigint } | null}
+ * THREE PHASES every poll:
+ *
+ * PRE-SCAN
+ *   Full table scan from flowno 0 for rows where stoptime IS NULL or = 0.
+ *   Queues them into pending_cdrs (idempotent — ignoreDuplicates).
+ *   Must start from 0, not the checkpoint: the completed-call checkpoint can
+ *   advance past an ongoing call's flowno, so starting from the checkpoint
+ *   would permanently miss older ongoing calls.
+ *
+ * PHASE A
+ *   Fetch all rows with stoptime > 0 after the checkpoint, page by page.
+ *   Cursor always advances by the last RAW row's flowno (not the last mapped
+ *   flowno) so no gap is left when mapRowToCDR filters some rows out.
+ *   Checkpoint is saved after every page so a crash mid-batch loses at most
+ *   one page of work.
+ *
+ * PHASE B
+ *   Re-check every flowno in pending_cdrs for this table.
+ *   If stoptime is now > 0 → insert + remove from pending_cdrs.
+ *   Large pending sets are chunked to stay within MySQL's max_allowed_packet.
+ *   Rows still NULL/0 remain in pending and are logged.
  */
 async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts = {}) {
   const {
-    updateCheckpoint = true,
+    updateCheckpoint  = true,
     includeIncomplete = false,
   } = opts;
 
-  // ── 1. Check table exists ──────────────────────────────────────────────────
+  // ── Guard: skip silently if table doesn't exist yet ──────────────────────
   try {
     await pool.query(`SELECT 1 FROM \`${tableName}\` LIMIT 1`);
   } catch {
-    return null; // table doesn't exist yet
+    return null;
   }
 
-  const sourceTag    = `${sourceId}:${tableName}`;
-  let   cursor       = lastFlowno;
-  let   totalFetched = 0;
-  let   totalInserted= 0;
+  const PendingCDR = require('../models/PendingCDR');
+  const sourceTag  = `${sourceId}:${tableName}`;
+  let   cursor     = lastFlowno;
+  let   totalFetched  = 0;
+  let   totalInserted = 0;
 
-  // ── 2. Paginate through all new rows ──────────────────────────────────────
-  // FIX: original code fetched only one batch of 500 per poll, leaving
-  // the rest for the next tick. We now loop until the table is drained.
-  // This is safe because `updateCheckpoint` is true, so we resume correctly
-  // even if the process crashes mid-way.
+  // ══════════════════════════════════════════════════════════════════════════
+  // PRE-SCAN — queue all currently-ongoing calls into pending_cdrs
+  //
+  // Starts from flowno 0 (not checkpoint) so ongoing calls with a flowno
+  // lower than the current checkpoint are never missed.
+  //
+  // SELECT flowno only — lightweight even on large tables.
+  // ignoreDuplicates makes repeated scans fully idempotent.
+  // ══════════════════════════════════════════════════════════════════════════
+  if (!includeIncomplete) {
+    let pendingCursor = 0n;
+
+    while (true) {
+      let ongoingRows;
+      try {
+        [ongoingRows] = await pool.query(
+          `SELECT flowno FROM \`${tableName}\`
+           WHERE flowno > ?
+             AND (stoptime IS NULL OR stoptime = 0)
+           ORDER BY flowno ASC
+           LIMIT ?`,
+          [pendingCursor.toString(), FETCH_BATCH_SIZE]
+        );
+      } catch (err) {
+        console.error(
+          `[MySQLCDRFetcher:${sourceId}] PRE-SCAN error on ${tableName}:`,
+          err.message
+        );
+        break;
+      }
+
+      if (!ongoingRows.length) break;
+
+      const nowMs = Date.now().toString();
+      try {
+        await PendingCDR.bulkCreate(
+          ongoingRows.map(r => ({
+            source_id:  sourceId,
+            table_name: tableName,
+            flowno:     r.flowno.toString(),
+            first_seen: nowMs,
+          })),
+          { ignoreDuplicates: true }
+        );
+      } catch (err) {
+        console.error(
+          `[MySQLCDRFetcher:${sourceId}] PRE-SCAN bulkCreate error on ${tableName}:`,
+          err.message
+        );
+      }
+
+      console.log(
+        `[MySQLCDRFetcher:${sourceId}] Queued ${ongoingRows.length} ` +
+        `ongoing flowno(s) into pending_cdrs from ${tableName}`
+      );
+
+      // FIX: advance pendingCursor by last RAW row — never miss a page
+      pendingCursor = BigInt(ongoingRows[ongoingRows.length - 1].flowno);
+      if (ongoingRows.length < FETCH_BATCH_SIZE) break;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PHASE A — insert all completed rows (stoptime > 0) after the checkpoint
+  //
+  // KEY FIX (cursor advancement):
+  //   cursor is always advanced by the last RAW row's flowno, not the last
+  //   mapped row's flowno. mapRowToCDR can return null for some rows (e.g.
+  //   ongoing rows that slipped through the SQL filter due to a race); if we
+  //   advanced by lastMapped we would re-fetch those rows forever and never
+  //   move the cursor past them.
+  //
+  // KEY FIX (infinite loop guard):
+  //   If the last raw row's flowno is ≤ cursor (duplicate flowno in source or
+  //   all rows filtered out), we force-advance by 1 so the loop always
+  //   terminates.
+  //
+  // KEY FIX (checkpoint frequency):
+  //   Checkpoint is saved after every page of FETCH_BATCH_SIZE rows.
+  //   A crash mid-batch loses at most one page, not the entire catch-up run.
+  // ══════════════════════════════════════════════════════════════════════════
   while (true) {
-    const completionFilterSql = includeIncomplete ? '' : 'AND stoptime > starttime';
-    const [rows] = await pool.query(
-      `SELECT * FROM \`${tableName}\`
-       WHERE flowno > ?
-         ${completionFilterSql}
-       ORDER BY flowno ASC
-       LIMIT ?`,
-      [cursor.toString(), FETCH_BATCH_SIZE]
-    );
+    const completionFilter = includeIncomplete
+      ? ''
+      : 'AND stoptime IS NOT NULL AND stoptime > 0';
+
+    let rows;
+    try {
+      [rows] = await pool.query(
+        `SELECT * FROM \`${tableName}\`
+         WHERE flowno > ?
+           ${completionFilter}
+         ORDER BY flowno ASC
+         LIMIT ?`,
+        [cursor.toString(), FETCH_BATCH_SIZE]
+      );
+    } catch (err) {
+      console.error(
+        `[MySQLCDRFetcher:${sourceId}] PHASE A query error on ${tableName}:`,
+        err.message
+      );
+      break;
+    }
 
     if (!rows.length) break;
 
-    // Map + filter invalid rows
+    // Map rows — some may return null (ongoing races, mapping errors)
     const mapped = rows
       .map(row => mapRowToCDR(row, sourceTag, { includeIncomplete }))
       .filter(Boolean);
 
     if (mapped.length) {
-      // ── 3. Deduplicate against existing records ──────────────────────────
-      const flownos = mapped.map(cdr => cdr.flowno).filter(Boolean);
-      let existingFlownos = new Set();
-
-      if (flownos.length) {
-        const existingRows = await CDR.findAll({
-          attributes: ['flowno'],
-          where: { source_file: sourceTag, flowno: flownos },
-          raw: true,
-        });
-        existingFlownos = new Set(existingRows.map(r => String(r.flowno)));
-      }
-
-      const deduped = mapped.filter(cdr => cdr.flowno && !existingFlownos.has(String(cdr.flowno)));
-
-      // ── 4. Bulk insert in batches ────────────────────────────────────────
-      for (let i = 0; i < deduped.length; i += INSERT_BATCH_SIZE) {
-        const batch  = deduped.slice(i, i + INSERT_BATCH_SIZE);
-        const result = await CDR.bulkCreate(batch, {
-          ignoreDuplicates: true,
-          validate:         false,
-        });
-        totalInserted += result.length;
-      }
+      const inserted = await bulkInsertCDRs(mapped, sourceTag);
+      totalInserted += inserted;
     }
 
     totalFetched += rows.length;
 
-    // ── 5. Advance cursor & save checkpoint after every page ───────────
-    // CRITICAL FIX: cursor must always advance to the last flowno of the fetched
-    // batch regardless of how many were inserted. This is safe because:
-    //   (a) The SQL filter `stoptime > starttime` already excludes in-progress calls.
-    //   (b) `ignoreDuplicates: true` on bulkCreate makes re-processing idempotent.
-    //   (c) The backfill's `--ignore-checkpoints` flag handles the case where the
-    //       live poller advanced the checkpoint before the backfill ran.
-    //
-    // NOT advancing here would cause an infinite loop: if every row in a batch is
-    // filtered by mapRowToCDR (e.g. all have null stoptime in source), cursor stays
-    // at lastFlowno and the same batch is fetched forever.
-    cursor = BigInt(rows[rows.length - 1].flowno);
+    // ── Advance cursor by the last RAW row — critical fix ────────────────
+    // Using lastMapped.flowno would leave a gap when mapRowToCDR filters rows.
+    const lastRawFlowno = BigInt(rows[rows.length - 1].flowno);
 
-    if (updateCheckpoint && cursor > lastFlowno) {
+    if (lastRawFlowno > cursor) {
+      cursor = lastRawFlowno;
+    } else {
+      // Source has duplicate flowno values or all rows were filtered out.
+      // Force-advance by 1 to prevent an infinite loop on the same page.
+      console.warn(
+        `[MySQLCDRFetcher:${sourceId}] Cursor stall detected at ${cursor} ` +
+        `(lastRaw=${lastRawFlowno}) in ${tableName}. Force-advancing by 1.`
+      );
+      cursor = cursor + 1n;
+    }
+
+    // Save checkpoint after every page (not just at the end of the whole run)
+    if (updateCheckpoint) {
       await saveCheckpoint(sourceId, tableName, cursor);
     }
 
-    // If we got fewer rows than the batch limit we've reached the end
     if (rows.length < FETCH_BATCH_SIZE) break;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PHASE B — resolve all pending_cdrs rows for this table
+  //
+  // KEY FIX (IN() chunking):
+  //   MySQL's max_allowed_packet limits the size of IN() queries. Large pending
+  //   sets (thousands of flownos) can silently fail or truncate. We chunk the
+  //   pending list into PENDING_IN_CHUNK_SIZE slices and query each chunk
+  //   independently to guarantee every pending flowno is checked.
+  //
+  // No endreason filter — a failed call with stoptime written is resolved.
+  // bulkInsertCDRs pre-check prevents duplicates even if Phase A already
+  // inserted the row in the same poll cycle.
+  // ══════════════════════════════════════════════════════════════════════════
+  const pendingRows = await PendingCDR.findAll({
+    where: { source_id: sourceId, table_name: tableName },
+    raw:   true,
+  });
+
+  if (pendingRows.length) {
+    const pendingFlownos = pendingRows.map(p => p.flowno);
+    let   nowResolved    = [];
+
+    // Chunk the IN() query to avoid max_allowed_packet limits
+    for (let i = 0; i < pendingFlownos.length; i += PENDING_IN_CHUNK_SIZE) {
+      const chunk = pendingFlownos.slice(i, i + PENDING_IN_CHUNK_SIZE);
+      try {
+        const [chunkRows] = await pool.query(
+          `SELECT * FROM \`${tableName}\`
+           WHERE flowno IN (?)
+             AND stoptime IS NOT NULL
+             AND stoptime > 0`,
+          [chunk]
+        );
+        nowResolved = nowResolved.concat(chunkRows);
+      } catch (err) {
+        console.error(
+          `[MySQLCDRFetcher:${sourceId}] PHASE B chunk query error for ${tableName}:`,
+          err.message
+        );
+        // Continue with remaining chunks — don't abort the entire phase
+      }
+    }
+
+    if (nowResolved.length) {
+      const mapped = nowResolved
+        .map(row => mapRowToCDR(row, sourceTag, { includeIncomplete: false }))
+        .filter(Boolean);
+
+      if (mapped.length) {
+        const recovered = await bulkInsertCDRs(mapped, sourceTag);
+        totalInserted += recovered;
+        if (recovered > 0) {
+          console.log(
+            `[MySQLCDRFetcher:${sourceId}] Recovered ${recovered} ` +
+            `previously-pending CDR(s) from ${tableName}`
+          );
+        }
+      }
+
+      const resolvedFlownos = nowResolved.map(r => r.flowno.toString());
+
+      // Chunk the destroy call as well for safety with large sets
+      for (let i = 0; i < resolvedFlownos.length; i += PENDING_IN_CHUNK_SIZE) {
+        const chunk = resolvedFlownos.slice(i, i + PENDING_IN_CHUNK_SIZE);
+        try {
+          await PendingCDR.destroy({
+            where: {
+              source_id:  sourceId,
+              table_name: tableName,
+              flowno:     chunk,
+            },
+          });
+        } catch (err) {
+          console.error(
+            `[MySQLCDRFetcher:${sourceId}] PHASE B destroy error for ${tableName}:`,
+            err.message
+          );
+        }
+      }
+
+      console.log(
+        `[MySQLCDRFetcher:${sourceId}] Cleared ${resolvedFlownos.length} ` +
+        `resolved flowno(s) from pending_cdrs`
+      );
+    }
+
+    const stillPending = pendingFlownos.length - nowResolved.length;
+    if (stillPending > 0) {
+      console.log(
+        `[MySQLCDRFetcher:${sourceId}] ${stillPending} flowno(s) still ` +
+        `in-progress in ${tableName}`
+      );
+    }
   }
 
   return { fetched: totalFetched, inserted: totalInserted, maxFlowno: cursor };
 }
 
-// ─── Service ──────────────────────────────────────────────────────────────────
+// ─── Service class ────────────────────────────────────────────────────────────
 
 class MySQLCDRFetcher {
-  /**
-   * @param {object} config
-   * @param {string} config.host
-   * @param {number} config.port
-   * @param {string} config.user
-   * @param {string} config.password
-   * @param {string} config.database
-   * @param {string} config.sourceId   — unique identifier e.g. 'company_b'
-   */
   constructor(config = {}) {
     const hasSshEnv = Boolean(
-      !isEmptyEnv(process.env.SERVER_IP) &&
+      !isEmptyEnv(process.env.SERVER_IP)    &&
       !isEmptyEnv(process.env.SSH_USERNAME) &&
       !isEmptyEnv(process.env.SSH_KEY_PATH)
     );
@@ -345,14 +535,15 @@ class MySQLCDRFetcher {
       sshKeyPath:       firstNonEmptyValue(process.env.SSH_KEY_PATH),
     };
 
-    this.config    = { ...envConfig, ...config };
-    this.sourceId  = this.config.sourceId;
-    this.pool      = null;
-    this.started   = false;
-    this.running   = false;
-    this.lastRunAt = 0;
+    this.config   = { ...envConfig, ...config };
+    this.sourceId = this.config.sourceId;
+    this.pool     = null;
+    this.started  = false;
+    this.running  = false;
+    this.lastRunAt         = 0;
     this._interval         = null;
     this._sshTunnelProcess = null;
+    this._tunnelReady      = false;
 
     this._onProcessExit = () => {
       if (this._sshTunnelProcess) {
@@ -361,16 +552,14 @@ class MySQLCDRFetcher {
       }
     };
 
-    process.on('exit',   this._onProcessExit);
-    process.on('SIGINT', this._onProcessExit);
-    process.on('SIGTERM',this._onProcessExit);
+    process.on('exit',    this._onProcessExit);
+    process.on('SIGINT',  this._onProcessExit);
+    process.on('SIGTERM', this._onProcessExit);
 
     this.start().catch((err) => {
       console.error(`[MySQLCDRFetcher:${this.sourceId}] Failed to start:`, err.message);
     });
   }
-
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   async start() {
     if (this.started) return;
@@ -379,7 +568,7 @@ class MySQLCDRFetcher {
     if (!this.config.useSshTunnel) required.unshift('host');
     const missing = required.filter((key) => !this.config[key]);
     if (missing.length) {
-      console.warn(`[MySQLCDRFetcher:${this.sourceId}] Disabled - missing config: ${missing.join(', ')}`);
+      console.warn(`[MySQLCDRFetcher:${this.sourceId}] Disabled — missing config: ${missing.join(', ')}`);
       return;
     }
 
@@ -390,26 +579,18 @@ class MySQLCDRFetcher {
       : `${this.config.host}:${this.config.port}`;
 
     console.log(
-      `[MySQLCDRFetcher:${this.sourceId}] Connection mode=${this.config.useSshTunnel ? 'ssh-tunnel' : 'direct'} ` +
+      `[MySQLCDRFetcher:${this.sourceId}] ` +
+      `mode=${this.config.useSshTunnel ? 'ssh-tunnel' : 'direct'} ` +
       `db=${this.config.database} mysql=${dbAddr}`
     );
 
     if (this.config.useSshTunnel) {
       await this._startSshTunnel();
+    } else {
+      this._tunnelReady = true;
     }
 
-    this.pool = mysql.createPool({
-      host:               this.config.useSshTunnel ? '127.0.0.1' : this.config.host,
-      port:               this.config.useSshTunnel ? this.config.tunnelLocalPort : (this.config.port || 3306),
-      user:               this.config.user,
-      password:           this.config.password,
-      database:           this.config.database,
-      waitForConnections: true,
-      connectionLimit:    3,
-      queueLimit:         10,
-      connectTimeout:     10_000,
-      multipleStatements: false,
-    });
+    this._createPool();
 
     try {
       const conn = await this.pool.getConnection();
@@ -425,7 +606,10 @@ class MySQLCDRFetcher {
       this._interval = setInterval(() => this._poll(), POLL_INTERVAL_MS);
     }, STARTUP_DELAY_MS);
 
-    console.log(`[MySQLCDRFetcher:${this.sourceId}] Fetcher started — polling every ${POLL_INTERVAL_MS / 1000}s`);
+    console.log(
+      `[MySQLCDRFetcher:${this.sourceId}] Fetcher started — ` +
+      `polling every ${POLL_INTERVAL_MS / 1000}s`
+    );
   }
 
   stop() {
@@ -440,14 +624,31 @@ class MySQLCDRFetcher {
       this._sshTunnelProcess.kill('SIGTERM');
       this._sshTunnelProcess = null;
     }
-    process.off('exit',   this._onProcessExit);
-    process.off('SIGINT', this._onProcessExit);
-    process.off('SIGTERM',this._onProcessExit);
-    this.started = false;
+    process.off('exit',    this._onProcessExit);
+    process.off('SIGINT',  this._onProcessExit);
+    process.off('SIGTERM', this._onProcessExit);
+    this.started      = false;
+    this._tunnelReady = false;
     console.log(`[MySQLCDRFetcher:${this.sourceId}] Fetcher stopped`);
   }
 
-  // ── SSH Tunnel ─────────────────────────────────────────────────────────────
+  _createPool() {
+    if (this.pool) { this.pool.end().catch(() => {}); this.pool = null; }
+    this.pool = mysql.createPool({
+      host:               this.config.useSshTunnel ? '127.0.0.1' : this.config.host,
+      port:               this.config.useSshTunnel
+                            ? this.config.tunnelLocalPort
+                            : (this.config.port || 3306),
+      user:               this.config.user,
+      password:           this.config.password,
+      database:           this.config.database,
+      waitForConnections: true,
+      connectionLimit:    3,
+      queueLimit:         10,
+      connectTimeout:     10_000,
+      multipleStatements: false,
+    });
+  }
 
   async _canConnectLocalPort(port) {
     return new Promise((resolve) => {
@@ -457,20 +658,49 @@ class MySQLCDRFetcher {
     });
   }
 
+  async _waitForTunnelPort() {
+    await new Promise((resolve, reject) => {
+      const startedAt = Date.now();
+      const tryConnect = () => {
+        const socket = net.createConnection({
+          host: '127.0.0.1',
+          port: this.config.tunnelLocalPort,
+        });
+        socket.once('connect', () => { socket.destroy(); resolve(); });
+        socket.once('error',   () => {
+          socket.destroy();
+          if (Date.now() - startedAt > 25_000) {
+            reject(new Error(
+              `SSH tunnel did not open port ${this.config.tunnelLocalPort} within 25s. ` +
+              `Check SSH_KEY_PATH, SERVER_IP, SSH_USERNAME, SSH_PORT and firewall rules.`
+            ));
+            return;
+          }
+          setTimeout(tryConnect, 250);
+        });
+      };
+      tryConnect();
+    });
+  }
+
   async _startSshTunnel() {
     if (this._sshTunnelProcess) return;
 
     const portInUse = await this._canConnectLocalPort(this.config.tunnelLocalPort);
     if (portInUse) {
       console.log(
-        `[MySQLCDRFetcher:${this.sourceId}] Reusing existing local tunnel on localhost:${this.config.tunnelLocalPort}`
+        `[MySQLCDRFetcher:${this.sourceId}] ` +
+        `Reusing existing tunnel on localhost:${this.config.tunnelLocalPort}`
       );
+      this._tunnelReady = true;
       return;
     }
 
     const required = ['sshHost', 'sshUser', 'sshPort', 'sshKeyPath'];
     const missing  = required.filter((key) => !this.config[key]);
-    if (missing.length) throw new Error(`SSH tunnel enabled but missing config: ${missing.join(', ')}`);
+    if (missing.length) {
+      throw new Error(`SSH tunnel enabled but missing config: ${missing.join(', ')}`);
+    }
 
     const args = [
       '-N',
@@ -480,12 +710,13 @@ class MySQLCDRFetcher {
       '-o', 'BatchMode=yes',
       '-o', 'ExitOnForwardFailure=yes',
       '-o', 'StrictHostKeyChecking=no',
-      '-o', 'ServerAliveInterval=30',   // FIX: keep tunnel alive
-      '-o', 'ServerAliveCountMax=3',    // FIX: restart if 3 keepalives fail
+      '-o', 'ServerAliveInterval=30',
+      '-o', 'ServerAliveCountMax=3',
       `${this.config.sshUser}@${this.config.sshHost}`,
     ];
 
     const spawnTunnel = () => {
+      this._tunnelReady      = false;
       this._sshTunnelProcess = spawn('ssh', args, {
         stdio: ['ignore', 'ignore', 'pipe'],
       });
@@ -495,57 +726,60 @@ class MySQLCDRFetcher {
         if (msg) console.error(`[MySQLCDRFetcher:${this.sourceId}] SSH tunnel: ${msg}`);
       });
 
-      // FIX: auto-restart SSH tunnel if it dies unexpectedly
       this._sshTunnelProcess.once('exit', (code) => {
         this._sshTunnelProcess = null;
+        this._tunnelReady      = false;
+
         if (this.started) {
           console.warn(
-            `[MySQLCDRFetcher:${this.sourceId}] SSH tunnel exited (code=${code}), ` +
-            `restarting in ${SSH_TUNNEL_RESTART_DELAY / 1000}s...`
+            `[MySQLCDRFetcher:${this.sourceId}] SSH tunnel exited ` +
+            `(code=${code}), restarting in ${SSH_TUNNEL_RESTART_DELAY / 1000}s...`
           );
-          setTimeout(spawnTunnel, SSH_TUNNEL_RESTART_DELAY);
+          setTimeout(async () => {
+            try {
+              spawnTunnel();
+              await this._waitForTunnelPort();
+              this._createPool();
+              this._tunnelReady = true;
+              console.log(
+                `[MySQLCDRFetcher:${this.sourceId}] SSH tunnel restored and pool recreated`
+              );
+            } catch (err) {
+              console.error(
+                `[MySQLCDRFetcher:${this.sourceId}] Failed to restore SSH tunnel:`,
+                err.message
+              );
+            }
+          }, SSH_TUNNEL_RESTART_DELAY);
         }
       });
     };
 
     spawnTunnel();
-
-    // Wait for the local port to become available
-    await new Promise((resolve, reject) => {
-      const startedAt = Date.now();
-      const tryConnect = () => {
-        const socket = net.createConnection({ host: '127.0.0.1', port: this.config.tunnelLocalPort });
-        socket.once('connect', () => { socket.destroy(); resolve(); });
-        socket.once('error',   () => {
-          socket.destroy();
-          if (Date.now() - startedAt > 25_000) {
-            reject(new Error(
-              `SSH tunnel did not open port ${this.config.tunnelLocalPort} within 25s. ` +
-              `Check SSH_KEY_PATH, SERVER_IP, SSH_USERNAME, SSH_PORT, and firewall.`
-            ));
-            return;
-          }
-          setTimeout(tryConnect, 250);
-        });
-      };
-      tryConnect();
-    });
-
-    console.log(`[MySQLCDRFetcher:${this.sourceId}] SSH tunnel ready on localhost:${this.config.tunnelLocalPort}`);
+    await this._waitForTunnelPort();
+    this._tunnelReady = true;
+    console.log(
+      `[MySQLCDRFetcher:${this.sourceId}] ` +
+      `SSH tunnel ready on localhost:${this.config.tunnelLocalPort}`
+    );
   }
-
-  // ── Poll ───────────────────────────────────────────────────────────────────
 
   async _poll() {
     const now = Date.now();
+
     if (this.running) {
       console.warn(`[MySQLCDRFetcher:${this.sourceId}] Skipped — previous poll still running`);
       return;
     }
     if (this.lastRunAt && (now - this.lastRunAt) < MIN_POLL_GAP_MS) return;
+    if (!this._tunnelReady) {
+      console.warn(`[MySQLCDRFetcher:${this.sourceId}] Skipped — SSH tunnel not ready`);
+      return;
+    }
 
     this.running   = true;
     this.lastRunAt = now;
+
     try {
       await this._fetchAndInsert();
     } catch (err) {
@@ -555,48 +789,48 @@ class MySQLCDRFetcher {
     }
   }
 
-  // ── Core fetch logic ───────────────────────────────────────────────────────
-
   async _fetchAndInsert() {
     const startedAt = Date.now();
-
-    // FIX: poll today + yesterday to handle midnight boundary.
-    // If a call started at 23:59 and ended at 00:01 it lands in today's table,
-    // but any calls that finished in the last seconds of yesterday also need
-    // re-checking until the checkpoint for yesterday's table is fully caught up.
-    const tables = getRecentTableNames(LIVE_POLL_DAYS_BACK);
+    const tables    = getRecentTableNames(LIVE_POLL_DAYS_BACK);
 
     let totalFetched  = 0;
     let totalInserted = 0;
 
     for (const tableName of tables) {
       const checkpoint = await getCheckpoint(this.sourceId, tableName);
-      const result     = await fetchAndInsertTable(this.pool, this.sourceId, tableName, checkpoint);
+      const result     = await fetchAndInsertTable(
+        this.pool, this.sourceId, tableName, checkpoint
+      );
       if (!result) continue;
-
       totalFetched  += result.fetched;
       totalInserted += result.inserted;
     }
 
-    if (totalFetched > 0) {
-      const durationMs = Date.now() - startedAt;
+    const durationMs = Date.now() - startedAt;
+
+    if (totalInserted > 0) {
       console.log(
-        `[MySQLCDRFetcher:${this.sourceId}] Fetched ${totalFetched} rows, ` +
-        `inserted ${totalInserted} in ${durationMs}ms`
+        `[MySQLCDRFetcher:${this.sourceId}] ` +
+        `Fetched ${totalFetched} row(s), inserted ${totalInserted} NEW in ${durationMs}ms`
       );
-      if (totalInserted > 0) {
-        await createNotification({
-          title:    'CDR sync complete',
-          message:  `${totalInserted} new CDR(s) imported from ${this.sourceId}`,
-          type:     'info',
-          category: 'cdr-sync',
-          metadata: { totalFetched, totalInserted, sourceId: this.sourceId, durationMs },
-        }).catch(err =>
-          console.error(`[MySQLCDRFetcher:${this.sourceId}] Notification error:`, err)
-        );
-      }
+      await createNotification({
+        title:    'CDR sync complete',
+        message:  `${totalInserted} new CDR(s) imported from ${this.sourceId}`,
+        type:     'info',
+        category: 'cdr-sync',
+        metadata: { totalFetched, totalInserted, sourceId: this.sourceId, durationMs },
+      }).catch(err =>
+        console.error(`[MySQLCDRFetcher:${this.sourceId}] Notification error:`, err)
+      );
+    } else if (totalFetched > 0) {
+      console.log(
+        `[MySQLCDRFetcher:${this.sourceId}] ` +
+        `Fetched ${totalFetched} row(s), 0 new (all already stored) in ${durationMs}ms`
+      );
     } else {
-      console.log(`[MySQLCDRFetcher:${this.sourceId}] No new rows in ${tables.join(', ')}`);
+      console.log(
+        `[MySQLCDRFetcher:${this.sourceId}] No new rows in ${tables.join(', ')}`
+      );
     }
   }
 }

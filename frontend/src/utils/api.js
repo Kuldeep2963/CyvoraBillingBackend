@@ -759,6 +759,23 @@ export const deleteInvoice = async (id) => {
   }
 };
 
+export const deleteInvoices = async (invoiceIds) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/billing/invoices/bulk-delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({ invoiceIds }),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error deleting invoices:', error);
+    throw error;
+  }
+};
+
 export const downloadInvoice = async (id, invoiceNumber) => {
   try {
     const response = await fetch(`${API_BASE_URL}/billing/invoices/${id}/download`, {
@@ -1449,6 +1466,113 @@ export const createTestNotification = async (payload = {}) => {
     return data;
   } catch (error) {
     console.error('Error creating test notification:', error);
+    throw error;
+  }
+};
+
+// Customer Rates APIs
+export const uploadCustomerRates = async (accountId, trunk, file) => {
+  try {
+    const formData = new FormData();
+    formData.append('accountId', accountId);
+    formData.append('trunk', trunk);
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE_URL}/customer-rates/upload`, {
+      method: 'POST',
+      headers: {
+        ...getAuthHeaders()
+      },
+      body: formData,
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error uploading customer rates:', error);
+    throw error;
+  }
+};
+
+export const fetchCustomerRates = async (params = {}) => {
+  try {
+    const query = new URLSearchParams(params).toString();
+    const url = query
+      ? `${API_BASE_URL}/customer-rates?${query}`
+      : `${API_BASE_URL}/customer-rates`;
+
+    const response = await fetch(url, {
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error fetching customer rates:', error);
+    throw error;
+  }
+};
+
+export const getCustomerRate = async (id) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/customer-rates/${id}`, {
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error fetching customer rate ${id}:`, error);
+    throw error;
+  }
+};
+
+export const updateCustomerRates = async (id, { rateData, action }) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/customer-rates/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({ rateData, action }),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error updating customer rate ${id}:`, error);
+    throw error;
+  }
+};
+
+export const deleteCustomerRate = async (id) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/customer-rates/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error deleting customer rate ${id}:`, error);
+    throw error;
+  }
+};
+
+export const revertCustomerRate = async (id) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/customer-rates/${id}/revert`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error reverting customer rate ${id}:`, error);
+    throw error;
+  }
+};
+
+export const fetchCustomerRatesHistory = async (accountId, trunk = null) => {
+  try {
+    const query = trunk ? `?trunk=${encodeURIComponent(trunk)}` : '';
+    const response = await fetch(`${API_BASE_URL}/customer-rates/history/${accountId}${query}`, {
+      headers: getAuthHeaders()
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error(`Error fetching customer rates history for account ${accountId}:`, error);
     throw error;
   }
 };

@@ -9,11 +9,22 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    host: 'localhost',
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,
       },
     },
+  },
+  preview: {
+    port: 4173,
+    host: 'localhost',
+    strictPort: false,
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    minify: 'terser',
   },
 })

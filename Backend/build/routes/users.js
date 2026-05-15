@@ -28,8 +28,9 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { email, password, role, first_name, last_name, phone } = req.body;
+    const normalizedEmail = String(email || '').trim().toLowerCase();
 
-    if (!email || !password || !first_name || !last_name) {
+    if (!normalizedEmail || !password || !first_name || !last_name) {
       return res.status(400).json({ error: 'Email, password, first name, and last name are required' });
     }
 
@@ -37,7 +38,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
 
-    const existingUser = await User.findOne({ where: { email } });
+    const existingUser = await User.findOne({ where: { email: normalizedEmail } });
     if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
     }
@@ -50,7 +51,7 @@ router.post('/', async (req, res) => {
       : 'user';
 
     const user = await User.create({
-      email,
+      email: normalizedEmail,
       hashedpassword: hashedPassword,
       role: assignedRole,
       first_name,
@@ -60,7 +61,7 @@ router.post('/', async (req, res) => {
 
     try {
       await EmailService.sendWelcomeEmail(user, password);
-      console.log('Welcome email sent to:', email);
+      console.log('Welcome email sent to:', normalizedEmail);
     } catch (emailError) {
       console.error('Failed to send welcome email:', emailError);
     }

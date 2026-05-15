@@ -13,11 +13,6 @@ const Invoice = sequelize.define('Invoice', {
     unique: true,
     comment: 'Unique invoice number (e.g., INV-2024-001)'
   },
-  invoiceType: {
-    type: DataTypes.ENUM('customer', 'vendor'),
-    defaultValue: 'customer',
-    allowNull: false
-  },
   customerGatewayId: {
     type: DataTypes.STRING(100),
     allowNull: false,

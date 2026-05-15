@@ -11,17 +11,24 @@ import {
   FormLabel,
   Grid,
   GridItem,
+  Heading,
   HStack,
   NumberInput,
   NumberInputField,
   Spinner,
+  Stack,
   Switch,
+  Tab,
+  TabList,
+  TabPanel,
+  TabPanels,
+  Tabs,
   Text,
   VStack,
 } from '@chakra-ui/react';
-import useNotify from '../utils/notify';
 import { MemoizedInput as Input, MemoizedSelect as Select } from '../components/memoizedinput/memoizedinput';
 import { FiBell, FiDatabase, FiRefreshCw, FiSave, FiSettings, FiUpload } from 'react-icons/fi';
+import useNotify from '../utils/notify';
 import {
   createTestNotification,
   fetchCDRCount,
@@ -39,8 +46,6 @@ import {
 import { formatNotificationTime } from '../utils/notificationTime';
 import PageNavBar from '../components/PageNavBar';
 import DataTable from '../components/DataTable';
-
-// ─── Constants ───────────────────────────────────────────────────────────────
 
 const DEFAULT_SETTINGS = {
   systemName: 'CDR Billing System',
@@ -60,12 +65,6 @@ const DEFAULT_SETTINGS = {
 };
 
 const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS);
-const RETENTION_MIN = 2;
-const RETENTION_MAX = 90;
-const POLLING_MIN = 5;
-const POLLING_MAX = 3600;
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const normalizeSettingsShape = (raw = {}) => {
   const source = raw && typeof raw === 'object' ? raw : {};
@@ -75,205 +74,36 @@ const normalizeSettingsShape = (raw = {}) => {
     notificationPollingSeconds:
       source.notificationPollingSeconds ?? source.notificationpollingseconds,
   };
+
   return SETTINGS_KEYS.reduce((acc, key) => {
-    if (mapped[key] !== undefined) acc[key] = mapped[key];
+    if (mapped[key] !== undefined) {
+      acc[key] = mapped[key];
+    }
     return acc;
   }, {});
 };
 
+const RETENTION_MIN = 2;
+const RETENTION_MAX = 90;
+const POLLING_MIN = 5;
+const POLLING_MAX = 3600;
+
 const validateNumericInput = (rawValue, label, min, max) => {
   const parsed = Number(rawValue);
-  if (!Number.isFinite(parsed))
+  if (!Number.isFinite(parsed)) {
     return { valid: false, value: null, message: `${label} must be a number.` };
-  if (parsed < min || parsed > max)
+  }
+  if (parsed < min || parsed > max) {
     return { valid: false, value: null, message: `${label} must be between ${min} and ${max}.` };
+  }
   return { valid: true, value: parsed, message: '' };
 };
 
-// ─── Shared design tokens (applied via sx / style props) ─────────────────────
-
-const CARD_PROPS = {
-  bg: 'white',
-  borderWidth: '0.5px',
-  borderColor: 'gray.200',
-  borderRadius: '10px',
-  boxShadow: 'none',
-};
-
-const SECTION_LABEL = {
-  fontSize: '10px',
-  fontWeight: '600',
-  textTransform: 'uppercase',
-  letterSpacing: '0.07em',
-  color: 'gray.400',
-};
-
-const INPUT_PROPS = {
-  borderWidth: '0.5px',
-  borderColor: 'gray.200',
-  bg: 'gray.50',
-  fontSize: '13px',
-  height: '34px',
-  borderRadius: '8px',
-  _hover: { borderColor: 'gray.300' },
-  _focus: { borderColor: 'gray.400', boxShadow: 'none' },
-};
-
-const FORM_LABEL_PROPS = {
-  fontSize: '12px',
-  fontWeight: '500',
-  color: 'gray.600',
-  mb: 1,
-};
-
-// ─── SectionHeader ───────────────────────────────────────────────────────────
-
-const SectionHeader = ({ children }) => (
-  <Text {...SECTION_LABEL} mb={3}>
-    {children}
-  </Text>
-);
-
-// ─── ToggleRow ────────────────────────────────────────────────────────────────
-
-const ToggleRow = ({ label, isChecked, onChange }) => (
-  <HStack justify="space-between" py={3} borderBottomWidth="0.5px" borderColor="gray.100">
-    <Text fontSize="13px" color="gray.700">
-      {label}
-    </Text>
-    <Switch
-      size="sm"
-      colorScheme="gray"
-      isChecked={isChecked}
-      onChange={onChange}
-      sx={{
-        '& .chakra-switch__track[data-checked]': { bg: 'gray.800' },
-      }}
-    />
-  </HStack>
-);
-
-// ─── Tab navigation ───────────────────────────────────────────────────────────
-
-const TABS = [
-  { id: 'general',    label: 'General',       icon: FiSettings },
-  { id: 'retention',  label: 'Data Retention', icon: FiDatabase },
-  { id: 'codes',      label: 'Country Codes',  icon: FiUpload },
-  { id: 'notifs',     label: 'Notifications',  icon: FiBell },
-];
-
-const TabNav = ({ active, onChange }) => (
-  <HStack
-    spacing={0}
-    borderBottomWidth="0.5px"
-    borderColor="gray.200"
-    mb={5}
-    overflowX="auto"
-  >
-    {TABS.map(({ id, label, icon: Icon }) => {
-      const isActive = active === id;
-      return (
-        <Box
-          key={id}
-          as="button"
-          onClick={() => onChange(id)}
-          px={5}
-          py={3}
-          display="flex"
-          alignItems="center"
-          gap={2}
-          fontSize="13px"
-          fontWeight={isActive ? '600' : '500'}
-          color={isActive ? 'gray.800' : 'gray.500'}
-          borderBottomWidth="2px"
-          borderBottomColor={isActive ? 'gray.800' : 'transparent'}
-          bg="transparent"
-          cursor="pointer"
-          whiteSpace="nowrap"
-          transition="all 0.15s"
-          _hover={{ color: 'gray.700' }}
-          mb="-0.5px"
-        >
-          <Icon size={13} />
-          {label}
-        </Box>
-      );
-    })}
-  </HStack>
-);
-
-// ─── GeneralTab ───────────────────────────────────────────────────────────────
-
-const GeneralTab = ({ settings, updateSetting }) => (
-  <VStack spacing={5} align="stretch">
-    <Card {...CARD_PROPS}>
-      <CardBody px={5} py={5}>
-        <SectionHeader>System</SectionHeader>
-        <Grid templateColumns={{ base: '1fr', md: '1fr 1fr' }} gap={4}>
-          <FormControl>
-            <FormLabel {...FORM_LABEL_PROPS}>System Name</FormLabel>
-            <Input
-              {...INPUT_PROPS}
-              value={settings.systemName || ''}
-              onChange={(e) => updateSetting('systemName', e.target.value)}
-            />
-          </FormControl>
-          <FormControl>
-            <FormLabel {...FORM_LABEL_PROPS}>Notification Email</FormLabel>
-            <Input
-              {...INPUT_PROPS}
-              type="email"
-              value={settings.notificationEmail || ''}
-              onChange={(e) => updateSetting('notificationEmail', e.target.value)}
-            />
-          </FormControl>
-          <FormControl>
-            <FormLabel {...FORM_LABEL_PROPS}>Currency</FormLabel>
-            <Select
-              {...INPUT_PROPS}
-              value={settings.currency || 'USD'}
-              onChange={(e) => updateSetting('currency', e.target.value)}
-            >
-              <option value="USD">USD — US Dollar</option>
-              <option value="EUR">EUR — Euro</option>
-              <option value="GBP">GBP — British Pound</option>
-              <option value="INR">INR — Indian Rupee</option>
-            </Select>
-          </FormControl>
-          <FormControl>
-            <FormLabel {...FORM_LABEL_PROPS}>Timezone</FormLabel>
-            <Select
-              {...INPUT_PROPS}
-              value={settings.timezone || 'UTC'}
-              onChange={(e) => updateSetting('timezone', e.target.value)}
-            >
-              <option value="UTC">UTC</option>
-              <option value="EST">EST — Eastern</option>
-              <option value="PST">PST — Pacific</option>
-              <option value="IST">IST — India</option>
-            </Select>
-          </FormControl>
-        </Grid>
-      </CardBody>
-    </Card>
-
-    <Card {...CARD_PROPS}>
-      <CardBody px={5} py={5}>
-        <SectionHeader>Email Preferences</SectionHeader>
-        <Box>
-          <ToggleRow
-            label="Email notifications enabled"
-            isChecked={settings.emailNotifications !== false}
-            onChange={(e) => updateSetting('emailNotifications', e.target.checked)}
-          />
-        </Box>
-      </CardBody>
-    </Card>
-  </VStack>
-);
-
-// ─── DataRetentionTab ────────────────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+// DataRetentionTab — mounts only when the Data Retention tab is first visited
+// (isLazy on the parent <Tabs> defers the mount).  System info is fetched here
+// so it doesn't fire on the initial page load.
+// ─────────────────────────────────────────────────────────────────────────────
 const DataRetentionTab = ({
   settings,
   retentionDisplay,
@@ -288,7 +118,7 @@ const DataRetentionTab = ({
   setIsDirty,
   loadNotifications,
 }) => {
-  const notify = useNotify();
+  const toast = useNotify();
   const isMounted = useRef(true);
 
   const [retentionRunning, setRetentionRunning] = useState(false);
@@ -299,17 +129,22 @@ const DataRetentionTab = ({
     return () => { isMounted.current = false; };
   }, []);
 
+  // Fetch system counts when this tab first mounts
   const loadSystemInfo = useCallback(async () => {
     try {
       const cdrCount = await fetchCDRCount();
       if (!isMounted.current) return;
-      setSystemInfo({ cdrs: Number(cdrCount || 0) });
+      setSystemInfo({
+        cdrs: Number(cdrCount || 0),
+      });
     } catch (error) {
       console.error('Failed to load system counts', error);
     }
   }, []);
 
-  useEffect(() => { loadSystemInfo(); }, [loadSystemInfo]);
+  useEffect(() => {
+    loadSystemInfo();
+  }, [loadSystemInfo]);
 
   const handleRunRetention = async () => {
     setRetentionRunning(true);
@@ -318,7 +153,7 @@ const DataRetentionTab = ({
       if (!isMounted.current) return;
       await loadNotifications(true);
       await loadSystemInfo();
-      notify({
+      toast({
         title: 'Retention cleanup completed',
         description: `${result.deletedCount} CDRs removed (policy: ${result.retentionDays} days).`,
         status: 'success',
@@ -327,7 +162,7 @@ const DataRetentionTab = ({
       });
     } catch (error) {
       if (!isMounted.current) return;
-      notify({
+      toast({
         title: 'Retention cleanup failed',
         description: error.message,
         status: 'error',
@@ -340,140 +175,122 @@ const DataRetentionTab = ({
   };
 
   return (
-    <VStack spacing={5} align="stretch">
-      {/* CDR count stat */}
-      <Card {...CARD_PROPS}>
-        <CardBody px={5} py={4}>
-          <HStack justify="space-between" align="center">
-            <Box>
-              <Text {...SECTION_LABEL} mb={1}>Total CDR Records</Text>
-              <Text fontSize="22px" fontWeight="500" color="gray.800" fontVariantNumeric="tabular-nums">
-                {systemInfo.cdrs.toLocaleString()}
-              </Text>
-            </Box>
-            <Button
-              size="sm"
-              variant="ghost"
-              leftIcon={<FiRefreshCw size={12} />}
-              onClick={loadSystemInfo}
-              color="gray.400"
-              fontSize="12px"
-              fontWeight="400"
-              _hover={{ color: 'gray.700', bg: 'gray.50' }}
+    <Card>
+      <CardBody>
+        <VStack spacing={5} align="stretch">
+          <FormControl isInvalid={Boolean(retentionError)}>
+            <FormLabel>CDR Data Retention (days)</FormLabel>
+            <NumberInput
+              min={RETENTION_MIN}
+              max={RETENTION_MAX}
+              value={retentionDisplay}
+              keepWithinRange={false}
+              clampValueOnBlur={false}
+              onChange={(valueString) => {
+                setRetentionDisplay(valueString);
+                setRetentionError('');
+                setIsDirty(true);
+                const parsed = Number(valueString);
+                if (Number.isFinite(parsed)) {
+                  updateSetting('dataRetentionDays', parsed);
+                }
+              }}
+              onBlur={() => {
+                const result = validateNumericInput(
+                  retentionDisplay,
+                  'CDR data retention (days)',
+                  RETENTION_MIN,
+                  RETENTION_MAX,
+                );
+                setRetentionError(result.message);
+                if (result.valid) {
+                  updateSetting('dataRetentionDays', result.value);
+                }
+              }}
             >
-              Refresh
-            </Button>
-          </HStack>
-        </CardBody>
-      </Card>
+              <NumberInputField />
+            </NumberInput>
+            <FormErrorMessage>{retentionError}</FormErrorMessage>
+            <Text fontSize="sm" color="gray.600" mt={1}>
+              Set to <b>60</b> for 2-month retention. Min {RETENTION_MIN}, max {RETENTION_MAX} days.
+            </Text>
+          </FormControl>
 
-      {/* Settings fields */}
-      <Card {...CARD_PROPS}>
-        <CardBody px={5} py={5}>
-          <SectionHeader>Retention Policy</SectionHeader>
-          <VStack spacing={5} align="stretch">
-            <FormControl isInvalid={Boolean(retentionError)}>
-              <FormLabel {...FORM_LABEL_PROPS}>CDR Data Retention (days)</FormLabel>
-              <NumberInput
-                min={RETENTION_MIN}
-                max={RETENTION_MAX}
-                value={retentionDisplay}
-                keepWithinRange={false}
-                clampValueOnBlur={false}
-                onChange={(valueString) => {
-                  setRetentionDisplay(valueString);
-                  setRetentionError('');
-                  setIsDirty(true);
-                  const parsed = Number(valueString);
-                  if (Number.isFinite(parsed)) updateSetting('dataRetentionDays', parsed);
-                }}
-                onBlur={() => {
-                  const result = validateNumericInput(retentionDisplay, 'CDR data retention (days)', RETENTION_MIN, RETENTION_MAX);
-                  setRetentionError(result.message);
-                  if (result.valid) updateSetting('dataRetentionDays', result.value);
-                }}
-              >
-                <NumberInputField {...INPUT_PROPS} />
-              </NumberInput>
-              <FormErrorMessage fontSize="11px">{retentionError}</FormErrorMessage>
-              <Text fontSize="11px" color="gray.400" mt={1}>
-                Min {RETENTION_MIN} days · Max {RETENTION_MAX} days · Default 60 for 2-month retention
-              </Text>
-            </FormControl>
+          <FormControl isInvalid={Boolean(pollingError)}>
+            <FormLabel>Realtime Notification Refresh (seconds)</FormLabel>
+            <NumberInput
+              min={POLLING_MIN}
+              max={POLLING_MAX}
+              value={pollingDisplay}
+              keepWithinRange={false}
+              clampValueOnBlur={false}
+              onChange={(valueString) => {
+                setPollingDisplay(valueString);
+                setPollingError('');
+                setIsDirty(true);
+                const parsed = Number(valueString);
+                if (Number.isFinite(parsed)) {
+                  updateSetting('notificationPollingSeconds', parsed);
+                }
+              }}
+              onBlur={() => {
+                const result = validateNumericInput(
+                  pollingDisplay,
+                  'Notification refresh (seconds)',
+                  POLLING_MIN,
+                  POLLING_MAX,
+                );
+                setPollingError(result.message);
+                if (result.valid) {
+                  updateSetting('notificationPollingSeconds', result.value);
+                }
+              }}
+            >
+              <NumberInputField />
+            </NumberInput>
+            <FormErrorMessage>{pollingError}</FormErrorMessage>
+            <Text fontSize="sm" color="gray.600" mt={1}>
+              Min {POLLING_MIN} s, max {POLLING_MAX} s. Changes apply on the next poll tick — no reload needed.
+            </Text>
+          </FormControl>
 
-            <FormControl isInvalid={Boolean(pollingError)}>
-              <FormLabel {...FORM_LABEL_PROPS}>Notification Poll Interval (seconds)</FormLabel>
-              <NumberInput
-                min={POLLING_MIN}
-                max={POLLING_MAX}
-                value={pollingDisplay}
-                keepWithinRange={false}
-                clampValueOnBlur={false}
-                onChange={(valueString) => {
-                  setPollingDisplay(valueString);
-                  setPollingError('');
-                  setIsDirty(true);
-                  const parsed = Number(valueString);
-                  if (Number.isFinite(parsed)) updateSetting('notificationPollingSeconds', parsed);
-                }}
-                onBlur={() => {
-                  const result = validateNumericInput(pollingDisplay, 'Notification refresh (seconds)', POLLING_MIN, POLLING_MAX);
-                  setPollingError(result.message);
-                  if (result.valid) updateSetting('notificationPollingSeconds', result.value);
-                }}
-              >
-                <NumberInputField {...INPUT_PROPS} />
-              </NumberInput>
-              <FormErrorMessage fontSize="11px">{pollingError}</FormErrorMessage>
-              <Text fontSize="11px" color="gray.400" mt={1}>
-                Min {POLLING_MIN}s · Max {POLLING_MAX}s · Changes apply on next poll tick
-              </Text>
-            </FormControl>
-          </VStack>
-        </CardBody>
-      </Card>
-
-      {/* Danger zone */}
-      <Card {...CARD_PROPS} borderColor="red.100">
-        <CardBody px={5} py={4}>
-          <HStack justify="space-between" align="center" flexWrap="wrap" gap={3}>
-            <Box>
-              <Text fontSize="13px" fontWeight="500" color="gray.700" mb="2px">
-                Run Retention Cleanup
-              </Text>
-              <Text fontSize="11px" color="gray.400">
-                Immediately deletes CDRs older than the configured retention window.
-              </Text>
-            </Box>
+          <HStack flexWrap="wrap" spacing={3}>
             <Button
-              size="sm"
-              leftIcon={<FiRefreshCw size={12} />}
+              leftIcon={<FiRefreshCw />}
               onClick={handleRunRetention}
               isLoading={retentionRunning}
               isDisabled={retentionRunning}
-              bg="red.50"
-              color="red.600"
-              borderWidth="0.5px"
-              borderColor="red.200"
-              fontWeight="500"
-              fontSize="12px"
-              borderRadius="8px"
-              _hover={{ bg: 'red.100' }}
-              boxShadow="none"
+              colorScheme="red"
+              variant="outline"
+              size="sm"
             >
-              Run Now
+              Run Retention Cleanup Now
+            </Button>
+            <Button
+              leftIcon={<FiRefreshCw />}
+              onClick={loadSystemInfo}
+              variant="ghost"
+            >
+              Refresh Counts
             </Button>
           </HStack>
-        </CardBody>
-      </Card>
-    </VStack>
+
+          <Grid templateColumns={{ base: '1fr', md: '1fr' }} gap={3}>
+            <Badge maxW={"200px"} p={3} borderRadius="md" fontSize={"15px"}  colorScheme="gray" justifyContent={"center"}>
+              CDRs: {systemInfo.cdrs.toLocaleString()}
+            </Badge>
+          </Grid>
+        </VStack>
+      </CardBody>
+    </Card>
   );
 };
 
-// ─── CountryCodesTab ──────────────────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+// CountryCodesTab — mounts only when the Country Codes tab is first visited.
+// ─────────────────────────────────────────────────────────────────────────────
 const CountryCodesTab = ({ loadNotifications }) => {
-  const notify = useNotify();
+  const toast = useNotify();
   const isMounted = useRef(true);
 
   const [countryCodeFile, setCountryCodeFile]             = useState(null);
@@ -490,7 +307,6 @@ const CountryCodesTab = ({ loadNotifications }) => {
   const [countryCodesTotal, setCountryCodesTotal]         = useState(0);
   const [singleCountryCode, setSingleCountryCode]         = useState('');
   const [singleCountryName, setSingleCountryName]         = useState('');
-  const [editingCountryCode, setEditingCountryCode]       = useState(null);
   const [addingCountryCode, setAddingCountryCode]         = useState(false);
   const [deletingCountryCode, setDeletingCountryCode]     = useState('');
 
@@ -504,6 +320,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
       setDebouncedCountryCodeSearch(countryCodeSearch.trim());
       setCountryCodesPage(1);
     }, 500);
+
     return () => clearTimeout(timer);
   }, [countryCodeSearch]);
 
@@ -521,17 +338,30 @@ const CountryCodesTab = ({ loadNotifications }) => {
       const nextTotalPages = Math.max(1, Number(response?.totalPages || 1));
       const requestedPage = Number(response?.page || countryCodesPage);
       const nextPage = Math.min(Math.max(1, requestedPage), nextTotalPages);
+
       setCountryCodes(nextCountryCodes);
       setCountryCodesTotal(nextTotal);
       setCountryCodesLoaded(true);
+
+      if (nextPage !== requestedPage) {
+        setCountryCodesPage(nextPage);
+        return;
+      }
+
       setCountryCodesPage(nextPage);
     } catch (error) {
       if (!isMounted.current) return;
-          notify({ title: 'Failed to load country codes', description: error.message, status: 'error', duration: 4000, isClosable: true });
+      toast({
+        title: 'Failed to load country codes',
+        description: error.message,
+        status: 'error',
+        duration: 4000,
+        isClosable: true,
+      });
     } finally {
       if (isMounted.current) setLoadingCountryCodes(false);
     }
-  }, [countryCodesPage, countryCodesPageSize, debouncedCountryCodeSearch, notify]);
+  }, [countryCodesPage, countryCodesPageSize, debouncedCountryCodeSearch, toast]);
 
   useEffect(() => {
     if (!countryCodesLoaded) return;
@@ -540,7 +370,13 @@ const CountryCodesTab = ({ loadNotifications }) => {
 
   const handleUploadCountryCodes = async () => {
     if (!countryCodeFile) {
-          notify({ title: 'CSV file required', description: 'Please choose a country code CSV file first.', status: 'warning', duration: 3000, isClosable: true });
+      toast({
+        title: 'CSV file required',
+        description: 'Please choose a country code CSV file first.',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
       return;
     }
     setUploadingCountryCodes(true);
@@ -552,64 +388,71 @@ const CountryCodesTab = ({ loadNotifications }) => {
       if (!isMounted.current) return;
       setCountryCodeFile(null);
       setCountryCodeInputKey((prev) => prev + 1);
-          notify({ title: 'Country codes uploaded', description: `Uploaded ${result.uploadedCount} record(s).${result.replaceExisting ? ` Replaced ${result.deletedCount} existing record(s).` : ''}`, status: 'success', duration: 4000, isClosable: true });
+      toast({
+        title: 'Country codes uploaded',
+        description: `Uploaded ${result.uploadedCount} record(s).${
+          result.replaceExisting ? ` Replaced ${result.deletedCount} existing record(s).` : ''
+        }`,
+        status: 'success',
+        duration: 4000,
+        isClosable: true,
+      });
       await loadNotifications(true);
       if (countryCodesLoaded) await handleFetchCountryCodes();
     } catch (error) {
       if (!isMounted.current) return;
-          notify({ title: 'Upload failed', description: error.message, status: 'error', duration: 4000, isClosable: true });
+      toast({
+        title: 'Upload failed',
+        description: error.message,
+        status: 'error',
+        duration: 4000,
+        isClosable: true,
+      });
     } finally {
       if (isMounted.current) setUploadingCountryCodes(false);
     }
   };
 
   const handleAddCountryCode = async () => {
-    const code = singleCountryCode.trim();
+    const code         = singleCountryCode.trim();
     const country_name = singleCountryName.trim();
     if (!code || !country_name) {
-          notify({ title: 'Fields required', description: 'Please enter both code and country name.', status: 'warning', duration: 3000, isClosable: true });
+      toast({
+        title: 'Fields required',
+        description: 'Please enter both code and country name.',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
       return;
     }
     setAddingCountryCode(true);
     try {
-      const originalCode = String(editingCountryCode?.code || '').trim();
-      let result;
-
-      if (originalCode && originalCode !== code) {
-        // Rename flow: create/update new code first, then remove old code.
-        await addCountryCode({ code, country_name });
-        await deleteCountryCode(originalCode);
-        result = {
-          updated: true,
-          renamed: true,
-          countryCode: { code, country_name },
-        };
-      } else {
-        result = await addCountryCode({ code, country_name });
-      }
-
+      const result = await addCountryCode({ code, country_name });
       if (!isMounted.current) return;
       setSingleCountryCode('');
       setSingleCountryName('');
-      setEditingCountryCode(null);
-          notify({ title: result.renamed ? 'Country code updated' : (result.updated ? 'Country code updated' : 'Country code added'), description: `${result.countryCode.code} - ${result.countryCode.country_name}`, status: 'success', duration: 3000, isClosable: true });
+      toast({
+        title: result.updated ? 'Country code updated' : 'Country code added',
+        description: `${result.countryCode.code} - ${result.countryCode.country_name}`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
       await loadNotifications(true);
       if (countryCodesLoaded) await handleFetchCountryCodes();
     } catch (error) {
       if (!isMounted.current) return;
-          notify({ title: 'Failed to save country code', description: error.message, status: 'error', duration: 4000, isClosable: true });
+      toast({
+        title: 'Failed to save country code',
+        description: error.message,
+        status: 'error',
+        duration: 4000,
+        isClosable: true,
+      });
     } finally {
       if (isMounted.current) setAddingCountryCode(false);
     }
-  };
-
-  const handleEditCountryCode = (item) => {
-    const code = String(item?.code || '').trim();
-    const country_name = String(item?.country_name || '').trim();
-    if (!code || !country_name) return;
-    setSingleCountryCode(code);
-    setSingleCountryName(country_name);
-    setEditingCountryCode({ code });
   };
 
   const handleDeleteCountryCode = async (item) => {
@@ -621,241 +464,180 @@ const CountryCodesTab = ({ loadNotifications }) => {
     try {
       await deleteCountryCode(code);
       if (!isMounted.current) return;
-          notify({ title: 'Country code deleted', description: `${code} removed successfully.`, status: 'success', duration: 3000, isClosable: true });
+      toast({
+        title: 'Country code deleted',
+        description: `${code} removed successfully.`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
       await loadNotifications(true);
       if (countryCodesLoaded) await handleFetchCountryCodes();
     } catch (error) {
       if (!isMounted.current) return;
-          notify({ title: 'Failed to delete country code', description: error.message, status: 'error', duration: 4000, isClosable: true });
+      toast({
+        title: 'Failed to delete country code',
+        description: error.message,
+        status: 'error',
+        duration: 4000,
+        isClosable: true,
+      });
     } finally {
       if (isMounted.current) setDeletingCountryCode('');
     }
   };
+
+  const handlePageChange = useCallback((nextPage) => {
+    setCountryCodesPage(nextPage);
+  }, []);
+
+  const handlePageSizeChange = useCallback((nextPageSize) => {
+    setCountryCodesPageSize(nextPageSize);
+    setCountryCodesPage(1);
+  }, []);
 
   const countryCodeColumns = [
     {
       key: 'code',
       header: 'Code',
       width: '120px',
-      render: (value) => (
-        <Text fontSize="13px" fontWeight="500" color="gray.700" fontVariantNumeric="tabular-nums">
-          {value}
-        </Text>
-      ),
+      render: (value) => <Text fontWeight="600">{value}</Text>,
     },
     {
       key: 'country_name',
       header: 'Country Name',
       minWidth: '240px',
-      render: (value) => <Text fontSize="13px" color="gray.600">{value}</Text>,
+      render: (value) => <Text>{value}</Text>,
     },
     {
       key: 'action',
-      header: '',
-      width: '150px',
+      header: 'Action',
+      width: '120px',
       render: (_value, item) => (
-        <HStack spacing={2} justify="flex-end">
-          <Button
-            size="xs"
-            bg="gray.50"
-            color="gray.600"
-            borderWidth="0.5px"
-            borderColor="gray.200"
-            fontWeight="400"
-            fontSize="11px"
-            borderRadius="6px"
-            boxShadow="none"
-            _hover={{ bg: 'gray.100' }}
-            onClick={() => handleEditCountryCode(item)}
-            isDisabled={Boolean(deletingCountryCode)}
-          >
-            Edit
-          </Button>
-          <Button
-            size="xs"
-            bg="red.50"
-            color="red.500"
-            borderWidth="0.5px"
-            borderColor="red.100"
-            fontWeight="400"
-            fontSize="11px"
-            borderRadius="6px"
-            boxShadow="none"
-            _hover={{ bg: 'red.100' }}
-            onClick={() => handleDeleteCountryCode(item)}
-            isLoading={deletingCountryCode === String(item.code)}
-            isDisabled={Boolean(deletingCountryCode) && deletingCountryCode !== String(item.code)}
-          >
-            Delete
-          </Button>
-        </HStack>
+        <Button
+          size="xs"
+          colorScheme="red"
+          variant="ghost"
+          onClick={() => handleDeleteCountryCode(item)}
+          isLoading={deletingCountryCode === String(item.code)}
+          isDisabled={Boolean(deletingCountryCode) && deletingCountryCode !== String(item.code)}
+        >
+          Delete
+        </Button>
       ),
     },
   ];
 
   return (
-    <VStack spacing={5} align="stretch">
-      {/* Add single */}
-      <Card {...CARD_PROPS}>
-        <CardBody px={5} py={5}>
-          <SectionHeader>Add Single Entry</SectionHeader>
-          {editingCountryCode && (
-            <Text fontSize="11px" color="blue.600" mb={2}>
-              Editing country code {editingCountryCode.code}
-            </Text>
-          )}
-          <Grid templateColumns={{ base: '1fr', md: '1fr 2fr auto' }} gap={3} alignItems="end">
-            <FormControl>
-              <FormLabel {...FORM_LABEL_PROPS}>Code</FormLabel>
-              <Input
-                {...INPUT_PROPS}
-                placeholder="e.g. 91"
-                value={singleCountryCode}
-                onChange={(e) => setSingleCountryCode(e.target.value)}
-              />
-            </FormControl>
-            <FormControl>
-              <FormLabel {...FORM_LABEL_PROPS}>Country Name</FormLabel>
-              <Input
-                {...INPUT_PROPS}
-                placeholder="e.g. India"
-                value={singleCountryName}
-                onChange={(e) => setSingleCountryName(e.target.value)}
-              />
-            </FormControl>
-            <HStack spacing={2}>
-              <Button
-                size="sm"
-                leftIcon={<FiSave size={12} />}
-                onClick={handleAddCountryCode}
-                isLoading={addingCountryCode}
-                isDisabled={addingCountryCode}
-                bg="blue.600"
-                color="white"
-                borderRadius="8px"
-                fontWeight="500"
-                fontSize="12px"
-                height="34px"
-                px={4}
-                _hover={{ bg: 'blue.700' }}
-                boxShadow="none"
-              >
-                {editingCountryCode ? 'Update' : 'Save'}
-              </Button>
-              {editingCountryCode && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setSingleCountryCode('');
-                    setSingleCountryName('');
-                    setEditingCountryCode(null);
-                  }}
-                  isDisabled={addingCountryCode}
-                  fontSize="12px"
-                  height="34px"
-                >
-                  Cancel
-                </Button>
-              )}
-            </HStack>
-          </Grid>
-        </CardBody>
-      </Card>
-
-      {/* CSV upload */}
-      <Card {...CARD_PROPS}>
-        <CardBody px={5} py={5}>
-          <SectionHeader>Bulk Upload via CSV</SectionHeader>
-          <Text fontSize="11px" color="gray.400" mb={4}>
-            Accepted formats: with header <code>code,country_name</code> or headerless (col 1 = code, col 2 = name).
+    <Card>
+      <CardBody>
+        <VStack spacing={4} align="stretch">
+          
+          <Text fontSize="sm" color="gray.600">
+            Supported formats: with header (<code>code,country_name</code>) or without header (first column code, second column country name).
           </Text>
-          <VStack spacing={4} align="stretch">
-            <FormControl>
-              <FormLabel {...FORM_LABEL_PROPS}>CSV File</FormLabel>
-              <Input
-                {...INPUT_PROPS}
-                key={countryCodeInputKey}
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(e) => setCountryCodeFile(e.target.files?.[0] || null)}
-                height="auto"
-                py={1}
-              />
-              {countryCodeFile && (
-                <Text fontSize="11px" color="gray.400" mt={1}>
-                  Selected: {countryCodeFile.name}
-                </Text>
-              )}
-            </FormControl>
 
-            <HStack justify="space-between" align="center" flexWrap="wrap" gap={3}>
-              <HStack spacing={3}>
-                <Switch
-                  size="sm"
-                  colorScheme="gray"
-                  isChecked={replaceCountryCodes}
-                  onChange={(e) => setReplaceCountryCodes(e.target.checked)}
-                  sx={{ '& .chakra-switch__track[data-checked]': { bg: 'gray.800' } }}
+          <Box p={4} borderWidth="1px" borderRadius="md" bg="gray.50">
+            <Text fontWeight="600" mb={3}>Add Single Country Code</Text>
+            <Grid templateColumns={{ base: '1fr', md: '1fr 2fr auto' }} gap={4} alignItems={"center"}>
+              <FormControl>
+                <FormLabel>Code</FormLabel>
+                <Input
+                  placeholder="e.g. 91"
+                  value={singleCountryCode}
+                  onChange={(e) => setSingleCountryCode(e.target.value)}
                 />
-                <Text fontSize="12px" color="gray.600">Replace existing entries</Text>
-              </HStack>
-              <Button
-                size="sm"
-                leftIcon={<FiUpload size={12} />}
-                onClick={handleUploadCountryCodes}
-                isLoading={uploadingCountryCodes}
-                isDisabled={uploadingCountryCodes || !countryCodeFile}
-                bg="blue.600"
-                color="white"
-                borderRadius="8px"
-                fontWeight="500"
-                fontSize="12px"
-                height="34px"
-                px={4}
-                _hover={{ bg: 'blue.700' }}
-                boxShadow="none"
-              >
-                Upload
-              </Button>
-            </HStack>
-          </VStack>
-        </CardBody>
-      </Card>
+              </FormControl>
+              <FormControl>
+                <FormLabel>Country Name</FormLabel>
+                <Input
+                  placeholder="e.g. India"
+                  value={singleCountryName}
+                  onChange={(e) => setSingleCountryName(e.target.value)}
+                />
+              </FormControl>
+              <FormControl alignSelf="end">
+                <Button
+                  colorScheme="teal"
+                  onClick={handleAddCountryCode}
+                  isLoading={addingCountryCode}
+                  isDisabled={addingCountryCode}
+                  w={{ base: '100%', md: 'auto' }}
+                  leftIcon={<FiSave />}
+                  size={"sm"}
+                >
+                  Save Code
+                </Button>
+              </FormControl>
+            </Grid>
+          </Box>
 
-      {/* Table */}
-      <Card {...CARD_PROPS}>
-        <CardBody px={5} py={5}>
-          <HStack justify="space-between" align="center" mb={3}>
-            <SectionHeader>Country Code Table</SectionHeader>
+          <FormControl>
+            <FormLabel>Country Code CSV</FormLabel>
+            <Input
+              key={countryCodeInputKey}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => setCountryCodeFile(e.target.files?.[0] || null)}
+            />
+          </FormControl>
+
+          <FormControl display="flex" alignItems="center">
+            <FormLabel mb={0}>Replace existing country codes</FormLabel>
+            <Switch
+              colorScheme="green"
+              isChecked={replaceCountryCodes}
+              onChange={(e) => setReplaceCountryCodes(e.target.checked)}
+            />
+          </FormControl>
+
+          <HStack justify="flex-start" flexWrap="wrap" spacing={3}>
             <Button
+              leftIcon={<FiUpload />}
               size="sm"
-              variant="ghost"
-              leftIcon={<FiRefreshCw size={12} />}
+              colorScheme="blue"
+              onClick={handleUploadCountryCodes}
+              isLoading={uploadingCountryCodes}
+              isDisabled={uploadingCountryCodes || !countryCodeFile}
+            >
+              Upload Country Codes
+            </Button>
+            {countryCodeFile && (
+              <Text fontSize="sm" color="gray.600">
+                Selected: {countryCodeFile.name}
+              </Text>
+            )}
+          </HStack>
+
+          <Divider />
+
+          <HStack justify="space-between" align="center" flexWrap="wrap" spacing={3}>
+            <Text fontWeight="600">View Country Code Table</Text>
+            <Button
+              colorScheme="teal"
+              variant="outline"
+              size="sm"
               onClick={handleFetchCountryCodes}
               isLoading={loadingCountryCodes}
               isDisabled={loadingCountryCodes}
-              fontSize="14px"
-              color="gray.400"
-              fontWeight="600"
-              _hover={{ color: 'gray.700', bg: 'gray.50' }}
             >
-              {countryCodesLoaded ? 'Refresh' : 'Load'}
+              {countryCodesLoaded ? 'Refresh Country Codes' : 'Show Country Codes'}
             </Button>
           </HStack>
 
-          {countryCodesLoaded ? (
-            <>
-              <Input
-                {...INPUT_PROPS}
-                mb={3}
-                placeholder="Search by code or country name..."
-                value={countryCodeSearch}
-                onChange={(e) => setCountryCodeSearch(e.target.value)}
-              />
-              <Text fontSize="11px" color="gray.400" mb={3}>
-                {countryCodes.length} of {countryCodesTotal} records
-              </Text>
+          {countryCodesLoaded && (
+            <Box>
+              <Box p={3} borderWidth="1px" borderBottomWidth={0} borderTopRadius="md" bg="gray.50">
+                <Input
+                  bg="gray.200"
+                  placeholder="Search by code or country name"
+                  value={countryCodeSearch}
+                  onChange={(e) => setCountryCodeSearch(e.target.value)}
+                />
+                <Text mt={2} fontSize="sm" color="gray.600">
+                  Showing {countryCodes.length} of {countryCodesTotal} record(s)
+                </Text>
+              </Box>
               <DataTable
                 columns={countryCodeColumns}
                 data={countryCodes}
@@ -865,29 +647,26 @@ const CountryCodesTab = ({ loadNotifications }) => {
                 page={countryCodesPage}
                 pageSize={countryCodesPageSize}
                 total={countryCodesTotal}
-                onPageChange={(p) => setCountryCodesPage(p)}
-                onPageSizeChange={(s) => { setCountryCodesPageSize(s); setCountryCodesPage(1); }}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
                 isPaginationDisabled={loadingCountryCodes}
                 height="320px"
               />
-            </>
-          ) : (
-            <Box py={8} textAlign="center">
-              <Text fontSize="13px" color="gray.400">
-                Click Load to fetch country code records.
-              </Text>
             </Box>
           )}
-        </CardBody>
-      </Card>
-    </VStack>
+        </VStack>
+      </CardBody>
+    </Card>
   );
 };
 
-// ─── NotificationsTab ─────────────────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+// NotificationsTab — mounts only when the Notifications tab is first visited.
+// Owns its own fetch + polling so the top-level component no longer needs to
+// pre-fetch notifications on mount.
+// ─────────────────────────────────────────────────────────────────────────────
 const NotificationsTab = ({ settings, updateSetting }) => {
-  const notify = useNotify();
+  const toast = useNotify();
   const isMounted = useRef(true);
 
   const [notifications, setNotifications]               = useState([]);
@@ -913,15 +692,21 @@ const NotificationsTab = ({ settings, updateSetting }) => {
     }
   }, []);
 
-  useEffect(() => { loadNotifications(); }, [loadNotifications]);
+  // Initial fetch when this tab first mounts
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
 
   const pollingMs = useMemo(() => {
     const seconds = Number(settings.notificationPollingSeconds) || 10;
     return Math.max(5, Math.min(3600, seconds)) * 1000;
   }, [settings.notificationPollingSeconds]);
 
+  // Polling — scoped to this tab so it only runs while the tab is mounted.
   useEffect(() => {
-    const timer = setInterval(() => loadNotifications(true), pollingMs);
+    const timer = setInterval(() => {
+      loadNotifications(true);
+    }, pollingMs);
     return () => clearInterval(timer);
   }, [loadNotifications, pollingMs]);
 
@@ -931,7 +716,7 @@ const NotificationsTab = ({ settings, updateSetting }) => {
       if (!isMounted.current) return;
       await loadNotifications();
     } catch (error) {
-      notify({ title: 'Failed to update notification', description: error.message, status: 'error' });
+      toast({ title: 'Failed to update notification', description: error.message, status: 'error' });
     }
   };
 
@@ -941,7 +726,7 @@ const NotificationsTab = ({ settings, updateSetting }) => {
       if (!isMounted.current) return;
       await loadNotifications();
     } catch (error) {
-      notify({ title: 'Failed to mark all read', description: error.message, status: 'error' });
+      toast({ title: 'Failed to mark all read', description: error.message, status: 'error' });
     }
   };
 
@@ -954,139 +739,104 @@ const NotificationsTab = ({ settings, updateSetting }) => {
       });
       if (!isMounted.current) return;
       await loadNotifications();
-      notify({ title: 'Test notification sent', status: 'success', duration: 2000 });
+      toast({ title: 'Test notification created', status: 'success', duration: 2000 });
     } catch (error) {
-      notify({ title: 'Failed to create test notification', description: error.message, status: 'error' });
+      toast({ title: 'Failed to create test notification', description: error.message, status: 'error' });
     }
   };
 
-  const NOTIFY_TOGGLES = [
-    { key: 'notifyInvoiceGenerated', label: 'Invoice Generated' },
-    { key: 'notifyPaymentDue',       label: 'Payment Due' },
-    { key: 'notifyPaymentReceived',  label: 'Payment Received' },
-    { key: 'notifyDisputes',         label: 'Dispute Alerts' },
-    { key: 'notifyErrors',           label: 'System Errors' },
-  ];
-
   return (
-    <VStack spacing={5} align="stretch">
-      {/* Notification event toggles */}
-      <Card {...CARD_PROPS}>
-        <CardBody px={5} py={5}>
-          <SectionHeader>Event Triggers</SectionHeader>
-          <Box>
-            {NOTIFY_TOGGLES.map(({ key, label }) => (
-              <ToggleRow
-                key={key}
-                label={label}
-                isChecked={settings[key] !== false}
-                onChange={(e) => updateSetting(key, e.target.checked)}
+    <Card>
+      <CardBody>
+        <VStack spacing={4} align="stretch">
+          <Grid templateColumns={{ base: '1fr', md: '1fr 1fr 1fr 1fr 1fr' }} gap={3}>
+            <FormControl display="flex" alignItems="center">
+              <FormLabel mb={0}>Invoice Generated</FormLabel>
+              <Switch
+                colorScheme="green"
+                isChecked={settings.notifyInvoiceGenerated !== false}
+                onChange={(e) => updateSetting('notifyInvoiceGenerated', e.target.checked)}
               />
-            ))}
-          </Box>
-        </CardBody>
-      </Card>
+            </FormControl>
+            <FormControl display="flex" alignItems="center">
+              <FormLabel mb={0}>Payment Due</FormLabel>
+              <Switch
+                colorScheme="green"
+                isChecked={settings.notifyPaymentDue !== false}
+                onChange={(e) => updateSetting('notifyPaymentDue', e.target.checked)}
+              />
+            </FormControl>
+            <FormControl display="flex" alignItems="center">
+              <FormLabel mb={0}>Payment Received</FormLabel>
+              <Switch
+                colorScheme="green"
+                isChecked={settings.notifyPaymentReceived !== false}
+                onChange={(e) => updateSetting('notifyPaymentReceived', e.target.checked)}
+              />
+            </FormControl>
+            <FormControl display="flex" alignItems="center">
+              <FormLabel mb={0}>Dispute Alerts</FormLabel>
+              <Switch
+                colorScheme="green"
+                isChecked={settings.notifyDisputes !== false}
+                onChange={(e) => updateSetting('notifyDisputes', e.target.checked)}
+              />
+            </FormControl>
+            <FormControl display="flex" alignItems="center">
+              <FormLabel mb={0}>System Errors</FormLabel>
+              <Switch
+                colorScheme="green"
+                isChecked={settings.notifyErrors !== false}
+                onChange={(e) => updateSetting('notifyErrors', e.target.checked)}
+              />
+            </FormControl>
+          </Grid>
 
-      {/* Live inbox */}
-      <Card {...CARD_PROPS}>
-        <CardBody px={5} py={5}>
-          <HStack justify="space-between" align="center" mb={4} flexWrap="wrap" gap={3}>
-            <Box>
-              <SectionHeader>Live Inbox</SectionHeader>
-              {unreadCount > 0 && (
-                <Text fontSize="11px" color="gray.400" mt={1}>
-                  {unreadCount} unread
-                </Text>
-              )}
-            </Box>
+          <Divider />
+
+          <HStack justify="space-between" flexWrap="wrap" spacing={3}>
+            <Heading size="sm">Live Notification Box</Heading>
             <HStack spacing={2}>
+              <Button size="sm" onClick={handleCreateTestNotification} variant="outline">
+                Send Test Notification
+              </Button>
               <Button
                 size="sm"
-                onClick={handleCreateTestNotification}
-                fontSize="12px"
-                fontWeight="400"
-                color="gray.500"
-                borderWidth="0.5px"
-                borderColor="gray.200"
-                bg="white"
-                borderRadius="8px"
-                height="30px"
-                px={3}
-                _hover={{ bg: 'gray.50' }}
-                boxShadow="none"
+                onClick={handleMarkAllRead}
+                variant="ghost"
+                isDisabled={unreadCount === 0}
               >
-                Send test
+                Mark All Read
               </Button>
-              {unreadCount > 0 && (
-                <Button
-                  size="sm"
-                  onClick={handleMarkAllRead}
-                  fontSize="12px"
-                  fontWeight="400"
-                  color="gray.500"
-                  variant="ghost"
-                  height="30px"
-                  px={3}
-                  _hover={{ bg: 'gray.50' }}
-                >
-                  Mark all read
-                </Button>
-              )}
             </HStack>
           </HStack>
 
           {loadingNotifications ? (
-            <Box py={8} textAlign="center">
-              <Spinner size="sm" color="gray.300" />
-            </Box>
+            <Spinner size="sm" />
           ) : (
-            <VStack align="stretch" spacing={2} maxH="360px" overflowY="auto">
+            <VStack align="stretch" spacing={2} maxH="340px" overflowY="auto">
               {notifications.length === 0 && (
-                <Box py={8} textAlign="center">
-                  <Text fontSize="13px" color="gray.400">No notifications yet.</Text>
-                </Box>
+                <Text color="gray.500">No notifications yet.</Text>
               )}
               {notifications.map((item) => (
                 <Box
                   key={item.id}
-                  px={4}
-                  py={3}
-                  borderWidth="0.5px"
-                  borderRadius="8px"
-                  bg={item.isRead ? 'white' : 'gray.50'}
-                  borderColor={item.isRead ? 'gray.100' : 'gray.200'}
+                  p={3}
+                  borderWidth="1px"
+                  borderRadius="md"
+                  bg={item.isRead ? 'gray.50' : 'blue.50'}
                 >
-                  <HStack justify="space-between" align="start" gap={3}>
+                  <HStack justify="space-between" align="start">
                     <Box flex={1} minW={0}>
-                      <HStack spacing={2} mb={1}>
-                        {!item.isRead && (
-                          <Box w="5px" h="5px" borderRadius="full" bg="gray.700" flexShrink={0} mt="1px" />
-                        )}
-                        <Text fontSize="13px" fontWeight="500" color="gray.800" noOfLines={1}>
-                          {item.title}
-                        </Text>
-                      </HStack>
-                      <Text fontSize="12px" color="gray.500" pl={!item.isRead ? '13px' : '0'}>
-                        {item.message}
-                      </Text>
-                      <Text fontSize="11px" color="gray.400" mt={1} pl={!item.isRead ? '13px' : '0'}>
+                      <Text fontWeight="600" noOfLines={1}>{item.title}</Text>
+                      <Text fontSize="sm" color="gray.700">{item.message}</Text>
+                      <Text fontSize="xs" color="gray.500" mt={1}>
                         {formatNotificationTime(item.createdAt)}
                       </Text>
                     </Box>
                     {!item.isRead && (
-                      <Button
-                        size="xs"
-                        flexShrink={0}
-                        onClick={() => handleMarkRead(item.id)}
-                        fontSize="11px"
-                        fontWeight="400"
-                        color="gray.400"
-                        variant="ghost"
-                        height="24px"
-                        px={2}
-                        _hover={{ color: 'gray.700', bg: 'gray.100' }}
-                      >
-                        Read
+                      <Button size="xs" flexShrink={0} onClick={() => handleMarkRead(item.id)}>
+                        Mark Read
                       </Button>
                     )}
                   </HStack>
@@ -1094,24 +844,27 @@ const NotificationsTab = ({ settings, updateSetting }) => {
               ))}
             </VStack>
           )}
-        </CardBody>
-      </Card>
-    </VStack>
+
+          <Text fontSize="sm" color="gray.600">
+            Unread notifications: <b>{unreadCount}</b>
+          </Text>
+        </VStack>
+      </CardBody>
+    </Card>
   );
 };
 
-// ─── Settings (root) ──────────────────────────────────────────────────────────
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings (root) — now only fetches settings on mount.
+// System info, country codes, and notifications are deferred to their tabs.
+// ─────────────────────────────────────────────────────────────────────────────
 const Settings = () => {
-  const notify = useNotify();
+  const toast = useNotify();
 
   const [settings, setSettings]   = useState(DEFAULT_SETTINGS);
   const [saving, setSaving]       = useState(false);
   const [loading, setLoading]     = useState(true);
   const [isDirty, setIsDirty]     = useState(false);
-  const [activeTab, setActiveTab] = useState('general');
-  // Track which tabs have been visited (for lazy mounting)
-  const [visitedTabs, setVisitedTabs] = useState(new Set(['general']));
 
   const [retentionDisplay, setRetentionDisplay] = useState(String(DEFAULT_SETTINGS.dataRetentionDays));
   const [pollingDisplay, setPollingDisplay]     = useState(String(DEFAULT_SETTINGS.notificationPollingSeconds));
@@ -1143,13 +896,22 @@ const Settings = () => {
       applySettings(merged);
     } catch (error) {
       if (!isMounted.current) return;
-      notify({ title: 'Failed to load settings', description: error.message, status: 'error', duration: 4000, isClosable: true });
+      toast({
+        title: 'Failed to load settings',
+        description: error.message,
+        status: 'error',
+        duration: 4000,
+        isClosable: true,
+      });
     } finally {
       if (isMounted.current) setLoading(false);
     }
-  }, [notify, applySettings]);
+  }, [toast, applySettings]);
 
-  useEffect(() => { loadSettings(); }, [loadSettings]);
+  // Only load settings on mount — everything else is deferred to its tab
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
 
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -1164,77 +926,109 @@ const Settings = () => {
     setIsDirty(true);
   }, []);
 
-  const handleTabChange = (id) => {
-    setActiveTab(id);
-    setVisitedTabs((prev) => new Set([...prev, id]));
-  };
-
   const handleSave = async () => {
-    const retentionValidation = validateNumericInput(retentionDisplay, 'CDR data retention (days)', RETENTION_MIN, RETENTION_MAX);
-    const pollingValidation   = validateNumericInput(pollingDisplay, 'Notification refresh (seconds)', POLLING_MIN, POLLING_MAX);
+    const retentionValidation = validateNumericInput(
+      retentionDisplay,
+      'CDR data retention (days)',
+      RETENTION_MIN,
+      RETENTION_MAX,
+    );
+    const pollingValidation = validateNumericInput(
+      pollingDisplay,
+      'Notification refresh (seconds)',
+      POLLING_MIN,
+      POLLING_MAX,
+    );
+
     setRetentionError(retentionValidation.message);
     setPollingError(pollingValidation.message);
+
     if (!retentionValidation.valid || !pollingValidation.valid) {
-      notify({ title: 'Fix validation errors before saving', status: 'warning', duration: 3500, isClosable: true });
+      toast({
+        title: 'Please fix validation errors',
+        description: 'Settings were not saved because one or more values are out of range.',
+        status: 'warning',
+        duration: 3500,
+        isClosable: true,
+      });
       return;
     }
-    const settingsToSave = { ...settings, dataRetentionDays: retentionValidation.value, notificationPollingSeconds: pollingValidation.value };
+
+    const settingsToSave = {
+      ...settings,
+      dataRetentionDays: retentionValidation.value,
+      notificationPollingSeconds: pollingValidation.value,
+    };
+
     setSaving(true);
     try {
-      const payload = { ...DEFAULT_SETTINGS, ...normalizeSettingsShape(settingsToSave) };
-      const saved   = await updateGlobalSettings(payload);
+      const payload = {
+        ...DEFAULT_SETTINGS,
+        ...normalizeSettingsShape(settingsToSave),
+      };
+
+      const saved  = await updateGlobalSettings(payload);
       if (!isMounted.current) return;
-      const merged  = { ...DEFAULT_SETTINGS, ...normalizeSettingsShape(saved) };
+      const merged = { ...DEFAULT_SETTINGS, ...normalizeSettingsShape(saved) };
       applySettings(merged);
       window.dispatchEvent(new CustomEvent('settings-updated', { detail: saved }));
-      notify({ title: 'Settings saved', status: 'success', duration: 3000, isClosable: true });
+      toast({
+        title: 'Settings saved',
+        description: 'Global settings were updated and applied project-wide.',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
     } catch (error) {
       if (!isMounted.current) return;
-      notify({ title: 'Save failed', description: error.message, status: 'error', duration: 4000, isClosable: true });
+      toast({
+        title: 'Save failed',
+        description: error.message,
+        status: 'error',
+        duration: 4000,
+        isClosable: true,
+      });
     } finally {
       if (isMounted.current) setSaving(false);
     }
   };
 
+  // A lightweight loadNotifications passed to child tabs that need to trigger
+  // a silent refresh after mutations (upload, add, delete, retention cleanup).
+  // It does nothing at the root level — the NotificationsTab manages its own
+  // state. We keep a ref to the tab's loader via a callback ref pattern, but
+  // the simplest approach is to just re-export a no-op and let each tab manage
+  // its own refresh independently (which they already do via their own calls).
   const noopLoadNotifications = useCallback(async () => {}, []);
 
   if (loading) {
     return (
-      <Box py={20} textAlign="center">
-        <Spinner size="md" color="gray.300" thickness="2px" />
-        <Text mt={3} fontSize="13px" color="gray.400">Loading settings…</Text>
+      <Box p={10} textAlign="center">
+        <Spinner size="lg" />
+        <Text mt={3}>Loading settings...</Text>
       </Box>
     );
   }
 
   return (
-    <VStack spacing={0} align="stretch">
+    <VStack spacing={6} align="stretch">
       <PageNavBar
         title="Settings"
         description="Project-wide controls for CDR retention, notifications, and system defaults."
-        mb={5}
         rightContent={(
           <HStack spacing={3}>
             {isDirty && (
-              <Text fontSize="12px" color="orange.500" fontWeight="500">
+              <Text fontSize="sm" color="orange.500" fontWeight="medium">
                 Unsaved changes
               </Text>
             )}
             <Button
-              size="sm"
-              leftIcon={<FiSave size={12} />}
+              leftIcon={<FiSave />}
+              colorScheme="green"
               onClick={handleSave}
               isLoading={saving}
               isDisabled={saving}
-              bg="blue.500"
-              color="white"
-              borderRadius="8px"
-              fontWeight="500"
-              fontSize="13px"
-              height="34px"
-              px={4}
-              _hover={{ bg: 'blue.700' }}
-              boxShadow="none"
+              size="sm"
             >
               Save Settings
             </Button>
@@ -1242,17 +1036,95 @@ const Settings = () => {
         )}
       />
 
-      <TabNav active={activeTab} onChange={handleTabChange} />
+      {/*
+        isLazy now works as intended:
+        - General tab renders immediately (default tab, needed for settings state).
+        - DataRetentionTab mounts (and fetches system info) only on first visit.
+        - CountryCodesTab mounts only on first visit.
+        - NotificationsTab mounts (and starts polling) only on first visit.
+      */}
+      <Tabs colorScheme="blue" variant="line" isLazy>
+        <TabList gap={6}>
+          <Tab><HStack><FiSettings /><Text>General</Text></HStack></Tab>
+          <Tab><HStack><FiDatabase /><Text>Data Retention</Text></HStack></Tab>
+          <Tab><HStack><FiUpload /><Text>Country Codes</Text></HStack></Tab>
+          <Tab><HStack><FiBell /><Text>Notifications</Text></HStack></Tab>
+        </TabList>
 
-      <Box>
-        {/* General — always mounted */}
-        <Box display={activeTab === 'general' ? 'block' : 'none'}>
-          <GeneralTab settings={settings} updateSetting={updateSetting} />
-        </Box>
+        <TabPanels>
 
-        {/* Data Retention — lazy mount on first visit */}
-        {visitedTabs.has('retention') && (
-          <Box display={activeTab === 'retention' ? 'block' : 'none'}>
+          {/* ── General ──────────────────────────────────────── */}
+          <TabPanel px={0}>
+            <Card>
+              <CardBody>
+                <Grid templateColumns={{ base: '1fr', md: '1fr 1fr' }} gap={4}>
+                  <GridItem>
+                    <FormControl>
+                      <FormLabel>System Name</FormLabel>
+                      <Input
+                        value={settings.systemName || ''}
+                        onChange={(e) => updateSetting('systemName', e.target.value)}
+                      />
+                    </FormControl>
+                  </GridItem>
+                  <GridItem>
+                    <FormControl>
+                      <FormLabel>Notification Email</FormLabel>
+                      <Input
+                        type="email"
+                        value={settings.notificationEmail || ''}
+                        onChange={(e) => updateSetting('notificationEmail', e.target.value)}
+                      />
+                    </FormControl>
+                  </GridItem>
+                  <GridItem>
+                    <FormControl>
+                      <FormLabel>Currency</FormLabel>
+                      <Select
+                        value={settings.currency || 'USD'}
+                        onChange={(e) => updateSetting('currency', e.target.value)}
+                      >
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                        <option value="GBP">GBP</option>
+                        <option value="INR">INR</option>
+                      </Select>
+                    </FormControl>
+                  </GridItem>
+                  <GridItem>
+                    <FormControl>
+                      <FormLabel>Timezone</FormLabel>
+                      <Select
+                        value={settings.timezone || 'UTC'}
+                        onChange={(e) => updateSetting('timezone', e.target.value)}
+                      >
+                        <option value="UTC">UTC</option>
+                        <option value="EST">EST</option>
+                        <option value="PST">PST</option>
+                        <option value="IST">IST</option>
+                      </Select>
+                    </FormControl>
+                  </GridItem>
+                </Grid>
+
+                <Divider my={5} />
+
+                <Stack direction={{ base: 'column', md: 'row' }} spacing={6}>
+                  <FormControl display="flex" alignItems="center">
+                    <FormLabel mb={0}>Email Notifications</FormLabel>
+                    <Switch
+                      colorScheme="green"
+                      isChecked={settings.emailNotifications !== false}
+                      onChange={(e) => updateSetting('emailNotifications', e.target.checked)}
+                    />
+                  </FormControl>
+                </Stack>
+              </CardBody>
+            </Card>
+          </TabPanel>
+
+          {/* ── Data Retention ───────────────────────────────── */}
+          <TabPanel px={0}>
             <DataRetentionTab
               settings={settings}
               retentionDisplay={retentionDisplay}
@@ -1267,23 +1139,23 @@ const Settings = () => {
               setIsDirty={setIsDirty}
               loadNotifications={noopLoadNotifications}
             />
-          </Box>
-        )}
+          </TabPanel>
 
-        {/* Country Codes — lazy mount on first visit */}
-        {visitedTabs.has('codes') && (
-          <Box display={activeTab === 'codes' ? 'block' : 'none'}>
+          {/* ── Country Codes ────────────────────────────────── */}
+          <TabPanel px={0}>
             <CountryCodesTab loadNotifications={noopLoadNotifications} />
-          </Box>
-        )}
+          </TabPanel>
 
-        {/* Notifications — lazy mount on first visit */}
-        {visitedTabs.has('notifs') && (
-          <Box display={activeTab === 'notifs' ? 'block' : 'none'}>
-            <NotificationsTab settings={settings} updateSetting={updateSetting} />
-          </Box>
-        )}
-      </Box>
+          {/* ── Notifications ────────────────────────────────── */}
+          <TabPanel px={0}>
+            <NotificationsTab
+              settings={settings}
+              updateSetting={updateSetting}
+            />
+          </TabPanel>
+
+        </TabPanels>
+      </Tabs>
     </VStack>
   );
 };

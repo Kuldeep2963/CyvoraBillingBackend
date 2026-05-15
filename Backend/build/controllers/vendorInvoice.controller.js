@@ -1,11 +1,16 @@
-const { Op } = require('sequelize');
+const { Op, fn, col, ValidationError, UniqueConstraintError } = require('sequelize');
 const VendorInvoice = require('../models/Vendorinvoice');
 const Account = require('../models/Account');
 const Payment = require('../models/Payment');
+const CDR = require('../models/CDR');
 const sequelize = require('../config/database');
 const path = require('path');
 const fs = require('fs');
 const { normalizeStoredPath, toStoredRelativePath } = require('../config/storage');
+const H = require('../utils/reportHelper');
+const EmailService = require('../services/EmailService');
+const BillingAutomationService = require('../services/BillingAutomationService');
+const moment = require('moment');
 
 const parseStoredFilePaths = (rawValue) => {
   if (!rawValue) return [];
@@ -63,6 +68,151 @@ const cleanupUploadedFiles = async (files) => {
   await Promise.allSettled(filePaths.map((filePath) => removeFileSafe(filePath)));
 };
 
+const addDaysAsDateOnly = (dateValue, days) => {
+  if (!dateValue && dateValue !== 0) return null;
+
+  const numericDate = Number(dateValue);
+  const baseMoment = !isNaN(numericDate) ? moment(numericDate) : moment(dateValue);
+  if (!baseMoment.isValid()) return null;
+
+  return baseMoment.add(days, 'days').format('YYYY-MM-DD');
+};
+
+const buildVendorBillingUpdates = (account, billedThroughDate) => {
+  return BillingAutomationService.buildStreamUpdates(
+    account,
+    'vendor',
+    billedThroughDate,
+  );
+};
+
+const getBillingDateSnapshot = (account) => {
+  if (!account) return null;
+
+  const data = account.toJSON ? account.toJSON() : account;
+  return {
+    accountId: data.id,
+    accountCode: data.vendorCode || data.customerCode || data.gatewayId || null,
+    accountRole: data.accountRole || null,
+    customerLastBillingDate: data.customerLastBillingDate || null,
+    customerNextBillingDate: data.customerNextBillingDate || null,
+    vendorLastBillingDate: data.vendorLastBillingDate || null,
+    vendorNextBillingDate: data.vendorNextBillingDate || null,
+  };
+};
+
+const getBillingSnapshotUpdatePayload = (snapshot) => {
+  if (!snapshot) return {};
+
+  return {
+    customerLastBillingDate: snapshot.customerLastBillingDate || null,
+    customerNextBillingDate: snapshot.customerNextBillingDate || null,
+    vendorLastBillingDate: snapshot.vendorLastBillingDate || null,
+    vendorNextBillingDate: snapshot.vendorNextBillingDate || null,
+    lastbillingdate: snapshot.customerLastBillingDate || snapshot.vendorLastBillingDate || null,
+    nextbillingdate: snapshot.customerNextBillingDate || snapshot.vendorNextBillingDate || null,
+  };
+};
+
+const shouldRestoreSnapshotInsteadOfRecalculate = (deletedInvoice, latestRemainingInvoice) => {
+  if (!latestRemainingInvoice) return true;
+
+  const deletedEndDate = addDaysAsDateOnly(deletedInvoice?.endDate, 0);
+  const remainingEndDate = addDaysAsDateOnly(latestRemainingInvoice?.endDate, 0);
+
+  if (!deletedEndDate || !remainingEndDate) return true;
+  if (deletedEndDate > remainingEndDate) return true;
+  if (deletedEndDate < remainingEndDate) return false;
+
+  const deletedCreatedAt = deletedInvoice?.createdAt ? new Date(deletedInvoice.createdAt).getTime() : 0;
+  const remainingCreatedAt = latestRemainingInvoice?.createdAt ? new Date(latestRemainingInvoice.createdAt).getTime() : 0;
+
+  return deletedCreatedAt >= remainingCreatedAt;
+};
+
+const recalculateVendorBillingDatesAfterDelete = async (account, deletedInvoice, transaction) => {
+  if (!account) return;
+
+  try {
+    console.log('recalcVendorBillingDatesAfterDelete:start', {
+      accountId: account.id,
+      vendorCode: account.vendorCode,
+      deletedInvoiceId: deletedInvoice?.id,
+    });
+
+    const latestRemainingInvoice = await VendorInvoice.findOne({
+      where: { vendorCode: account.vendorCode },
+      order: [["endDate", "DESC"], ["createdAt", "DESC"]],
+      transaction,
+    });
+
+    console.log('recalcVendorBillingDatesAfterDelete:latestRemainingInvoice', {
+      id: latestRemainingInvoice?.id || null,
+      endDate: latestRemainingInvoice?.endDate || null,
+    });
+
+    const billingSnapshot = deletedInvoice?.billingStateSnapshot || null;
+    const shouldRestoreSnapshot = shouldRestoreSnapshotInsteadOfRecalculate(deletedInvoice, latestRemainingInvoice);
+
+    if (shouldRestoreSnapshot && billingSnapshot) {
+      const snapshotUpdates = getBillingSnapshotUpdatePayload(billingSnapshot);
+      console.log('recalcVendorBillingDatesAfterDelete:restore_snapshot', snapshotUpdates);
+      const updated = await account.update(snapshotUpdates, { transaction });
+      console.log('recalcVendorBillingDatesAfterDelete:updated_from_snapshot', {
+        vendorLastBillingDate: updated.vendorLastBillingDate || null,
+        vendorNextBillingDate: updated.vendorNextBillingDate || null,
+      });
+      return;
+    }
+
+    const deletedInvoiceStartDate = deletedInvoice?.startDate
+      ? addDaysAsDateOnly(deletedInvoice.startDate, 0)
+      : null;
+    const fallbackDate = deletedInvoiceStartDate || addDaysAsDateOnly(account.billingStartDate || account.createdAt, 0);
+    let billedThroughDate = latestRemainingInvoice?.endDate
+      ? addDaysAsDateOnly(latestRemainingInvoice.endDate, 1)
+      : fallbackDate;
+
+    // Safety: deleting a vendor invoice must never move billing cursors forward.
+    const currentLast = addDaysAsDateOnly(account.vendorLastBillingDate, 0);
+    console.log('recalcVendorBillingDatesAfterDelete:dates', { deletedInvoiceStartDate, fallbackDate, billedThroughDate, currentLast });
+    if (billedThroughDate && currentLast && billedThroughDate > currentLast) {
+      billedThroughDate = currentLast;
+    }
+
+    if (!billedThroughDate) {
+      console.log('recalcVendorBillingDatesAfterDelete:abort:no_billedThroughDate');
+      return;
+    }
+
+    const updates = BillingAutomationService.buildStreamUpdates(
+      account,
+      "vendor",
+      billedThroughDate,
+    );
+
+    console.log('recalcVendorBillingDatesAfterDelete:updates', updates);
+
+    const updated = await account.update(updates, { transaction });
+    console.log('recalcVendorBillingDatesAfterDelete:updated', {
+      vendorLastBillingDate: updated.vendorLastBillingDate || null,
+      vendorNextBillingDate: updated.vendorNextBillingDate || null,
+    });
+  } catch (err) {
+    console.error('recalcVendorBillingDatesAfterDelete:error', err);
+    throw err;
+  }
+};
+
+const parsePaymentDate = (value) => {
+  if (!value) return Date.now();
+
+  const numericDate = Number(value);
+  const date = !isNaN(numericDate) ? new Date(numericDate) : new Date(value);
+  if (isNaN(date.getTime())) return Date.now();
+  return date.getTime();
+};
+
 const generatePaymentNumber = async () => {
   const year = new Date().getFullYear();
   const month = String(new Date().getMonth() + 1).padStart(2, '0');
@@ -85,6 +235,204 @@ const generatePaymentNumber = async () => {
   return `PAY-${year}-${month}-${String(sequence).padStart(4, '0')}`;
 };
 
+/**
+ * Helper: Fetch vendor usage from CDRs for a given billing period
+ * Returns the total cost for the vendor in the specified period
+ */
+const fetchVendorUsage = async (account, startDate, endDate) => {
+  try {
+    // Build vendor authentication conditions
+    const vendorAuthType = account.vendorauthenticationType;
+    const vendorAuthValue = account.vendorauthenticationValue;
+    
+    const normalizeAuthValues = (value) => {
+      if (Array.isArray(value)) {
+        return [...new Set(value.map((v) => String(v || "").trim()).filter(Boolean))];
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) return [];
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) {
+              return [...new Set(parsed.map((v) => String(v || "").trim()).filter(Boolean))];
+            }
+          } catch (_error) {}
+        }
+        return [...new Set(trimmed.split(",").map((v) => v.trim()).filter(Boolean))];
+      }
+      if (value == null) return [];
+      const single = String(value).trim();
+      return single ? [single] : [];
+    };
+
+    const authValues = normalizeAuthValues(vendorAuthValue);
+    const authConditions = [];
+
+    if (vendorAuthType === "ip" && authValues.length > 0) {
+      authValues.forEach((value) => {
+        authConditions.push({ calleeip: value });
+      });
+    }
+
+    if (vendorAuthType === "custom" && authValues.length > 0) {
+      authValues.forEach((value) => {
+        const v = `${value}`;
+        authConditions.push({ agentaccount: { [Op.like]: v } });
+        authConditions.push({ agentname: { [Op.like]: v } });
+      });
+    }
+
+    if (authConditions.length === 0) {
+      const vCode = account.vendorCode || account.gatewayId;
+      if (vCode) authConditions.push({ agentaccount: vCode });
+    }
+
+    const formatTime = (date, hour = 0, isEnd = false) => {
+      if (!date) return null;
+      const numericDate = Number(date);
+      const d = !isNaN(numericDate) ? new Date(numericDate) : new Date(date);
+      if (isNaN(d.getTime())) return null;
+      d.setHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
+      return d.getTime().toString();
+    };
+
+    const cdrWhere = {
+      starttime: {
+        [Op.between]: [
+          formatTime(startDate),
+          formatTime(endDate, 23, true),
+        ],
+      },
+      [Op.or]: authConditions,
+    };
+
+    const cdrs = await CDR.findAll({
+      attributes: [
+        [fn("SUM", H.cost), "totalCost"],
+        [fn("COUNT", col("*")), "totalCalls"],
+        [fn("SUM", H.completedCall), "completedCalls"],
+      ],
+      where: cdrWhere,
+      raw: true,
+    });
+
+    const totalCost = cdrs.length > 0 && cdrs[0].totalCost ? Number(cdrs[0].totalCost) : 0;
+    const totalCalls = cdrs.length > 0 && cdrs[0].totalCalls ? Number(cdrs[0].totalCalls) : 0;
+    const completedCalls = cdrs.length > 0 && cdrs[0].completedCalls ? Number(cdrs[0].completedCalls) : 0;
+
+    return {
+      totalCost: parseFloat(totalCost.toFixed(4)),
+      totalCalls,
+      completedCalls,
+      failedCalls: totalCalls - completedCalls,
+    };
+  } catch (error) {
+    console.error('Error fetching vendor usage:', error);
+    return { totalCost: 0, totalCalls: 0, completedCalls: 0, failedCalls: 0 };
+  }
+};
+
+const resolveVendorAccount = async ({ vendorId, vendorCode }, transaction = null) => {
+  if (vendorId) {
+    return Account.findByPk(vendorId, transaction ? { transaction } : undefined);
+  }
+  if (vendorCode) {
+    return Account.findOne({ where: { vendorCode }, ...(transaction ? { transaction } : {}) });
+  }
+  return null;
+};
+
+const buildUsageComparison = (invoiceAmount, usageCost, tolerance = 0.01) => {
+  const uploadedAmount = Number(invoiceAmount || 0);
+  const actualAmount = Number(usageCost || 0);
+  const delta = uploadedAmount - actualAmount;
+  const mismatchAmount = Math.abs(delta);
+  const percentageDiffRaw = uploadedAmount > 0 ? (mismatchAmount / uploadedAmount) * 100 : 0;
+  // Any non-zero mismatch should present dispute action choices to the user.
+  const mismatchDetected = mismatchAmount > 0;
+  const mismatchDirection = delta > 0 ? 'overbilled' : (delta < 0 ? 'underbilled' : 'matched');
+  const canRaiseDispute = mismatchDirection === 'overbilled';
+  const exceedsTolerance = uploadedAmount > 0
+    ? (mismatchAmount / uploadedAmount) > tolerance
+    : mismatchAmount > 0;
+
+  return {
+    uploadedAmount: parseFloat(uploadedAmount.toFixed(4)),
+    actualUsage: parseFloat(actualAmount.toFixed(4)),
+    mismatchAmount: parseFloat(mismatchAmount.toFixed(4)),
+    percentageDiff: `${percentageDiffRaw.toFixed(2)}%`,
+    mismatchDetected,
+    mismatchDirection,
+    canRaiseDispute,
+    exceedsTolerance,
+    rows: [
+      {
+        label: 'Vendor Invoice Amount',
+        value: parseFloat(uploadedAmount.toFixed(4)),
+      },
+      {
+        label: 'Vendor Usage Amount',
+        value: parseFloat(actualAmount.toFixed(4)),
+      },
+      {
+        label: 'Difference',
+        value: parseFloat(mismatchAmount.toFixed(4)),
+      },
+      {
+        label: 'Difference %',
+        value: `${percentageDiffRaw.toFixed(2)}%`,
+      },
+    ],
+  };
+};
+
+exports.previewVendorUsage = async (req, res) => {
+  try {
+    const {
+      vendorId,
+      vendorCode,
+      startDate,
+      endDate,
+      grandTotal,
+    } = req.body || {};
+
+    if ((!vendorId && !vendorCode) || !startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'vendorId or vendorCode, startDate and endDate are required',
+      });
+    }
+
+    const account = await resolveVendorAccount({ vendorId, vendorCode });
+    if (!account) {
+      return res.status(404).json({ success: false, message: 'Vendor account not found' });
+    }
+
+    const actualUsage = await fetchVendorUsage(account, startDate, endDate);
+    const usageComparison = buildUsageComparison(grandTotal, actualUsage.totalCost);
+
+    return res.status(200).json({
+      success: true,
+      vendor: {
+        id: account.id,
+        vendorCode: account.vendorCode,
+        accountName: account.accountName,
+      },
+      usage: actualUsage,
+      usageComparison,
+    });
+  } catch (error) {
+    console.error('Error previewing vendor usage:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to preview vendor usage',
+      error: error.message,
+    });
+  }
+};
+
 exports.createVendorInvoice = async (req, res) => {
   const transaction = await sequelize.transaction();
   const uploadedFiles = Array.isArray(req.files) ? req.files : [];
@@ -99,19 +447,50 @@ exports.createVendorInvoice = async (req, res) => {
       endDate,
       grandTotal,
       currency,
-      totalSeconds
+      totalSeconds,
+      disputeAction,
     } = req.body;
+
+    const normalizedInvoiceNumber = String(invoiceNumber || '').trim();
+    const normalizedVendorCode = String(vendorCode || '').trim();
+    const normalizedCurrency = String(currency || 'USD').trim() || 'USD';
+    const normalizedIssueDate = String(issueDate || '').trim() || new Date().toISOString().split('T')[0];
+    const normalizedStartDate = String(startDate || '').trim();
+    const normalizedEndDate = String(endDate || '').trim();
+    const normalizedGrandTotal = Number(grandTotal);
+    const normalizedTotalSeconds = Number(totalSeconds);
+
+    if (!normalizedInvoiceNumber || !normalizedIssueDate || !normalizedStartDate || !normalizedEndDate) {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: 'invoiceNumber, issueDate, startDate and endDate are required',
+      });
+    }
+
+    if (Number.isNaN(normalizedGrandTotal) || Number.isNaN(normalizedTotalSeconds)) {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: 'grandTotal and totalSeconds must be valid numbers',
+      });
+    }
+
+    const duplicateInvoice = await VendorInvoice.findOne({
+      where: { invoiceNumber: normalizedInvoiceNumber },
+      transaction,
+    });
+
+    if (duplicateInvoice) {
+      await transaction.rollback();
+      await cleanupUploadedFiles(uploadedFiles);
+      return res.status(409).json({
+        message: 'Invoice number already exists',
+        field: 'invoiceNumber',
+      });
+    }
 
     let finalVendorId = vendorId;
     let finalVendorCode = vendorCode;
-    let account = null;
-
-    // Find account and resolve IDs/Codes
-    if (finalVendorId) {
-      account = await Account.findByPk(finalVendorId, { transaction });
-    } else if (finalVendorCode) {
-      account = await Account.findOne({ where: { vendorCode: finalVendorCode }, transaction });
-    }
+    const account = await resolveVendorAccount({ vendorId: finalVendorId, vendorCode: normalizedVendorCode || finalVendorCode }, transaction);
 
     if (!account) {
       await transaction.rollback();
@@ -121,44 +500,126 @@ exports.createVendorInvoice = async (req, res) => {
     finalVendorId = account.id;
     finalVendorCode = account.vendorCode;
 
+    const billingStateSnapshot = getBillingDateSnapshot(account);
+
+    const duplicateBillingPeriodInvoice = await VendorInvoice.findOne({
+      where: {
+        vendorCode: finalVendorCode,
+        startDate: normalizedStartDate,
+        endDate: normalizedEndDate,
+      },
+      transaction,
+    });
+
+    if (duplicateBillingPeriodInvoice) {
+      await transaction.rollback();
+      await cleanupUploadedFiles(uploadedFiles);
+      return res.status(409).json({
+        message: 'A vendor invoice already exists for this billing period',
+        field: 'startDate',
+      });
+    }
+
     const filePaths = uploadedFiles
       .map((file) => toStoredRelativePath(path.resolve(file.path)))
       .filter(Boolean);
 
+    // Fetch actual vendor usage from CDRs for this billing period
+    const actualUsage = await fetchVendorUsage(account, startDate, endDate);
+    const usageComparison = buildUsageComparison(grandTotal, actualUsage.totalCost);
+
+    if (usageComparison.mismatchDetected && usageComparison.canRaiseDispute && !['without_dispute', 'raise_dispute'].includes(String(disputeAction || '').trim())) {
+      await transaction.rollback();
+      await cleanupUploadedFiles(uploadedFiles);
+      return res.status(409).json({
+        success: false,
+        message: 'Mismatch detected. Choose save without dispute or save and raise dispute.',
+        requiresDisputeAction: true,
+        usageComparison,
+      });
+    }
+
+    const shouldRaiseDispute = usageComparison.mismatchDetected
+      && usageComparison.canRaiseDispute
+      && String(disputeAction).trim() === 'raise_dispute';
+
+    const disputedPercentage = Number.parseFloat(String(usageComparison.percentageDiff || '0').replace('%', '')) || 0;
+    const disputeDetails = shouldRaiseDispute
+      ? {
+        actualAmount: usageComparison.actualUsage,
+        disputedAmount: usageComparison.mismatchAmount,
+        disputedPercentage,
+      }
+      : null;
+
     const invoice = await VendorInvoice.create({
       vendorId: finalVendorId,
       vendorCode: finalVendorCode,
-      invoiceNumber,
-      issueDate,
-      startDate,
-      endDate,
-      grandTotal,
-      currency,
-      totalSeconds,
+      invoiceNumber: normalizedInvoiceNumber,
+      issueDate: normalizedIssueDate,
+      startDate: normalizedStartDate,
+      endDate: normalizedEndDate,
+      grandTotal: normalizedGrandTotal,
+      currency: normalizedCurrency,
+      totalSeconds: normalizedTotalSeconds,
       filePaths: JSON.stringify(filePaths),
-      status: 'pending'
+      billingStateSnapshot,
+      status: shouldRaiseDispute ? 'disputed' : 'pending',
+      disputeDetails,
     }, { transaction });
 
-    // Update account balance/credit limit.
-    // Vendor invoices are allowed even when the remaining credit limit is insufficient;
-    // postpaid creditLimit can temporarily go below zero until payment is recorded.
-    if (account.billingType === 'postpaid') {
-      await account.decrement('creditLimit', { by: grandTotal, transaction });
-    } else {
-      // Prepaid vendor accounts are allowed to go negative after invoice generation.
-      await account.decrement('balance', { by: grandTotal, transaction });
-    }
+    const billedThroughDate = addDaysAsDateOnly(normalizedEndDate, 1);
+    await account.update(buildVendorBillingUpdates(account, billedThroughDate), { transaction });
 
     await transaction.commit();
 
+    let disputeEmailSent = false;
+    if (shouldRaiseDispute) {
+      try {
+        await EmailService.sendDisputeRaisedNotification(
+          {
+            comment: `Vendor invoice mismatch detected. Uploaded amount: $${usageComparison.uploadedAmount.toFixed(4)}, Actual usage: $${usageComparison.actualUsage.toFixed(4)}, Difference: $${usageComparison.mismatchAmount.toFixed(4)} (${usageComparison.percentageDiff}).`,
+            mismatchedCount: 1,
+            invoiceNumber: invoice.invoiceNumber,
+            disputeAmount: usageComparison.mismatchAmount,
+            customerName: account.accountName,
+          },
+          account,
+        );
+        disputeEmailSent = true;
+      } catch (mailError) {
+        console.error('Failed to send dispute email for vendor invoice:', mailError);
+      }
+    }
+
     res.status(201).json({
       message: 'Vendor invoice created successfully',
-      invoice
+      invoice,
+      usageComparison: {
+        ...usageComparison,
+        disputeRaised: shouldRaiseDispute,
+        disputeEmailSent,
+      },
     });
   } catch (error) {
     if (transaction) await transaction.rollback();
     await cleanupUploadedFiles(uploadedFiles);
     console.error('Error creating vendor invoice:', error);
+
+    if (error instanceof UniqueConstraintError) {
+      return res.status(409).json({
+        message: 'Invoice number already exists',
+        error: error.errors?.[0]?.message || error.message,
+      });
+    }
+
+    if (error instanceof ValidationError) {
+      return res.status(400).json({
+        message: 'Vendor invoice validation failed',
+        error: error.errors?.map((item) => item.message).join(', ') || error.message,
+      });
+    }
+
     res.status(500).json({
       message: 'Failed to create vendor invoice',
       error: error.message
@@ -168,7 +629,7 @@ exports.createVendorInvoice = async (req, res) => {
 
 exports.getVendorInvoices = async (req, res) => {
   try {
-    const { vendorCode, vendorId, startDate, endDate, search, vendorName, status } = req.query;
+    const { vendorCode, vendorId, startDate, endDate, search, vendorName, status, isDisputed } = req.query;
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 10));
     const offset = (page - 1) * limit;
@@ -199,6 +660,13 @@ exports.getVendorInvoices = async (req, res) => {
         });
       }
       whereClause.status = normalizedStatus;
+    }
+
+    if (typeof isDisputed !== 'undefined' && isDisputed !== '') {
+      const normalized = String(isDisputed).trim().toLowerCase();
+      if (['true', '1', 'yes'].includes(normalized)) {
+        whereClause.status = 'disputed';
+      }
     }
 
     const include = [
@@ -486,7 +954,9 @@ exports.updateVendorInvoice = async (req, res) => {
 
     const duplicate = await VendorInvoice.findOne({
       where: {
-        invoiceNumber: nextValues.invoiceNumber,
+        vendorCode: invoice.vendorCode,
+        startDate: nextValues.startDate,
+        endDate: nextValues.endDate,
         id: { [Op.ne]: invoice.id },
       },
       transaction,
@@ -494,21 +964,20 @@ exports.updateVendorInvoice = async (req, res) => {
 
     if (duplicate) {
       await transaction.rollback();
-      return res.status(409).json({ message: 'Invoice number already exists' });
+      return res.status(409).json({ message: 'A vendor invoice already exists for this billing period' });
     }
 
-    const oldGrandTotal = Number(invoice.grandTotal) || 0;
-    const delta = nextValues.grandTotal - oldGrandTotal;
+    const duplicateInvoiceNumber = await VendorInvoice.findOne({
+      where: {
+        invoiceNumber: nextValues.invoiceNumber,
+        id: { [Op.ne]: invoice.id },
+      },
+      transaction,
+    });
 
-    if (delta !== 0 && invoice.vendorId) {
-      const account = await Account.findByPk(invoice.vendorId, { transaction });
-      if (account) {
-        if (account.billingType === 'postpaid') {
-          await account.decrement('creditLimit', { by: delta, transaction });
-        } else {
-          await account.decrement('balance', { by: delta, transaction });
-        }
-      }
+    if (duplicateInvoiceNumber) {
+      await transaction.rollback();
+      return res.status(409).json({ message: 'Invoice number already exists' });
     }
 
     await invoice.update(nextValues, { transaction });
@@ -530,87 +999,141 @@ exports.updateVendorInvoice = async (req, res) => {
 };
 
 exports.updateVendorInvoiceStatus = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const {
+      status,
+      paymentMethod,
+      paymentDate,
+      transactionId,
+      referenceNumber,
+      notes,
+      creditNoteAmount,
+    } = req.body || {};
     const normalizedStatus = status == null ? '' : String(status).trim().toLowerCase();
 
-    const invoice = await VendorInvoice.findByPk(id);
+    const invoice = await VendorInvoice.findByPk(id, { transaction });
     if (!invoice) {
+      await transaction.rollback();
       return res.status(404).json({ message: 'Vendor invoice not found' });
     }
 
     if (normalizedStatus && !['pending', 'disputed', 'paid'].includes(normalizedStatus)) {
+      await transaction.rollback();
       return res.status(400).json({ message: 'Invalid vendor invoice status' });
     }
 
-    const currentStatus = String(invoice.status || '').toLowerCase();
-    if (currentStatus === 'disputed' && normalizedStatus === 'pending') {
-      console.warn('Blocked vendor invoice status downgrade (disputed -> pending)', {
-        invoiceId: invoice.id,
-        actorId: req.user?.id || null,
-      });
-      return res.status(409).json({
-        message: 'Disputed vendor invoices cannot be moved back to pending automatically',
-      });
+    if (String(invoice.status).toLowerCase() === 'paid') {
+      await transaction.rollback();
+      return res.status(409).json({ message: 'Payment already recorded for this vendor invoice' });
     }
 
-    const prevStatus = invoice.status;
-    invoice.status = normalizedStatus || invoice.status;
-    await invoice.save();
-
-    // mirror credit-limit restoration for postpaid vendors when they pay
-    if (prevStatus !== 'paid' && normalizedStatus === 'paid') {
-      const account = await Account.findByPk(invoice.vendorId);
-      if (account && account.billingType === 'postpaid') {
-        const orig = parseFloat(account.originalCreditLimit) || 0;
-        let newLimit = parseFloat(account.creditLimit) + Number(invoice.grandTotal);
-        if (orig && newLimit > orig) newLimit = orig;
-        await account.update({ creditLimit: newLimit });
-      }
-
-      const existingPayment = await Payment.findOne({
-        where: {
-          vendorInvoiceId: invoice.id,
-          partyType: 'vendor',
-          paymentDirection: 'outbound'
-        }
-      });
-
-      if (!existingPayment) {
-        const paymentNumber = await generatePaymentNumber();
-
-        await Payment.create({
-          paymentNumber,
-          receiptNumber: `VND-${paymentNumber.split('-').slice(1).join('-')}`,
-          customerGatewayId: account?.gatewayId || invoice.vendorCode || String(invoice.vendorId || invoice.id),
-          customerCode: invoice.vendorCode,
-          customerName: account?.accountName || invoice.vendorCode,
-          partyType: 'vendor',
-          paymentDirection: 'outbound',
-          amount: parseFloat(invoice.grandTotal),
-          currency: invoice.currency || account?.currency || 'USD',
-          paymentDate: Date.now(),
-          paymentMethod: 'bank_transfer',
-          transactionId: `VENDOR-PAY-${invoice.invoiceNumber}`,
-          referenceNumber: invoice.invoiceNumber,
-          allocatedAmount: parseFloat(invoice.grandTotal),
-          unappliedAmount: 0,
-          notes: `Auto-recorded vendor payment for invoice ${invoice.invoiceNumber}`,
-          vendorInvoiceId: invoice.id,
-          recordedDate: Date.now()
+    if (normalizedStatus && normalizedStatus !== 'paid') {
+      const currentStatus = String(invoice.status || '').toLowerCase();
+      if (currentStatus === 'disputed' && normalizedStatus === 'pending') {
+        console.warn('Blocked vendor invoice status downgrade (disputed -> pending)', {
+          invoiceId: invoice.id,
+          actorId: req.user?.id || null,
+        });
+        await transaction.rollback();
+        return res.status(409).json({
+          message: 'Disputed vendor invoices cannot be moved back to pending automatically',
         });
       }
+
+      invoice.status = normalizedStatus;
+      await invoice.save({ transaction });
+      await transaction.commit();
+      return res.status(200).json({
+        message: 'Vendor invoice status updated successfully',
+        invoice,
+      });
     }
 
+    if (!paymentMethod) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'paymentMethod is required to record vendor payment' });
+    }
+
+    const normalizedCreditNoteAmount = Number(creditNoteAmount || 0);
+    if (Number.isNaN(normalizedCreditNoteAmount) || normalizedCreditNoteAmount < 0) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'creditNoteAmount must be a non-negative number' });
+    }
+
+    const invoiceGrandTotal = Number(invoice.grandTotal || 0);
+    if (normalizedCreditNoteAmount > invoiceGrandTotal) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'creditNoteAmount cannot exceed the invoice grand total' });
+    }
+
+    const existingPayment = await Payment.findOne({
+      where: {
+        vendorInvoiceId: invoice.id,
+        partyType: 'vendor',
+        paymentDirection: 'outbound',
+      },
+      transaction,
+    });
+
+    if (existingPayment) {
+      await transaction.rollback();
+      return res.status(409).json({ message: 'Payment already exists for this vendor invoice' });
+    }
+
+    const account = await Account.findByPk(invoice.vendorId, { transaction });
+    const payableAmount = parseFloat((invoiceGrandTotal - normalizedCreditNoteAmount).toFixed(4));
+    const normalizedPaymentDate = parsePaymentDate(paymentDate);
+
+    invoice.status = 'paid';
+    invoice.creditNoteAmount = parseFloat(normalizedCreditNoteAmount.toFixed(2));
+    await invoice.save({ transaction });
+
+    const paymentNumber = await generatePaymentNumber();
+    const computedNotes = notes
+      ? `${notes}${normalizedCreditNoteAmount > 0 ? ` | Credit note applied: ${normalizedCreditNoteAmount.toFixed(2)}` : ''}`
+      : `Vendor payment for invoice ${invoice.invoiceNumber}${normalizedCreditNoteAmount > 0 ? ` (Credit note: ${normalizedCreditNoteAmount.toFixed(2)})` : ''}`;
+
+    await Payment.create({
+      paymentNumber,
+      receiptNumber: `VND-${paymentNumber.split('-').slice(1).join('-')}`,
+      customerGatewayId: account?.gatewayId || invoice.vendorCode || String(invoice.vendorId || invoice.id),
+      customerCode: invoice.vendorCode,
+      customerName: account?.accountName || invoice.vendorCode,
+      partyType: 'vendor',
+      paymentDirection: 'outbound',
+      amount: payableAmount,
+      currency: invoice.currency || account?.currency || 'USD',
+      paymentDate: normalizedPaymentDate,
+      paymentMethod,
+      transactionId: transactionId || `VENDOR-PAY-${invoice.invoiceNumber}`,
+      referenceNumber: referenceNumber || invoice.invoiceNumber,
+      allocatedAmount: payableAmount,
+      unappliedAmount: 0,
+      creditNoteAmount: parseFloat(normalizedCreditNoteAmount.toFixed(2)),
+      notes: computedNotes,
+      vendorInvoiceId: invoice.id,
+      recordedBy: req.user?.id || null,
+      recordedDate: Date.now(),
+    }, { transaction });
+
+    await transaction.commit();
+
     res.status(200).json({
-      message: 'Vendor invoice status updated successfully',
-      invoice
+      success: true,
+      message: 'Vendor payment recorded successfully',
+      invoice,
+      payment: {
+        amount: payableAmount,
+        creditNoteAmount: parseFloat(normalizedCreditNoteAmount.toFixed(2)),
+      },
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Error updating vendor invoice status:', error);
     res.status(500).json({
-      message: 'Failed to update vendor invoice status',
+      message: 'Failed to record vendor payment',
       error: error.message
     });
   }
@@ -622,27 +1145,16 @@ exports.deleteVendorInvoice = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const invoice = await VendorInvoice.findByPk(id);
+    const invoice = await VendorInvoice.findByPk(id, { transaction });
     if (!invoice) {
       return res.status(404).json({ message: 'Vendor invoice not found' });
     }
 
-    // restore any funds/credit that were deducted when the invoice was created
-    if (invoice.vendorId) {
-      const account = await Account.findByPk(invoice.vendorId, { transaction });
-      if (account) {
-        const amount = Number(invoice.grandTotal) || 0;
-        if (account.billingType === 'postpaid') {
-          const orig = parseFloat(account.originalCreditLimit) || 0;
-          let newLimit = parseFloat(account.creditLimit) + amount;
-          if (orig && newLimit > orig) newLimit = orig;
-          await account.update({ creditLimit: newLimit }, { transaction });
-        } else {
-          let newBal = parseFloat(account.balance) + amount;
-          await account.update({ balance: newBal }, { transaction });
-        }
-      }
-    }
+    const account = await resolveVendorAccount(
+      { vendorId: invoice.vendorId, vendorCode: invoice.vendorCode },
+      transaction,
+    );
+    const billingDatesBefore = getBillingDateSnapshot(account);
 
     await Payment.destroy({
       where: {
@@ -666,9 +1178,25 @@ exports.deleteVendorInvoice = async (req, res) => {
     }
 
     await invoice.destroy({ transaction });
+    await recalculateVendorBillingDatesAfterDelete(account, invoice, transaction);
+
+    let billingDatesAfter = null;
+    if (account) {
+      await account.reload({ transaction });
+      billingDatesAfter = getBillingDateSnapshot(account);
+    }
+
     await transaction.commit();
 
-    res.status(200).json({ message: 'Vendor invoice deleted successfully' });
+    res.status(200).json({
+      message: 'Vendor invoice deleted successfully',
+      billingDateRestore: {
+        accountFound: Boolean(account),
+        stream: 'vendor',
+        before: billingDatesBefore,
+        after: billingDatesAfter,
+      },
+    });
   } catch (error) {
     await transaction.rollback();
     console.error('Error deleting vendor invoice:', error);

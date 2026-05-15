@@ -26,7 +26,6 @@ import {
   Tr,
   Th,
   Td,
-  
   Icon,
   useColorModeValue,
   Avatar,
@@ -59,7 +58,10 @@ import {
   AlertDescription,
 } from "@chakra-ui/react";
 import useNotify from "../utils/notify";
-import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
+import {
+  MemoizedInput as Input,
+  MemoizedSelect as Select,
+} from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import DataTable from "../components/DataTable";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -107,6 +109,10 @@ import {
   FiImage,
   FiEdit2,
 } from "react-icons/fi";
+import {
+  currentBillingPeriodWindow,
+  calculatePrevBillingDate,
+} from "../utils/billingDateUtils";
 
 const CURRENCY = ["USD", "EUR", "GBP", "INR", "AED", "SGD"];
 const fmtBytes = (b) => {
@@ -117,7 +123,9 @@ const fmtBytes = (b) => {
 
 const fmtSeconds = (s) => {
   if (!s) return "—";
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const h = Math.floor(s / 3600),
+    m = Math.floor((s % 3600) / 60),
+    sec = s % 60;
   const parts = [];
   if (h) parts.push(`${h}h`);
   if (m) parts.push(`${m}m`);
@@ -129,7 +137,9 @@ const parseInvoiceFiles = (rawFilePaths) => {
   if (!rawFilePaths) return [];
 
   if (Array.isArray(rawFilePaths)) {
-    return rawFilePaths.map((entry) => String(entry || "").trim()).filter(Boolean);
+    return rawFilePaths
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean);
   }
 
   if (typeof rawFilePaths === "string") {
@@ -140,14 +150,19 @@ const parseInvoiceFiles = (rawFilePaths) => {
       try {
         const parsed = JSON.parse(trimmed);
         if (Array.isArray(parsed)) {
-          return parsed.map((entry) => String(entry || "").trim()).filter(Boolean);
+          return parsed
+            .map((entry) => String(entry || "").trim())
+            .filter(Boolean);
         }
       } catch (_error) {
         // Fallback to comma split.
       }
     }
 
-    return trimmed.split(",").map((entry) => entry.trim()).filter(Boolean);
+    return trimmed
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
   }
 
   return [];
@@ -156,8 +171,20 @@ const parseInvoiceFiles = (rawFilePaths) => {
 const pickFileIcon = (name = "") => {
   const lower = String(name).toLowerCase();
   if (lower.endsWith(".pdf")) return FiFileText;
-  if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp")) return FiImage;
-  if (lower.endsWith(".csv") || lower.endsWith(".xls") || lower.endsWith(".xlsx")) return FiFileText;
+  if (
+    lower.endsWith(".png") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    lower.endsWith(".gif") ||
+    lower.endsWith(".webp")
+  )
+    return FiImage;
+  if (
+    lower.endsWith(".csv") ||
+    lower.endsWith(".xls") ||
+    lower.endsWith(".xlsx")
+  )
+    return FiFileText;
   return FiFile;
 };
 
@@ -166,63 +193,125 @@ const pad2 = (value) => String(value).padStart(2, "0");
 const toLocalDateInputValue = (value) => {
   if (!value) return "";
 
-  const source = value instanceof Date ? value : new Date(String(value).slice(0, 10) + "T00:00:00");
+  const source =
+    value instanceof Date
+      ? value
+      : new Date(String(value).slice(0, 10) + "T00:00:00");
   if (Number.isNaN(source.getTime())) return "";
 
   return `${source.getFullYear()}-${pad2(source.getMonth() + 1)}-${pad2(source.getDate())}`;
 };
 
-const getTodayInputValue = () => toLocalDateInputValue(new Date());
-
-const shiftDateInputValue = (value, days) => {
-  if (!value) return "";
-
-  const source = value instanceof Date ? new Date(value) : new Date(String(value).slice(0, 10) + "T00:00:00");
-  if (Number.isNaN(source.getTime())) return "";
-
-  source.setDate(source.getDate() + days);
-  return toLocalDateInputValue(source);
+const addDaysToDateInputValue = (dateStr, days = 0) => {
+  if (!dateStr) return "";
+  const base = new Date(`${String(dateStr).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(base.getTime())) return "";
+  base.setDate(base.getDate() + Number(days || 0));
+  return toLocalDateInputValue(base);
 };
 
-const getVendorBillingDefaults = (vendor) => {
-  const lastBillingDate = vendor?.vendorLastBillingDate || vendor?.lastbillingdate || "";
-  const nextBillingDate = vendor?.vendorNextBillingDate || vendor?.nextbillingdate || "";
+const getTodayInputValue = () => toLocalDateInputValue(new Date());
 
+const getVendorBillingDefaults = (vendor) => {
+  const billingCycle = vendor?.billingCycle || "monthly";
+  
+  // Try vendor dates first, then fall back to customer dates
+  const vendorLastBillingDate =
+    vendor?.vendorLastBillingDate ||
+    vendor?.customerLastBillingDate ||
+    vendor?.lastbillingdate ||
+    "";
+  const vendorNextBillingDate =
+    vendor?.vendorNextBillingDate ||
+    vendor?.customerNextBillingDate ||
+    vendor?.nextbillingdate ||
+    "";
+
+  // DEBUG: Log the selected vendor's dates
+  console.debug('VendorInvoice: getVendorBillingDefaults called', {
+    vendorCode: vendor?.vendorCode,
+    vendorLastBillingDate,
+    vendorNextBillingDate,
+    billingCycle,
+    billingStartDate: vendor?.billingStartDate,
+  });
+
+  if (vendorLastBillingDate) {
+    // Always derive current period start from the cursor: day after last billing date.
+    const window = currentBillingPeriodWindow(vendorLastBillingDate, billingCycle);
+    const periodStart = addDaysToDateInputValue(vendorLastBillingDate, 1) || window.periodStart || "";
+
+    return {
+      issueDate: getTodayInputValue(),
+      startDate: periodStart,
+      endDate: vendorNextBillingDate || window.periodEnd || "",
+    };
+  }
+
+  if (vendorNextBillingDate) {
+    const startDate = toLocalDateInputValue(vendor?.billingStartDate || vendor?.createdAt || new Date());
+    return {
+      issueDate: getTodayInputValue(),
+      startDate,
+      endDate: vendorNextBillingDate,
+    };
+  }
+
+  const startDate = toLocalDateInputValue(vendor?.billingStartDate || vendor?.createdAt || new Date());
   return {
     issueDate: getTodayInputValue(),
-    startDate: toLocalDateInputValue(lastBillingDate),
-    endDate: shiftDateInputValue(nextBillingDate, -1) || toLocalDateInputValue(nextBillingDate),
+    startDate,
+    endDate: "",
   };
 };
 
 // ── Status badge helper ───────────────────────────────────────
 const StatusBadge = ({ status }) => {
   const map = {
-    pending:    { color: "orange", label: "Pending" },
-    disputed:   { color: "red",    label: "Disputed" },
-    approved:   { color: "green",  label: "Approved" },
-    rejected:   { color: "red",    label: "Rejected" },
-    processing: { color: "blue",   label: "Processing" },
-    paid:       { color: "teal",   label: "Paid" },
+    pending: { color: "orange", label: "Pending" },
+    disputed: { color: "red", label: "Disputed" },
+    approved: { color: "green", label: "Approved" },
+    rejected: { color: "red", label: "Rejected" },
+    processing: { color: "blue", label: "Processing" },
+    paid: { color: "teal", label: "Paid" },
   };
-  const s = map[status?.toLowerCase()] || { color: "gray", label: status || "Unknown" };
-  return <Badge colorScheme={s.color} variant="subtle" fontSize="xs" px={2} py={0.5} borderRadius="full">{s.label}</Badge>;
+  const s = map[status?.toLowerCase()] || {
+    color: "gray",
+    label: status || "Unknown",
+  };
+  return (
+    <Badge
+      colorScheme={s.color}
+      variant="subtle"
+      fontSize="xs"
+      px={2}
+      py={0.5}
+      borderRadius="full"
+    >
+      {s.label}
+    </Badge>
+  );
 };
 
 // ── Invoices List Tab ─────────────────────────────────────────
-const InvoicesTab = ({ onAddNew }) => {
-  const toast  = useNotify();
+const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
+  const toast = useNotify();
   const cardBg = useColorModeValue("white", "gray.800");
   const border = useColorModeValue("gray.200", "gray.700");
-  const [search, setSearch]     = useState("");
+  const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [invoices, setInvoices] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError]       = useState(null);
+  const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
+  const [pagination, setPagination] = useState({
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+  });
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [invoiceFiles, setInvoiceFiles] = useState([]);
   const [isFilesOpen, setIsFilesOpen] = useState(false);
@@ -260,7 +349,8 @@ const InvoicesTab = ({ onAddNew }) => {
   });
   const editFilesRef = useRef(null);
   const quickAddFilesRef = useRef(null);
-  const isSelectedInvoicePaid = String(selectedInvoice?.status || "").toLowerCase() === "paid";
+  const isSelectedInvoicePaid =
+    String(selectedInvoice?.status || "").toLowerCase() === "paid";
 
   const safeOpenBlob = (blob, nameHint = "file") => {
     const blobUrl = window.URL.createObjectURL(blob);
@@ -350,12 +440,26 @@ const InvoicesTab = ({ onAddNew }) => {
     if (!selectedInvoice?.id) return;
 
     if (!editForm.invoiceNumber.trim()) {
-      toast({ title: "Invoice number is required", status: "error", duration: 3000, isClosable: true });
+      toast({
+        title: "Invoice number is required",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
       return;
     }
 
-    if (editForm.startDate && editForm.endDate && new Date(editForm.startDate) > new Date(editForm.endDate)) {
-      toast({ title: "End date must be after start date", status: "error", duration: 3000, isClosable: true });
+    if (
+      editForm.startDate &&
+      editForm.endDate &&
+      new Date(editForm.startDate) > new Date(editForm.endDate)
+    ) {
+      toast({
+        title: "End date must be after start date",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
       return;
     }
 
@@ -371,11 +475,22 @@ const InvoicesTab = ({ onAddNew }) => {
         totalSeconds: Number(editForm.totalSeconds || 0),
       });
 
-      toast({ title: "Vendor invoice updated", status: "success", duration: 3000, isClosable: true });
+      toast({
+        title: "Vendor invoice updated",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
       setIsEditOpen(false);
       await loadInvoices();
     } catch (err) {
-      toast({ title: "Failed to update invoice", description: err.message, status: "error", duration: 4000, isClosable: true });
+      toast({
+        title: "Failed to update invoice",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
     } finally {
       setIsEditSaving(false);
     }
@@ -383,7 +498,11 @@ const InvoicesTab = ({ onAddNew }) => {
 
   const handleViewFile = async (row, file) => {
     try {
-      const blob = await downloadVendorInvoiceFileBlob(row.id, file.fileIndex, "inline");
+      const blob = await downloadVendorInvoiceFileBlob(
+        row.id,
+        file.fileIndex,
+        "inline",
+      );
       safeOpenBlob(blob, file.originalName);
     } catch (err) {
       toast({
@@ -398,7 +517,11 @@ const InvoicesTab = ({ onAddNew }) => {
 
   const handleDownloadFile = async (row, file) => {
     try {
-      const blob = await downloadVendorInvoiceFileBlob(row.id, file.fileIndex, "attachment");
+      const blob = await downloadVendorInvoiceFileBlob(
+        row.id,
+        file.fileIndex,
+        "attachment",
+      );
       safeDownloadBlob(blob, file.originalName);
     } catch (err) {
       toast({
@@ -420,10 +543,21 @@ const InvoicesTab = ({ onAddNew }) => {
       setInvoiceFiles(Array.isArray(files) ? files : []);
       setEditInvoiceFiles(Array.isArray(files) ? files : []);
       await loadInvoices();
-      toast({ title: "Attachment deleted", status: "success", duration: 3000, isClosable: true });
+      toast({
+        title: "Attachment deleted",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
       setDeleteFileTarget(null);
     } catch (err) {
-      toast({ title: "Failed to delete attachment", description: err.message, status: "error", duration: 4000, isClosable: true });
+      toast({
+        title: "Failed to delete attachment",
+        description: err.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
     } finally {
       setIsDeletingFile(false);
     }
@@ -529,6 +663,7 @@ const InvoicesTab = ({ onAddNew }) => {
         isClosable: true,
       });
       setDeleteInvoiceTarget(null);
+      onVendorDataChanged?.();
       loadInvoices(); // Reload invoices to reflect the updated status
     } catch (err) {
       toast({
@@ -555,7 +690,14 @@ const InvoicesTab = ({ onAddNew }) => {
       });
       const rows = response?.data || response || [];
       setInvoices(Array.isArray(rows) ? rows : []);
-      setPagination(response?.pagination || { total: rows.length || 0, page, limit: pageSize, totalPages: 1 });
+      setPagination(
+        response?.pagination || {
+          total: rows.length || 0,
+          page,
+          limit: pageSize,
+          totalPages: 1,
+        },
+      );
     } catch (err) {
       setError(err.message || "Failed to load invoices");
       toast({
@@ -579,15 +721,22 @@ const InvoicesTab = ({ onAddNew }) => {
     return () => clearTimeout(timeoutId);
   }, [search]);
 
-  useEffect(() => { loadInvoices(); }, [loadInvoices]);
+  useEffect(() => {
+    loadInvoices();
+  }, [loadInvoices]);
 
   const openRecordPaymentModal = (row) => {
     setPaymentTargetInvoice(row);
     setPaymentForm({
-      customerId: row?.vendorCode || row?.vendor?.vendorCode || row?.vendor?.id || "",
+      customerId:
+        row?.vendorCode || row?.vendor?.vendorCode || row?.vendor?.id || "",
       paymentSource: "new_payment",
       invoiceId: "",
-      amount: Number((Number(row?.grandTotal || 0) - Number(row?.creditNoteAmount || 0)).toFixed(4)).toString(),
+      amount: Number(
+        (
+          Number(row?.grandTotal || 0) - Number(row?.creditNoteAmount || 0)
+        ).toFixed(4),
+      ).toString(),
       paymentDate: getTodayInputValue(),
       paymentMethod: "bank_transfer",
       transactionId: "",
@@ -681,7 +830,9 @@ const InvoicesTab = ({ onAddNew }) => {
       key: "invoiceNumber",
       header: "Invoice No.",
       render: (_, row) => (
-        <Text fontSize="13px" fontWeight="600" color="blue.600">{row.invoiceNumber || "N/A"}</Text>
+        <Text fontSize="13px" fontWeight="600" color="blue.600">
+          {row.invoiceNumber || "N/A"}
+        </Text>
       ),
     },
     {
@@ -689,8 +840,12 @@ const InvoicesTab = ({ onAddNew }) => {
       header: "Vendor",
       render: (_, row) => (
         <VStack spacing={0} align="start">
-          <Text fontSize="13px" fontWeight="500" color="gray.700">{row.vendor?.accountName || "N/A"}</Text>
-          <Text fontSize="11px" color="gray.400">{row.vendor?.vendorCode || "N/A"}</Text>
+          <Text fontSize="13px" fontWeight="500" color="gray.700">
+            {row.vendor?.accountName || "N/A"}
+          </Text>
+          <Text fontSize="11px" color="gray.400">
+            {row.vendor?.vendorCode || "N/A"}
+          </Text>
         </VStack>
       ),
     },
@@ -699,7 +854,13 @@ const InvoicesTab = ({ onAddNew }) => {
       header: "Issue Date",
       render: (value) => (
         <Text fontSize="13px" color="gray.600">
-          {value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "N/A"}
+          {value
+            ? new Date(value).toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })
+            : "N/A"}
         </Text>
       ),
     },
@@ -708,9 +869,20 @@ const InvoicesTab = ({ onAddNew }) => {
       header: "Billing Period",
       render: (_, row) => (
         <Text fontSize="13px" color="gray.600">
-          {row.startDate ? new Date(row.startDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "N/A"}
+          {row.startDate
+            ? new Date(row.startDate).toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+              })
+            : "N/A"}
           {" - "}
-          {row.endDate ? new Date(row.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "N/A"}
+          {row.endDate
+            ? new Date(row.endDate).toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })
+            : "N/A"}
         </Text>
       ),
     },
@@ -719,7 +891,11 @@ const InvoicesTab = ({ onAddNew }) => {
       header: "Grand Total",
       render: (value, row) => (
         <Text fontSize="13px" fontWeight="700" color="gray.800">
-          {row.currency || "USD"} {Number(value || 0).toLocaleString("en", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+          {row.currency || "USD"}{" "}
+          {Number(value || 0).toLocaleString("en", {
+            minimumFractionDigits: 4,
+            maximumFractionDigits: 4,
+          })}
         </Text>
       ),
     },
@@ -727,8 +903,16 @@ const InvoicesTab = ({ onAddNew }) => {
       key: "creditNoteAmount",
       header: "Credit Note",
       render: (value, row) => (
-        <Text fontSize="13px" fontWeight="600" color={Number(value || 0) > 0 ? "orange.600" : "gray.500"}>
-          {row.currency || "USD"} {Number(value || 0).toLocaleString("en", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+        <Text
+          fontSize="13px"
+          fontWeight="600"
+          color={Number(value || 0) > 0 ? "orange.600" : "gray.500"}
+        >
+          {row.currency || "USD"}{" "}
+          {Number(value || 0).toLocaleString("en", {
+            minimumFractionDigits: 4,
+            maximumFractionDigits: 4,
+          })}
         </Text>
       ),
     },
@@ -737,10 +921,16 @@ const InvoicesTab = ({ onAddNew }) => {
       header: "Dispute Amount",
       render: (_, row) => {
         const disputedAmount = Number(row?.disputeDetails?.disputedAmount || 0);
-        const hasDispute = String(row?.status || "").toLowerCase() === "disputed" || disputedAmount > 0;
+        const hasDispute =
+          String(row?.status || "").toLowerCase() === "disputed" ||
+          disputedAmount > 0;
 
         return (
-          <Text fontSize="13px" color={hasDispute ? "red.600" : "gray.500"} fontWeight="600">
+          <Text
+            fontSize="13px"
+            color={hasDispute ? "red.600" : "gray.500"}
+            fontWeight="600"
+          >
             {hasDispute
               ? `${row.currency || "USD"} ${disputedAmount.toLocaleString("en", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
               : "-"}
@@ -768,10 +958,14 @@ const InvoicesTab = ({ onAddNew }) => {
                 {count} file{count > 1 ? "s" : ""}
               </Button>
             ) : (
-              <Text fontSize="12px" color="gray.400">No files</Text>
+              <Text fontSize="12px" color="gray.400">
+                No files
+              </Text>
             )}
 
-            <Tooltip label={isPaid ? "Cannot add files to paid invoice" : "Add files"}>
+            <Tooltip
+              label={isPaid ? "Cannot add files to paid invoice" : "Add files"}
+            >
               <IconButton
                 size="xs"
                 variant="ghost"
@@ -779,7 +973,9 @@ const InvoicesTab = ({ onAddNew }) => {
                 icon={<FiPlus />}
                 aria-label="Add attachment"
                 isDisabled={isPaid || isQuickUploading}
-                isLoading={isQuickUploading && uploadTargetInvoice?.id === row.id}
+                isLoading={
+                  isQuickUploading && uploadTargetInvoice?.id === row.id
+                }
                 onClick={() => openQuickAddFiles(row)}
               />
             </Tooltip>
@@ -809,14 +1005,44 @@ const InvoicesTab = ({ onAddNew }) => {
             borderRadius="6px"
           />
           <MenuList fontSize="sm" minW="140px" shadow="lg" borderColor={border}>
-            <MenuItem icon={<FiPaperclip />} onClick={() => openFilesModal(row)} fontSize="13px">View files</MenuItem>
+            <MenuItem
+              icon={<FiPaperclip />}
+              onClick={() => openFilesModal(row)}
+              fontSize="13px"
+            >
+              View files
+            </MenuItem>
             {String(row?.status || "").toLowerCase() === "paid" ? (
-              <MenuItem icon={<FiEye />} onClick={() => openEditModal(row)} fontSize="13px">View details</MenuItem>
+              <MenuItem
+                icon={<FiEye />}
+                onClick={() => openEditModal(row)}
+                fontSize="13px"
+              >
+                View details
+              </MenuItem>
             ) : (
               <>
-                <MenuItem icon={<FiEdit2 />} onClick={() => openEditModal(row)} fontSize="13px">Edit invoice</MenuItem>
-                <MenuItem icon={<FiTrash2 />} onClick={() => setDeleteInvoiceTarget(row)} fontSize="13px">Delete</MenuItem>
-                <MenuItem icon={<FiDollarSign />} onClick={() => openRecordPaymentModal(row)} fontSize="13px">Record payment</MenuItem>
+                <MenuItem
+                  icon={<FiEdit2 />}
+                  onClick={() => openEditModal(row)}
+                  fontSize="13px"
+                >
+                  Edit invoice
+                </MenuItem>
+                <MenuItem
+                  icon={<FiTrash2 />}
+                  onClick={() => setDeleteInvoiceTarget(row)}
+                  fontSize="13px"
+                >
+                  Delete
+                </MenuItem>
+                <MenuItem
+                  icon={<FiDollarSign />}
+                  onClick={() => openRecordPaymentModal(row)}
+                  fontSize="13px"
+                >
+                  Record payment
+                </MenuItem>
               </>
             )}
           </MenuList>
@@ -837,100 +1063,140 @@ const InvoicesTab = ({ onAddNew }) => {
       />
 
       {/* Table card */}
-          <Flex align="center" justify="space-between" flexWrap="wrap" gap={3}>
-            <HStack>
-              <Box w={1} h={5} bg="blue.500" borderRadius="full" />
-              <Heading size="sm" color="gray.800">Vendor Invoices</Heading>
-              <Badge colorScheme="blue" variant="subtle" fontSize="xs">{pagination.total || invoices.length} records</Badge>
-            </HStack>
-            <HStack spacing={3}>
-              <Select
-                size="sm"
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value);
-                  setPage(1);
-                }}
-                borderColor={border}
-                borderRadius="8px"
-                fontSize="13px"
-                minW="150px"
-                _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }}
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="disputed">Disputed</option>
-                <option value="paid">Paid</option>
-              </Select>
-              {/* Search */}
-              <InputGroup size="sm" maxW="240px">
-                <InputLeftElement pointerEvents="none" color="gray.400"><FiSearch /></InputLeftElement>
-                <Input
-                  pl={8}
-                  placeholder="Search invoices..."
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                  }}
-                  borderRadius="8px"
-                  borderColor={border}
-                  fontSize="13px"
-                  _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }}
-                />
-              </InputGroup>
-              {/* Refresh */}
-              <Tooltip label="Refresh" placement="top">
-                <IconButton
-                  icon={<FiRefreshCw />}
-                  size="sm"
-                  variant="outline"
-                  borderRadius="8px"
-                  borderColor={border}
-                  color="gray.500"
-                  aria-label="Refresh invoices"
-                  isLoading={isLoading}
-                  onClick={loadInvoices}
-                  _hover={{ borderColor: "blue.400", color: "blue.500" }}
-                />
-              </Tooltip>
-              <Button size="sm" px={6} leftIcon={<FiPlus />} colorScheme="blue" borderRadius="8px" onClick={onAddNew}
-                fontSize="13px" fontWeight="600" boxShadow="0 2px 8px rgba(49,130,206,0.25)">
-                New Invoice
-              </Button>
-            </HStack>
-          </Flex>
-
-          {error ? (
-            <Flex direction="column" align="center" py={10} color="red.400">
-              <FiAlertTriangle size={32} style={{ marginBottom: "8px", opacity: 0.6 }} />
-              <Text fontSize="sm" fontWeight="600">Failed to load invoices</Text>
-              <Text fontSize="xs" color="gray.400" mt={1} mb={4}>{error}</Text>
-              <Button size="sm" leftIcon={<FiRefreshCw />} colorScheme="blue" variant="outline" borderRadius="8px" onClick={loadInvoices}>
-                Try Again
-              </Button>
-            </Flex>
-          ) : (
-            <DataTable
-              columns={columns}
-              data={isLoading ? [] : invoices}
-              actions={false}
-              compact
-              striped
-              height="430px"
-              serverPagination
-              page={pagination.page || page}
-              pageSize={pagination.limit || pageSize}
-              total={pagination.total || 0}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setPage(1);
+      <Flex align="center" justify="space-between" flexWrap="wrap" gap={3}>
+        <HStack>
+          <Box w={1} h={5} bg="blue.500" borderRadius="full" />
+          <Heading size="sm" color="gray.800">
+            Vendor Invoices
+          </Heading>
+          <Badge colorScheme="blue" variant="subtle" fontSize="xs">
+            {pagination.total || invoices.length} records
+          </Badge>
+        </HStack>
+        <HStack spacing={3}>
+          <Select
+            size="sm"
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
+            borderColor={border}
+            borderRadius="8px"
+            fontSize="13px"
+            minW="150px"
+            _focus={{
+              borderColor: "blue.400",
+              boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)",
+            }}
+          >
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="disputed">Disputed</option>
+            <option value="paid">Paid</option>
+          </Select>
+          {/* Search */}
+          <InputGroup size="sm" maxW="240px">
+            <InputLeftElement pointerEvents="none" color="gray.400">
+              <FiSearch />
+            </InputLeftElement>
+            <Input
+              pl={8}
+              placeholder="Search invoices..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
               }}
-              isPaginationDisabled={isLoading}
+              borderRadius="8px"
+              borderColor={border}
+              fontSize="13px"
+              _focus={{
+                borderColor: "blue.400",
+                boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)",
+              }}
             />
-          )}
+          </InputGroup>
+          {/* Refresh */}
+          <Tooltip label="Refresh" placement="top">
+            <IconButton
+              icon={<FiRefreshCw />}
+              size="sm"
+              variant="outline"
+              borderRadius="8px"
+              borderColor={border}
+              color="gray.500"
+              aria-label="Refresh invoices"
+              isLoading={isLoading}
+              onClick={loadInvoices}
+              _hover={{ borderColor: "blue.400", color: "blue.500" }}
+            />
+          </Tooltip>
+          <Button
+            size="sm"
+            px={6}
+            leftIcon={<FiPlus />}
+            colorScheme="blue"
+            borderRadius="8px"
+            onClick={onAddNew}
+            fontSize="13px"
+            fontWeight="600"
+            boxShadow="0 2px 8px rgba(49,130,206,0.25)"
+          >
+            New Invoice
+          </Button>
+        </HStack>
+      </Flex>
 
-      <Modal isOpen={isFilesOpen} onClose={() => setIsFilesOpen(false)} size="xl" isCentered>
+      {error ? (
+        <Flex direction="column" align="center" py={10} color="red.400">
+          <FiAlertTriangle
+            size={32}
+            style={{ marginBottom: "8px", opacity: 0.6 }}
+          />
+          <Text fontSize="sm" fontWeight="600">
+            Failed to load invoices
+          </Text>
+          <Text fontSize="xs" color="gray.400" mt={1} mb={4}>
+            {error}
+          </Text>
+          <Button
+            size="sm"
+            leftIcon={<FiRefreshCw />}
+            colorScheme="blue"
+            variant="outline"
+            borderRadius="8px"
+            onClick={loadInvoices}
+          >
+            Try Again
+          </Button>
+        </Flex>
+      ) : (
+        <DataTable
+          columns={columns}
+          data={isLoading ? [] : invoices}
+          actions={false}
+          compact
+          striped
+          height="430px"
+          serverPagination
+          page={pagination.page || page}
+          pageSize={pagination.limit || pageSize}
+          total={pagination.total || 0}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          isPaginationDisabled={isLoading}
+        />
+      )}
+
+      <Modal
+        isOpen={isFilesOpen}
+        onClose={() => setIsFilesOpen(false)}
+        size="xl"
+        isCentered
+      >
         <ModalOverlay />
         <ModalContent borderRadius="12px">
           <ModalHeader>
@@ -953,7 +1219,9 @@ const InvoicesTab = ({ onAddNew }) => {
             ) : invoiceFiles.length === 0 ? (
               <Flex direction="column" align="center" py={8} color="gray.500">
                 <FiFile size={28} style={{ marginBottom: 8, opacity: 0.7 }} />
-                <Text fontSize="sm">No uploaded files found for this invoice.</Text>
+                <Text fontSize="sm">
+                  No uploaded files found for this invoice.
+                </Text>
               </Flex>
             ) : (
               <List spacing={3}>
@@ -961,17 +1229,51 @@ const InvoicesTab = ({ onAddNew }) => {
                   const IconComp = pickFileIcon(file.originalName);
                   return (
                     <ListItem key={`${file.fileIndex}-${file.originalName}`}>
-                      <Flex align="center" border="1px" borderColor={border} borderRadius="10px" p={3} gap={3}>
-                        <Box color="blue.500"><Icon as={IconComp} boxSize={5} /></Box>
+                      <Flex
+                        align="center"
+                        border="1px"
+                        borderColor={border}
+                        borderRadius="10px"
+                        p={3}
+                        gap={3}
+                      >
+                        <Box color="blue.500">
+                          <Icon as={IconComp} boxSize={5} />
+                        </Box>
                         <Box minW={0} flex={1}>
-                          <Text fontSize="sm" fontWeight="600" color="gray.700" isTruncated>{file.originalName}</Text>
-                          <Text fontSize="xs" color="gray.500">{(file.extension || "").toUpperCase().replace('.', '') || 'FILE'}</Text>
+                          <Text
+                            fontSize="sm"
+                            fontWeight="600"
+                            color="gray.700"
+                            isTruncated
+                          >
+                            {file.originalName}
+                          </Text>
+                          <Text fontSize="xs" color="gray.500">
+                            {(file.extension || "")
+                              .toUpperCase()
+                              .replace(".", "") || "FILE"}
+                          </Text>
                         </Box>
                         <HStack spacing={2}>
-                          <Button size="xs" variant="outline" leftIcon={<FiEye />} onClick={() => handleViewFile(selectedInvoice, file)}>
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            leftIcon={<FiEye />}
+                            onClick={() =>
+                              handleViewFile(selectedInvoice, file)
+                            }
+                          >
                             View
                           </Button>
-                          <Button size="xs" colorScheme="blue" leftIcon={<FiDownload />} onClick={() => handleDownloadFile(selectedInvoice, file)}>
+                          <Button
+                            size="xs"
+                            colorScheme="blue"
+                            leftIcon={<FiDownload />}
+                            onClick={() =>
+                              handleDownloadFile(selectedInvoice, file)
+                            }
+                          >
                             Download
                           </Button>
                           <IconButton
@@ -981,7 +1283,12 @@ const InvoicesTab = ({ onAddNew }) => {
                             icon={<FiTrash2 />}
                             aria-label="Delete attachment"
                             isLoading={isDeletingFile}
-                            onClick={() => setDeleteFileTarget({ row: selectedInvoice, file })}
+                            onClick={() =>
+                              setDeleteFileTarget({
+                                row: selectedInvoice,
+                                file,
+                              })
+                            }
                           />
                         </HStack>
                       </Flex>
@@ -994,50 +1301,114 @@ const InvoicesTab = ({ onAddNew }) => {
         </ModalContent>
       </Modal>
 
-      <Modal isOpen={isEditOpen} onClose={() => setIsEditOpen(false)} size="lg" isCentered>
+      <Modal
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        size="lg"
+        isCentered
+      >
         <ModalOverlay />
         <ModalContent borderRadius="12px">
-          <ModalHeader>{isSelectedInvoicePaid ? "View Vendor Invoice Details" : "Edit Vendor Invoice"}</ModalHeader>
+          <ModalHeader>
+            {isSelectedInvoicePaid
+              ? "View Vendor Invoice Details"
+              : "Edit Vendor Invoice"}
+          </ModalHeader>
           <ModalCloseButton />
           <ModalBody pb={5} maxH={"400px"} overflowY={"auto"}>
             <VStack spacing={4} align="stretch">
               <FormControl isRequired>
                 <FormLabel fontSize="sm">Invoice Number</FormLabel>
-                <Input isDisabled={isSelectedInvoicePaid} value={editForm.invoiceNumber} onChange={(e) => handleEditField("invoiceNumber", e.target.value)} />
+                <Input
+                  isDisabled={isSelectedInvoicePaid}
+                  value={editForm.invoiceNumber}
+                  onChange={(e) =>
+                    handleEditField("invoiceNumber", e.target.value)
+                  }
+                />
               </FormControl>
 
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
                 <FormControl isRequired>
                   <FormLabel fontSize="sm">Issue Date</FormLabel>
-                  <Input isDisabled={isSelectedInvoicePaid} type="date" value={editForm.issueDate} onChange={(e) => handleEditField("issueDate", e.target.value)} />
+                  <Input
+                    isDisabled={isSelectedInvoicePaid}
+                    type="date"
+                    value={editForm.issueDate}
+                    onChange={(e) =>
+                      handleEditField("issueDate", e.target.value)
+                    }
+                  />
                 </FormControl>
                 <FormControl isRequired>
                   <FormLabel fontSize="sm">Start Date</FormLabel>
-                  <Input isDisabled={isSelectedInvoicePaid} type="date" value={editForm.startDate} onChange={(e) => handleEditField("startDate", e.target.value)} />
+                  <Input
+                    isDisabled={isSelectedInvoicePaid}
+                    type="date"
+                    value={editForm.startDate}
+                    onChange={(e) =>
+                      handleEditField("startDate", e.target.value)
+                    }
+                  />
                 </FormControl>
                 <FormControl isRequired>
                   <FormLabel fontSize="sm">End Date</FormLabel>
-                  <Input isDisabled={isSelectedInvoicePaid} type="date" value={editForm.endDate} onChange={(e) => handleEditField("endDate", e.target.value)} />
+                  <Input
+                    isDisabled={isSelectedInvoicePaid}
+                    type="date"
+                    value={editForm.endDate}
+                    onChange={(e) => handleEditField("endDate", e.target.value)}
+                  />
                 </FormControl>
                 <FormControl isRequired>
                   <FormLabel fontSize="sm">Currency</FormLabel>
-                  <Select disabled={isSelectedInvoicePaid} value={editForm.currency} onChange={(e) => handleEditField("currency", e.target.value)}>
-                    {CURRENCY.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <Select
+                    disabled={isSelectedInvoicePaid}
+                    value={editForm.currency}
+                    onChange={(e) =>
+                      handleEditField("currency", e.target.value)
+                    }
+                  >
+                    {CURRENCY.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
                   </Select>
                 </FormControl>
                 <FormControl isRequired>
                   <FormLabel fontSize="sm">Grand Total</FormLabel>
-                  <Input isDisabled={isSelectedInvoicePaid} type="number" min={0} step="0.01" value={editForm.grandTotal} onChange={(e) => handleEditField("grandTotal", e.target.value)} />
+                  <Input
+                    isDisabled={isSelectedInvoicePaid}
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={editForm.grandTotal}
+                    onChange={(e) =>
+                      handleEditField("grandTotal", e.target.value)
+                    }
+                  />
                 </FormControl>
                 <FormControl isRequired>
                   <FormLabel fontSize="sm">Total Seconds</FormLabel>
-                  <Input isDisabled={isSelectedInvoicePaid} type="number" min={0} step="1" value={editForm.totalSeconds} onChange={(e) => handleEditField("totalSeconds", e.target.value)} />
+                  <Input
+                    isDisabled={isSelectedInvoicePaid}
+                    type="number"
+                    min={0}
+                    step="1"
+                    value={editForm.totalSeconds}
+                    onChange={(e) =>
+                      handleEditField("totalSeconds", e.target.value)
+                    }
+                  />
                 </FormControl>
               </SimpleGrid>
 
               <Box>
                 <Flex align="center" justify="space-between" mb={2}>
-                  <FormLabel fontSize="sm" mb={0}>Attachments</FormLabel>
+                  <FormLabel fontSize="sm" mb={0}>
+                    Attachments
+                  </FormLabel>
                   <Button
                     size="xs"
                     leftIcon={<FiPlus />}
@@ -1064,26 +1435,64 @@ const InvoicesTab = ({ onAddNew }) => {
                     <SkeletonText noOfLines={2} spacing="2" />
                   </VStack>
                 ) : editInvoiceFiles.length === 0 ? (
-                  <Text fontSize="sm" color="gray.500">No attachments uploaded for this invoice.</Text>
+                  <Text fontSize="sm" color="gray.500">
+                    No attachments uploaded for this invoice.
+                  </Text>
                 ) : (
                   <List spacing={2}>
                     {editInvoiceFiles.map((file) => {
                       const IconComp = pickFileIcon(file.originalName);
                       return (
-                        <ListItem key={`edit-${file.fileIndex}-${file.originalName}`}>
-                          <Flex align="center" border="1px" borderColor={border} borderRadius="10px" p={2.5} gap={3}>
-                            <Box color="blue.500"><Icon as={IconComp} boxSize={4} /></Box>
+                        <ListItem
+                          key={`edit-${file.fileIndex}-${file.originalName}`}
+                        >
+                          <Flex
+                            align="center"
+                            border="1px"
+                            borderColor={border}
+                            borderRadius="10px"
+                            p={2.5}
+                            gap={3}
+                          >
+                            <Box color="blue.500">
+                              <Icon as={IconComp} boxSize={4} />
+                            </Box>
                             <Box minW={0} flex={1}>
-                              <Text fontSize="sm" fontWeight="600" color="gray.700" isTruncated>{file.originalName}</Text>
-                              <Text fontSize="xs" color="gray.500">{(file.extension || "").toUpperCase().replace('.', '') || 'FILE'}</Text>
+                              <Text
+                                fontSize="sm"
+                                fontWeight="600"
+                                color="gray.700"
+                                isTruncated
+                              >
+                                {file.originalName}
+                              </Text>
+                              <Text fontSize="xs" color="gray.500">
+                                {(file.extension || "")
+                                  .toUpperCase()
+                                  .replace(".", "") || "FILE"}
+                              </Text>
                             </Box>
                             <HStack spacing={1.5}>
-                              <Button size="xs" variant="outline" leftIcon={<FiEye />} onClick={() => handleViewFile(selectedInvoice, file)}>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                leftIcon={<FiEye />}
+                                onClick={() =>
+                                  handleViewFile(selectedInvoice, file)
+                                }
+                              >
                                 View
                               </Button>
                               {!isSelectedInvoicePaid && (
                                 <>
-                                  <Button size="xs" colorScheme="blue" leftIcon={<FiDownload />} onClick={() => handleDownloadFile(selectedInvoice, file)}>
+                                  <Button
+                                    size="xs"
+                                    colorScheme="blue"
+                                    leftIcon={<FiDownload />}
+                                    onClick={() =>
+                                      handleDownloadFile(selectedInvoice, file)
+                                    }
+                                  >
                                     Download
                                   </Button>
                                   <IconButton
@@ -1093,7 +1502,12 @@ const InvoicesTab = ({ onAddNew }) => {
                                     icon={<FiTrash2 />}
                                     aria-label="Delete attachment"
                                     isLoading={isDeletingFile}
-                                    onClick={() => setDeleteFileTarget({ row: selectedInvoice, file })}
+                                    onClick={() =>
+                                      setDeleteFileTarget({
+                                        row: selectedInvoice,
+                                        file,
+                                      })
+                                    }
                                   />
                                 </>
                               )}
@@ -1105,21 +1519,33 @@ const InvoicesTab = ({ onAddNew }) => {
                   </List>
                 )}
               </Box>
-
-             
             </VStack>
           </ModalBody>
           <ModalFooter>
-             <HStack justify="flex-end" spacing={3}>
-                {isSelectedInvoicePaid ? (
-                  <Button colorScheme="blue" onClick={() => setIsEditOpen(false)}>Close</Button>
-                ) : (
-                  <>
-                    <Button variant="ghost" onClick={() => setIsEditOpen(false)} isDisabled={isEditSaving}>Cancel</Button>
-                    <Button colorScheme="blue" onClick={handleSaveEdit} isLoading={isEditSaving}>Save Changes</Button>
-                  </>
-                )}
-              </HStack>
+            <HStack justify="flex-end" spacing={3}>
+              {isSelectedInvoicePaid ? (
+                <Button colorScheme="blue" onClick={() => setIsEditOpen(false)}>
+                  Close
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setIsEditOpen(false)}
+                    isDisabled={isEditSaving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    colorScheme="blue"
+                    onClick={handleSaveEdit}
+                    isLoading={isEditSaving}
+                  >
+                    Save Changes
+                  </Button>
+                </>
+              )}
+            </HStack>
           </ModalFooter>
         </ModalContent>
       </Modal>
@@ -1129,11 +1555,25 @@ const InvoicesTab = ({ onAddNew }) => {
         onClose={closeRecordPaymentModal}
         paymentForm={paymentForm}
         setPaymentForm={setPaymentForm}
-        customers={paymentTargetInvoice ? [{
-          accountId: paymentTargetInvoice?.vendor?.id || paymentTargetInvoice?.vendorId || paymentTargetInvoice?.id,
-          accountName: paymentTargetInvoice?.vendor?.accountName || paymentTargetInvoice?.vendorCode || paymentTargetInvoice?.vendorCode,
-          vendorCode: paymentTargetInvoice?.vendor?.vendorCode || paymentTargetInvoice?.vendorCode,
-        }] : []}
+        customers={
+          paymentTargetInvoice
+            ? [
+                {
+                  accountId:
+                    paymentTargetInvoice?.vendor?.id ||
+                    paymentTargetInvoice?.vendorId ||
+                    paymentTargetInvoice?.id,
+                  accountName:
+                    paymentTargetInvoice?.vendor?.accountName ||
+                    paymentTargetInvoice?.vendorCode ||
+                    paymentTargetInvoice?.vendorCode,
+                  vendorCode:
+                    paymentTargetInvoice?.vendor?.vendorCode ||
+                    paymentTargetInvoice?.vendorCode,
+                },
+              ]
+            : []
+        }
         onRecordPayment={handleRecordPayment}
         isSubmitting={isRecordingPayment}
         mode="vendor"
@@ -1155,9 +1595,11 @@ const InvoicesTab = ({ onAddNew }) => {
           }
         }}
         title="Delete Attachment"
-        message={deleteFileTarget?.file?.originalName
-          ? `Are you sure you want to delete ${deleteFileTarget.file.originalName}?`
-          : "Are you sure you want to delete this attachment?"}
+        message={
+          deleteFileTarget?.file?.originalName
+            ? `Are you sure you want to delete ${deleteFileTarget.file.originalName}?`
+            : "Are you sure you want to delete this attachment?"
+        }
         confirmText="Delete"
         cancelText="Cancel"
         type="danger"
@@ -1175,28 +1617,33 @@ const InvoicesTab = ({ onAddNew }) => {
           }
         }}
         title="Delete Vendor Invoice"
-        message={deleteInvoiceTarget?.invoiceNumber
-          ? `Are you sure you want to delete invoice ${deleteInvoiceTarget.invoiceNumber}?`
-          : "Are you sure you want to delete this vendor invoice?"}
+        message={
+          deleteInvoiceTarget?.invoiceNumber
+            ? `Are you sure you want to delete invoice ${deleteInvoiceTarget.invoiceNumber}?`
+            : "Are you sure you want to delete this vendor invoice?"
+        }
         confirmText="Delete"
         cancelText="Cancel"
         type="danger"
         isLoading={isDeleteInvoiceLoading}
       />
     </VStack>
-   
-
-
   );
 };
 
 // ── Upload Form Tab ───────────────────────────────────────────
-const UploadTab = ({ onViewInvoices, onSuccess }) => {
+const UploadTab = ({ onViewInvoices, onSuccess, vendorRefreshToken }) => {
   const navigate = useNavigate();
   const toast = useNotify();
   const fileRef = useRef();
   const [files, setFiles] = useState([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ── FIX: Replace single isSubmitting bool with a per-action string so each
+  //         button independently tracks its own loading state.
+  //         Value is null | "without_dispute" | "raise_dispute"
+  const [submittingAction, setSubmittingAction] = useState(null);
+  const isSubmitting = submittingAction !== null; // convenience alias for disabling inputs
+
   const [submitted, setSubmitted] = useState(false);
   const [vendors, setVendors] = useState([]);
   const [isLoadingVendors, setIsLoadingVendors] = useState(true);
@@ -1204,33 +1651,101 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
   const [isCheckingUsage, setIsCheckingUsage] = useState(false);
 
   const [form, setForm] = useState({
-    vendorCode: "", invoiceNumber: "", issueDate: getTodayInputValue(),
-    startDate: "", endDate: "", grandTotal: "", currency: "USD", totalSeconds: "",
+    vendorCode: "",
+    invoiceNumber: "",
+    issueDate: getTodayInputValue(),
+    startDate: "",
+    endDate: "",
+    grandTotal: "",
+    currency: "USD",
+    totalSeconds: "",
   });
   const [errors, setErrors] = useState({});
 
-  const cardBg     = useColorModeValue("white", "gray.800");
-  const border     = useColorModeValue("gray.200", "gray.700");
-  const label      = useColorModeValue("gray.500", "gray.400");
+  const cardBg = useColorModeValue("white", "gray.800");
+  const border = useColorModeValue("gray.200", "gray.700");
+  const label = useColorModeValue("gray.500", "gray.400");
 
   useEffect(() => {
     const loadVendors = async () => {
       try {
         const data = await fetchVendors();
-        setVendors(data);
+        // DEBUG: Log raw API response to see what fields are present
+        if (data && data.length > 0) {
+          console.debug('VendorInvoice: Raw vendors from API', {
+            count: data.length,
+            sample: data[0],
+          });
+        }
+        
+        // BACKFILL: if vendor has nextBillingDate but no lastBillingDate, compute it
+        const enrichedVendors = (data || []).map((vendor) => {
+          // Try vendor dates first, then fall back to customer dates
+          const last = vendor.vendorLastBillingDate || vendor.customerLastBillingDate || vendor.lastbillingdate;
+          const next = vendor.vendorNextBillingDate || vendor.customerNextBillingDate || vendor.nextbillingdate;
+          const cycle = vendor.billingCycle || 'monthly';
+          
+          // If missing last but has next, compute the last date from next
+          if (!last && next) {
+            const computedLast = calculatePrevBillingDate(next, cycle);
+            return {
+              ...vendor,
+              vendorLastBillingDate: computedLast || last,
+              lastbillingdate: computedLast || last,
+            };
+          }
+          return vendor;
+        });
+        
+        setVendors(enrichedVendors);
+        // DEBUG: log enriched vendors to verify backfill
+        try {
+          // eslint-disable-next-line no-console
+          console.debug('VendorInvoice: enriched vendors with backfilled dates', enrichedVendors.slice(0, 3).map(v => ({
+            id: v.id,
+            vendorCode: v.vendorCode,
+            accountName: v.accountName,
+            accountRole: v.accountRole,
+            vendorLastBillingDate: v.vendorLastBillingDate || v.lastbillingdate,
+            vendorNextBillingDate: v.vendorNextBillingDate || v.nextbillingdate,
+            customerLastBillingDate: v.customerLastBillingDate,
+            customerNextBillingDate: v.customerNextBillingDate,
+            billingCycle: v.billingCycle,
+          })));
+        } catch (e) {}
       } catch (error) {
-        toast({ title: "Error fetching vendors", description: error.message, status: "error", duration: 3000, isClosable: true });
+        toast({
+          title: "Error fetching vendors",
+          description: error.message,
+          status: "error",
+          duration: 3000,
+          isClosable: true,
+        });
       } finally {
         setIsLoadingVendors(false);
       }
     };
     loadVendors();
-  }, [toast]);
+  }, [toast, vendorRefreshToken]);
 
   const handleField = (k, v) => {
     if (k === "vendorCode") {
-      const selectedVendor = vendors.find((vendor) => String(vendor.vendorCode || vendor.accountId) === String(v));
-      const billingDefaults = selectedVendor ? getVendorBillingDefaults(selectedVendor) : { issueDate: getTodayInputValue(), startDate: "", endDate: "" };
+      const selectedVendor = vendors.find(
+        (vendor) => String(vendor.vendorCode || vendor.accountId) === String(v),
+      );
+      // DEBUG: log selected vendor and its billing cursors to aid troubleshooting
+      try {
+        // eslint-disable-next-line no-console
+        console.debug('VendorInvoice: handleField selectedVendor', {
+          vendor: selectedVendor ? { id: selectedVendor.id, vendorCode: selectedVendor.vendorCode } : null,
+          vendorLastBillingDate: selectedVendor?.vendorLastBillingDate || selectedVendor?.lastbillingdate || null,
+          vendorNextBillingDate: selectedVendor?.vendorNextBillingDate || selectedVendor?.nextbillingdate || null,
+          billingCycle: selectedVendor?.billingCycle || null,
+        });
+      } catch (e) {}
+      const billingDefaults = selectedVendor
+        ? getVendorBillingDefaults(selectedVendor)
+        : { issueDate: getTodayInputValue(), startDate: "", endDate: "" };
 
       setForm((p) => ({
         ...p,
@@ -1238,7 +1753,7 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
         ...billingDefaults,
       }));
     } else {
-      setForm(p => ({ ...p, [k]: v }));
+      setForm((p) => ({ ...p, [k]: v }));
     }
     if (errors[k] || k === "vendorCode") {
       setErrors((p) => ({
@@ -1255,16 +1770,61 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
     }
   };
 
+  useEffect(() => {
+    if (!form.vendorCode || vendors.length === 0) return;
+
+    const selectedVendor = vendors.find(
+      (vendor) => String(vendor.vendorCode || vendor.accountId) === String(form.vendorCode),
+    );
+
+    if (!selectedVendor) return;
+
+    // DEBUG: log vendor selection and billing defaults when vendors array updates
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('VendorInvoice: selectedVendor on vendors change', {
+        vendor: { id: selectedVendor.id, vendorCode: selectedVendor.vendorCode },
+        vendorLastBillingDate: selectedVendor?.vendorLastBillingDate || selectedVendor?.lastbillingdate || null,
+        vendorNextBillingDate: selectedVendor?.vendorNextBillingDate || selectedVendor?.nextbillingdate || null,
+        billingCycle: selectedVendor?.billingCycle || null,
+      });
+    } catch (e) {}
+
+    const billingDefaults = getVendorBillingDefaults(selectedVendor);
+    if (
+      billingDefaults.issueDate === form.issueDate &&
+      billingDefaults.startDate === form.startDate &&
+      billingDefaults.endDate === form.endDate
+    ) {
+      return;
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      ...billingDefaults,
+    }));
+  }, [vendors, form.vendorCode, form.issueDate, form.startDate, form.endDate]);
+
   const addFiles = (incoming) => {
-    const valid = [...incoming].filter(f =>
-      ["application/pdf","image/png","image/jpeg","image/jpg",
-       "application/vnd.ms-excel",
-       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-       "text/csv"].includes(f.type)
+    const valid = [...incoming].filter((f) =>
+      [
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/csv",
+      ].includes(f.type),
     );
 
     if (valid.length !== incoming.length) {
-      toast({ title: "Some files were skipped", description: "Only PDF, PNG, JPG, CSV, XLS/XLSX allowed.", status: "warning", duration: 3000 });
+      toast({
+        title: "Some files were skipped",
+        description: "Only PDF, PNG, JPG, CSV, XLS/XLSX allowed.",
+        status: "warning",
+        duration: 3000,
+      });
     }
 
     const newEntries = valid.map((f) => ({
@@ -1276,20 +1836,34 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
     setFiles((prev) => [...prev, ...newEntries]);
   };
 
-  const removeFile = (id) => setFiles((prev) => prev.filter((f) => f.id !== id));
+  const removeFile = (id) =>
+    setFiles((prev) => prev.filter((f) => f.id !== id));
+
+  // Validation helper: check if end date is not greater than today
+  const getTodayDate = () => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  };
+  const isEndDateInFuture = form.endDate && form.endDate > getTodayDate();
+  const isStartAfterEnd =
+    form.startDate && form.endDate && form.startDate > form.endDate;
+  const hasDateError = isEndDateInFuture || isStartAfterEnd;
 
   const validate = () => {
     const e = {};
-    if (!form.vendorCode)      e.vendorCode      = "Please select a vendor";
+    if (!form.vendorCode) e.vendorCode = "Please select a vendor";
     if (!form.invoiceNumber) e.invoiceNumber = "Invoice number is required";
-    if (!form.issueDate)     e.issueDate     = "Issue date is required";
-    if (!form.startDate)     e.startDate     = "Start date is required";
-    if (!form.endDate)       e.endDate       = "End date is required";
+    if (!form.issueDate) e.issueDate = "Issue date is required";
+    if (!form.startDate) e.startDate = "Start date is required";
+    if (!form.endDate) e.endDate = "End date is required";
     if (form.startDate && form.endDate && form.startDate > form.endDate)
       e.endDate = "End date must be after start date";
-    if (!form.grandTotal)    e.grandTotal    = "Grand total is required";
-    else if (isNaN(form.grandTotal) || +form.grandTotal < 0) e.grandTotal = "Enter a valid amount";
-    if (files.length === 0)  e.files         = "Please attach at least one invoice file";
+    if (isEndDateInFuture)
+      e.endDate = "Billing period end date cannot be greater than today";
+    if (!form.grandTotal) e.grandTotal = "Grand total is required";
+    else if (isNaN(form.grandTotal) || +form.grandTotal < 0)
+      e.grandTotal = "Enter a valid amount";
+    if (files.length === 0) e.files = "Please attach at least one invoice file";
     return e;
   };
 
@@ -1301,7 +1875,12 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
     if (!form.grandTotal) e.grandTotal = "Grand total is required";
     if (Object.keys(e).length) {
       setErrors((prev) => ({ ...prev, ...e }));
-      toast({ title: "Please complete vendor/date/amount to check usage", status: "warning", duration: 3000, isClosable: true });
+      toast({
+        title: "Please complete vendor/date/amount to check usage",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
       return;
     }
 
@@ -1318,99 +1897,257 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
       const isMismatch = Boolean(comparison?.mismatchDetected);
       const canRaiseDispute = Boolean(comparison?.canRaiseDispute);
       toast({
-        title: isMismatch ? (canRaiseDispute ? "Mismatch detected" : "Favorable mismatch detected") : "Usage matched",
+        title: isMismatch
+          ? canRaiseDispute
+            ? "Mismatch detected"
+            : "Favorable mismatch detected"
+          : "Usage matched",
         status: isMismatch ? (canRaiseDispute ? "warning" : "info") : "success",
         duration: 3000,
         isClosable: true,
       });
     } catch (error) {
-      toast({ title: "Usage check failed", description: error.message, status: "error", duration: 4000, isClosable: true });
+      toast({
+        title: "Usage check failed",
+        description: error.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
     } finally {
       setIsCheckingUsage(false);
     }
   };
 
-  const handleSubmit = async (disputeAction = null) => {
+  // ── FIX: Accept the specific action being triggered so we can set
+  //         submittingAction to exactly that value, letting each button
+  //         independently show its own spinner without affecting the other.
+  const handleSubmit = async (disputeAction) => {
     const e = validate();
     if (Object.keys(e).length) {
       setErrors(e);
-      toast({ title: "Please fix the highlighted fields", status: "error", duration: 3000, isClosable: true });
+      toast({
+        title: "Please fix the highlighted fields",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
       return;
     }
 
     if (!usageComparison) {
-      toast({ title: "Please check vendor usage first", status: "warning", duration: 3000, isClosable: true });
+      toast({
+        title: "Please check vendor usage first",
+        status: "warning",
+        duration: 3000,
+        isClosable: true,
+      });
       return;
     }
 
-    setIsSubmitting(true);
+    // ── FIX: Track which specific button is loading
+    setSubmittingAction(disputeAction);
     try {
       const formData = new FormData();
       Object.entries(form).forEach(([k, v]) => formData.append(k, v));
       if (disputeAction) {
         formData.append("disputeAction", disputeAction);
       }
-      files.forEach(f => formData.append("files", f.file));
+      files.forEach((f) => formData.append("files", f.file));
       const response = await uploadVendorInvoice(formData);
       setUsageComparison(response.usageComparison || null);
       setSubmitted(true);
-      toast({ title: "Invoice Submitted Successfully", description: `Invoice ${form.invoiceNumber} has been saved.`, status: "success", duration: 5000, isClosable: true });
+      toast({
+        title: "Invoice Submitted Successfully",
+        description: `Invoice ${form.invoiceNumber} has been saved.`,
+        status: "success",
+        duration: 5000,
+        isClosable: true,
+      });
       if (onSuccess) onSuccess();
     } catch (error) {
-      toast({ title: "Submission Failed", description: error.message, status: "error", duration: 5000, isClosable: true });
+      toast({
+        title: "Submission Failed",
+        description: error.message,
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
     } finally {
-      setIsSubmitting(false);
+      // ── FIX: Always clear the action so buttons return to idle
+      setSubmittingAction(null);
     }
   };
 
   const handleReset = () => {
-    setForm({ vendorCode: "", invoiceNumber: "", issueDate: getTodayInputValue(), startDate: "", endDate: "", grandTotal: "", currency: "USD", totalSeconds: "" });
-    setFiles([]); setErrors({}); setSubmitted(false); setUsageComparison(null);
+    setForm({
+      vendorCode: "",
+      invoiceNumber: "",
+      issueDate: getTodayInputValue(),
+      startDate: "",
+      endDate: "",
+      grandTotal: "",
+      currency: "USD",
+      totalSeconds: "",
+    });
+    setFiles([]);
+    setErrors({});
+    setSubmitted(false);
+    setUsageComparison(null);
   };
 
-  const selectedVendor = vendors.find(v => (v.vendorCode || v.accountId).toString() === form.vendorCode.toString());
+  const selectedVendor = vendors.find(
+    (v) =>
+      (v.vendorCode || v.accountId).toString() === form.vendorCode.toString(),
+  );
 
   if (submitted) {
     return (
       <Box display="flex" alignItems="center" justifyContent="center" p={6}>
-        <Card bg={cardBg} border="1px" borderColor={border} shadow="lg" maxW="580px" w="full" textAlign="center" borderRadius="16px">
+        <Card
+          bg={cardBg}
+          border="1px"
+          borderColor={border}
+          shadow="lg"
+          maxW="580px"
+          w="full"
+          textAlign="center"
+          borderRadius="16px"
+        >
           <CardBody py={12} px={10}>
-            <Circle size="80px" bg="green.50" border="2px" borderColor={usageComparison?.mismatchDetected ? "orange.200" : "green.200"} mx="auto" mb={6}>
-              <Box color={usageComparison?.mismatchDetected ? "orange.500" : "green.500"} fontSize="3xl"><FiCheck /></Box>
+            <Circle
+              size="80px"
+              bg="green.50"
+              border="2px"
+              borderColor={
+                usageComparison?.mismatchDetected ? "orange.200" : "green.200"
+              }
+              mx="auto"
+              mb={6}
+            >
+              <Box
+                color={
+                  usageComparison?.mismatchDetected ? "orange.500" : "green.500"
+                }
+                fontSize="3xl"
+              >
+                <FiCheck />
+              </Box>
             </Circle>
-            <Heading size="md" color="gray.800" mb={2}>Invoice Submitted!</Heading>
-            <Text color="gray.500" fontSize="sm" mb={1}>Invoice <b>{form.invoiceNumber}</b></Text>
+            <Heading size="md" color="gray.800" mb={2}>
+              Invoice Submitted!
+            </Heading>
+            <Text color="gray.500" fontSize="sm" mb={1}>
+              Invoice <b>{form.invoiceNumber}</b>
+            </Text>
             <Text color="gray.500" fontSize="sm" mb={6}>
-              {selectedVendor?.accountName || selectedVendor?.name} · {files.length} file{files.length !== 1 ? "s" : ""} attached
+              {selectedVendor?.accountName || selectedVendor?.name} ·{" "}
+              {files.length} file{files.length !== 1 ? "s" : ""} attached
             </Text>
 
             {/* Display usage comparison if available */}
             {usageComparison && (
-              <Box mb={6} p={4} bg={usageComparison.mismatchDetected ? (usageComparison.canRaiseDispute ? "orange.50" : "blue.50") : "green.50"} borderRadius="lg" border="1px" borderColor={usageComparison.mismatchDetected ? (usageComparison.canRaiseDispute ? "orange.200" : "blue.200") : "green.200"}>
+              <Box
+                mb={6}
+                p={4}
+                bg={
+                  usageComparison.mismatchDetected
+                    ? usageComparison.canRaiseDispute
+                      ? "orange.50"
+                      : "blue.50"
+                    : "green.50"
+                }
+                borderRadius="lg"
+                border="1px"
+                borderColor={
+                  usageComparison.mismatchDetected
+                    ? usageComparison.canRaiseDispute
+                      ? "orange.200"
+                      : "blue.200"
+                    : "green.200"
+                }
+              >
                 <VStack align="start" spacing={2}>
                   <HStack width="100%" justify="space-between">
-                    <Text fontSize="xs" fontWeight="bold" color="gray.600">Uploaded Amount:</Text>
-                    <Text fontSize="sm" fontWeight="bold" color="gray.800">${usageComparison.uploadedAmount.toFixed(4)}</Text>
+                    <Text fontSize="xs" fontWeight="bold" color="gray.600">
+                      Uploaded Amount:
+                    </Text>
+                    <Text fontSize="sm" fontWeight="bold" color="gray.800">
+                      ${usageComparison.uploadedAmount.toFixed(4)}
+                    </Text>
                   </HStack>
                   <HStack width="100%" justify="space-between">
-                    <Text fontSize="xs" fontWeight="bold" color="gray.600">Actual Usage:</Text>
-                    <Text fontSize="sm" fontWeight="bold" color="gray.800">${usageComparison.actualUsage.toFixed(4)}</Text>
+                    <Text fontSize="xs" fontWeight="bold" color="gray.600">
+                      Actual Usage:
+                    </Text>
+                    <Text fontSize="sm" fontWeight="bold" color="gray.800">
+                      ${usageComparison.actualUsage.toFixed(4)}
+                    </Text>
                   </HStack>
                   {usageComparison.mismatchDetected && (
                     <>
                       <Divider my={2} />
                       <HStack width="100%" justify="space-between">
-                        <Text fontSize="xs" fontWeight="bold" color={usageComparison.canRaiseDispute ? "orange.700" : "blue.700"}>Mismatch Amount:</Text>
-                        <Text fontSize="sm" fontWeight="bold" color={usageComparison.canRaiseDispute ? "orange.600" : "blue.600"}>${usageComparison.mismatchAmount.toFixed(4)}</Text>
+                        <Text
+                          fontSize="xs"
+                          fontWeight="bold"
+                          color={
+                            usageComparison.canRaiseDispute
+                              ? "orange.700"
+                              : "blue.700"
+                          }
+                        >
+                          Mismatch Amount:
+                        </Text>
+                        <Text
+                          fontSize="sm"
+                          fontWeight="bold"
+                          color={
+                            usageComparison.canRaiseDispute
+                              ? "orange.600"
+                              : "blue.600"
+                          }
+                        >
+                          ${usageComparison.mismatchAmount.toFixed(4)}
+                        </Text>
                       </HStack>
                       <HStack width="100%" justify="space-between">
-                        <Text fontSize="xs" fontWeight="bold" color={usageComparison.canRaiseDispute ? "orange.700" : "blue.700"}>Difference:</Text>
-                        <Text fontSize="sm" fontWeight="bold" color={usageComparison.canRaiseDispute ? "orange.600" : "blue.600"}>{usageComparison.percentageDiff}</Text>
+                        <Text
+                          fontSize="xs"
+                          fontWeight="bold"
+                          color={
+                            usageComparison.canRaiseDispute
+                              ? "orange.700"
+                              : "blue.700"
+                          }
+                        >
+                          Difference:
+                        </Text>
+                        <Text
+                          fontSize="sm"
+                          fontWeight="bold"
+                          color={
+                            usageComparison.canRaiseDispute
+                              ? "orange.600"
+                              : "blue.600"
+                          }
+                        >
+                          {usageComparison.percentageDiff}
+                        </Text>
                       </HStack>
-                      <Alert status={usageComparison.disputeRaised ? "warning" : "info"} borderRadius="md" mt={2} variant="subtle">
+                      <Alert
+                        status={
+                          usageComparison.disputeRaised ? "warning" : "info"
+                        }
+                        borderRadius="md"
+                        mt={2}
+                        variant="subtle"
+                      >
                         <AlertIcon />
                         <Box>
-                          <AlertTitle fontSize="xs">Mismatch Detected</AlertTitle>
+                          <AlertTitle fontSize="xs">
+                            Mismatch Detected
+                          </AlertTitle>
                           <AlertDescription fontSize="xs">
                             {usageComparison.disputeRaised
                               ? "A dispute has been raised for this invoice due to overbilling mismatch."
@@ -1425,8 +2162,17 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
             )}
 
             <HStack justify="center" spacing={3}>
-              <Button colorScheme="blue" size="sm" onClick={handleReset}>Upload Another</Button>
-              <Button variant="outline" size="sm" onClick={onViewInvoices} borderColor={border}>View All Invoices</Button>
+              <Button colorScheme="blue" size="sm" onClick={handleReset}>
+                Upload Another
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onViewInvoices}
+                borderColor={border}
+              >
+                View All Invoices
+              </Button>
             </HStack>
           </CardBody>
         </Card>
@@ -1440,52 +2186,130 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
         {/* LEFT */}
         <VStack spacing={6} align="stretch">
           {/* Vendor & Invoice Details */}
-          <Card bg={cardBg} border="1px" borderColor={border} shadow="sm" borderRadius="12px">
+          <Card
+            bg={cardBg}
+            border="1px"
+            borderColor={border}
+            shadow="sm"
+            borderRadius="12px"
+          >
             <CardHeader pb={3}>
-              <HStack><Box w={1} h={5} bg="blue.500" borderRadius="full" /><Heading size="sm" color="gray.800">Vendor & Invoice Details</Heading></HStack>
+              <HStack>
+                <Box w={1} h={5} bg="blue.500" borderRadius="full" />
+                <Heading size="sm" color="gray.800">
+                  Vendor & Invoice Details
+                </Heading>
+              </HStack>
             </CardHeader>
             <CardBody pt={0}>
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-                <FormControl isInvalid={!!errors.vendorCode} isRequired gridColumn={{ md: "span 2" }}>
-                  <FormLabel fontSize="sm" color={label} fontWeight="500">Vendor</FormLabel>
+                <FormControl
+                  isInvalid={!!errors.vendorCode}
+                  isRequired
+                  gridColumn={{ md: "span 2" }}
+                >
+                  <FormLabel fontSize="sm" color={label} fontWeight="500">
+                    Vendor
+                  </FormLabel>
                   <InputGroup>
-                    <InputLeftElement pointerEvents="none" color="gray.400"><FiTruck /></InputLeftElement>
-                    <Select pl={10} placeholder={isLoadingVendors ? "Loading vendors..." : "Select vendor…"} value={form.vendorCode}
-                      onChange={e => handleField("vendorCode", e.target.value)} borderColor={border} fontSize="sm"
+                    <InputLeftElement pointerEvents="none" color="gray.400">
+                      <FiTruck />
+                    </InputLeftElement>
+                    <Select
+                      pl={10}
+                      placeholder={
+                        isLoadingVendors
+                          ? "Loading vendors..."
+                          : "Select vendor…"
+                      }
+                      value={form.vendorCode}
+                      onChange={(e) =>
+                        handleField("vendorCode", e.target.value)
+                      }
+                      borderColor={border}
+                      fontSize="sm"
                       disabled={isLoadingVendors}
-                      _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }}>
-                      {vendors.map(v => (  
-                        <option key={v.vendorCode || v.accountId} value={v.vendorCode || v.accountId}>
-                          {v.accountName} ({v.vendorCode || v.accountId}) {v.accountRole === "both" ? "[Bilateral]" : ""}
+                      _focus={{
+                        borderColor: "blue.400",
+                        boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)",
+                      }}
+                    >
+                      {vendors.map((v) => (
+                        <option
+                          key={v.vendorCode || v.accountId}
+                          value={v.vendorCode || v.accountId}
+                        >
+                          {v.accountName} ({v.vendorCode || v.accountId}){" "}
+                          {v.accountRole === "both" ? "[Bilateral]" : ""}
                         </option>
                       ))}
                     </Select>
                   </InputGroup>
-                  <FormErrorMessage fontSize="xs">{errors.vendorCode}</FormErrorMessage>
+                  <FormErrorMessage fontSize="xs">
+                    {errors.vendorCode}
+                  </FormErrorMessage>
                 </FormControl>
                 <FormControl isInvalid={!!errors.invoiceNumber} isRequired>
-                  <FormLabel fontSize="sm" color={label} fontWeight="500">Invoice Number</FormLabel>
+                  <FormLabel fontSize="sm" color={label} fontWeight="500">
+                    Invoice Number
+                  </FormLabel>
                   <InputGroup>
-                    <InputLeftElement pointerEvents="none" color="gray.400"><FiHash /></InputLeftElement>
-                    <Input pl={10} placeholder="INV-2024-00123" value={form.invoiceNumber}
-                      onChange={e => handleField("invoiceNumber", e.target.value)} borderColor={border} fontSize="sm"
-                      _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }} />
+                    <InputLeftElement pointerEvents="none" color="gray.400">
+                      <FiHash />
+                    </InputLeftElement>
+                    <Input
+                      pl={10}
+                      placeholder="INV-2024-00123"
+                      value={form.invoiceNumber}
+                      onChange={(e) =>
+                        handleField("invoiceNumber", e.target.value)
+                      }
+                      borderColor={border}
+                      fontSize="sm"
+                      _focus={{
+                        borderColor: "blue.400",
+                        boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)",
+                      }}
+                    />
                   </InputGroup>
-                  <FormErrorMessage fontSize="xs">{errors.invoiceNumber}</FormErrorMessage>
+                  <FormErrorMessage fontSize="xs">
+                    {errors.invoiceNumber}
+                  </FormErrorMessage>
                 </FormControl>
                 <FormControl isInvalid={!!errors.issueDate} isRequired>
-                  <FormLabel fontSize="sm" color={label} fontWeight="500">Issue Date</FormLabel>
+                  <FormLabel fontSize="sm" color={label} fontWeight="500">
+                    Issue Date
+                  </FormLabel>
                   <InputGroup>
-                    <InputLeftElement pointerEvents="none" color="gray.400"><FiCalendar /></InputLeftElement>
-                    <Input pl={10} type="date" value={form.issueDate}
-                      onChange={e => handleField("issueDate", e.target.value)} borderColor={border} fontSize="sm"
-                      _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }} />
+                    <InputLeftElement pointerEvents="none" color="gray.400">
+                      <FiCalendar />
+                    </InputLeftElement>
+                    <Input
+                      pl={10}
+                      type="date"
+                      value={form.issueDate}
+                      onChange={(e) => handleField("issueDate", e.target.value)}
+                      borderColor={border}
+                      fontSize="sm"
+                      _focus={{
+                        borderColor: "blue.400",
+                        boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)",
+                      }}
+                    />
                   </InputGroup>
-                  <FormErrorMessage fontSize="xs">{errors.issueDate}</FormErrorMessage>
+                  <FormErrorMessage fontSize="xs">
+                    {errors.issueDate}
+                  </FormErrorMessage>
                 </FormControl>
 
-                <FormControl isInvalid={!!errors.files} isRequired gridColumn={{ md: "span 2" }}>
-                  <FormLabel fontSize="sm" color={label} fontWeight="500">Invoice Documents</FormLabel>
+                <FormControl
+                  isInvalid={!!errors.files}
+                  isRequired
+                  gridColumn={{ md: "span 2" }}
+                >
+                  <FormLabel fontSize="sm" color={label} fontWeight="500">
+                    Invoice Documents
+                  </FormLabel>
                   <HStack spacing={2} align="center" mb={2}>
                     <input
                       ref={fileRef}
@@ -1504,50 +2328,57 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
                       variant="outline"
                       borderColor={border}
                       onClick={() => fileRef.current?.click()}
-                      isLoading={isSubmitting}
-                      loadingText="Uploading"
                       isDisabled={isSubmitting}
                     >
                       Upload Files
                     </Button>
-                    <Text fontSize="xs" color="gray.500">PDF, PNG, JPG, CSV, XLS/XLSX</Text>
+                    <Text fontSize="xs" color="gray.500">
+                      PDF, PNG, JPG, CSV, XLS/XLSX
+                    </Text>
                   </HStack>
 
                   {files.length > 0 && (
-  <Grid templateColumns="repeat(2, 1fr)" gap={2}>
-    {files.map(({ file, id }) => (
-      <Flex
-        key={id}
-        align="center"
-        justify="space-between"
-        p={2}
-        border="1px"
-        borderColor={border}
-        borderRadius="md"
-        bg="gray.50"
-      >
-        <HStack spacing={2} minW={0}>
-          <Box color="blue.500"><FiFile size={14} /></Box>
-          <Text fontSize="xs" fontWeight="500" color="gray.700" isTruncated>
-            {file.name}
-          </Text>
-          <Text fontSize="xs" color="gray.500">
-            ({fmtBytes(file.size)})
-          </Text>
-        </HStack>
-        <IconButton
-          size="xs"
-          variant="ghost"
-          colorScheme="red"
-          aria-label="Remove file"
-          icon={<FiX size={14} />}
-          onClick={() => removeFile(id)}
-          isDisabled={isSubmitting}
-        />
-      </Flex>
-    ))}
-  </Grid>
-)}
+                    <Grid templateColumns="repeat(2, 1fr)" gap={2}>
+                      {files.map(({ file, id }) => (
+                        <Flex
+                          key={id}
+                          align="center"
+                          justify="space-between"
+                          p={2}
+                          border="1px"
+                          borderColor={border}
+                          borderRadius="md"
+                          bg="gray.50"
+                        >
+                          <HStack spacing={2} minW={0}>
+                            <Box color="blue.500">
+                              <FiFile size={14} />
+                            </Box>
+                            <Text
+                              fontSize="xs"
+                              fontWeight="500"
+                              color="gray.700"
+                              isTruncated
+                            >
+                              {file.name}
+                            </Text>
+                            <Text fontSize="xs" color="gray.500">
+                              ({fmtBytes(file.size)})
+                            </Text>
+                          </HStack>
+                          <IconButton
+                            size="xs"
+                            variant="ghost"
+                            colorScheme="red"
+                            aria-label="Remove file"
+                            icon={<FiX size={14} />}
+                            onClick={() => removeFile(id)}
+                            isDisabled={isSubmitting}
+                          />
+                        </Flex>
+                      ))}
+                    </Grid>
+                  )}
 
                   {errors.files && (
                     <HStack mt={2} color="red.500" spacing={1}>
@@ -1561,103 +2392,303 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
           </Card>
 
           {/* Billing Period */}
-          <Card bg={cardBg} border="1px" borderColor={border} shadow="sm" borderRadius="12px">
+          <Card
+            bg={cardBg}
+            border="1px"
+            borderColor={border}
+            shadow="sm"
+            borderRadius="12px"
+          >
             <CardHeader pb={3}>
-              <HStack><Box w={1} h={5} bg="purple.500" borderRadius="full" /><Heading size="sm" color="gray.800">Billing Period</Heading></HStack>
+              <HStack>
+                <Box w={1} h={5} bg="purple.500" borderRadius="full" />
+                <Heading size="sm" color="gray.800">
+                  Billing Period
+                </Heading>
+              </HStack>
             </CardHeader>
             <CardBody pt={0}>
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
                 <FormControl isInvalid={!!errors.startDate} isRequired>
-                  <FormLabel fontSize="sm" color={label} fontWeight="500">Usage Start Date</FormLabel>
+                  <FormLabel fontSize="sm" color={label} fontWeight="500">
+                    Usage Start Date
+                  </FormLabel>
                   <InputGroup>
-                    <InputLeftElement pointerEvents="none" color="gray.400"><FiCalendar /></InputLeftElement>
-                    <Input pl={10} type="date" value={form.startDate}
-                      onChange={e => handleField("startDate", e.target.value)} borderColor={border} fontSize="sm"
-                      _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }} />
+                    <InputLeftElement pointerEvents="none" color="gray.400">
+                      <FiCalendar />
+                    </InputLeftElement>
+                    <Input
+                      pl={10}
+                      type="date"
+                      value={form.startDate}
+                      onChange={(e) => handleField("startDate", e.target.value)}
+                      borderColor={border}
+                      fontSize="sm"
+                      _focus={{
+                        borderColor: "blue.400",
+                        boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)",
+                      }}
+                    />
                   </InputGroup>
-                  <FormErrorMessage fontSize="xs">{errors.startDate}</FormErrorMessage>
+                  <FormErrorMessage fontSize="xs">
+                    {errors.startDate}
+                  </FormErrorMessage>
                 </FormControl>
-                <FormControl isInvalid={!!errors.endDate} isRequired>
-                  <FormLabel fontSize="sm" color={label} fontWeight="500">Usage End Date</FormLabel>
+                <FormControl
+                  isInvalid={!!errors.endDate || hasDateError}
+                  isRequired
+                >
+                  <FormLabel fontSize="sm" color={label} fontWeight="500">
+                    Usage End Date
+                  </FormLabel>
                   <InputGroup>
-                    <InputLeftElement pointerEvents="none" color="gray.400"><FiCalendar /></InputLeftElement>
-                    <Input pl={10} type="date" value={form.endDate}
-                      onChange={e => handleField("endDate", e.target.value)} borderColor={border} fontSize="sm"
-                      _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }} />
+                    <InputLeftElement pointerEvents="none" color="gray.400">
+                      <FiCalendar />
+                    </InputLeftElement>
+                    <Input
+                      pl={10}
+                      type="date"
+                      value={form.endDate}
+                      onChange={(e) => handleField("endDate", e.target.value)}
+                      borderColor={border}
+                      fontSize="sm"
+                      _focus={{
+                        borderColor: "blue.400",
+                        boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)",
+                      }}
+                    />
                   </InputGroup>
-                  <FormErrorMessage fontSize="xs">{errors.endDate}</FormErrorMessage>
+                  <FormErrorMessage fontSize="xs">
+                    {errors.endDate}
+                  </FormErrorMessage>
                 </FormControl>
-                {form.startDate && form.endDate && form.startDate <= form.endDate && (
-                  <Box gridColumn={{ md: "span 2" }} p={3} bg="purple.50" borderRadius="lg" border="1px" borderColor="purple.100">
+                {isStartAfterEnd && (
+                  <Box
+                    gridColumn={{ md: "span 2" }}
+                    p={3}
+                    bg="red.50"
+                    borderRadius="lg"
+                    border="1px"
+                    borderColor="red.200"
+                  >
                     <HStack spacing={2}>
-                      <Box color="purple.500"><FiCalendar /></Box>
-                      <Text fontSize="xs" color="purple.700" fontWeight="500">
-                        Billing period:{" "}
-                        {Math.round((new Date(form.endDate) - new Date(form.startDate)) / (1000 * 60 * 60 * 24) + 1)} days
-                        &nbsp;({new Date(form.startDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-                        &nbsp;→&nbsp;
-                        {new Date(form.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })})
+                      <Box color="red.500">
+                        <FiAlertTriangle />
+                      </Box>
+                      <Text fontSize="xs" color="red.700" fontWeight="500">
+                        The end date must be greater than the start date.
                       </Text>
                     </HStack>
                   </Box>
                 )}
+                {isEndDateInFuture && (
+                  <Box
+                    gridColumn={{ md: "span 2" }}
+                    p={3}
+                    bg="red.50"
+                    borderRadius="lg"
+                    border="1px"
+                    borderColor="red.200"
+                  >
+                    <HStack spacing={2}>
+                      <Box color="red.500">
+                        <FiAlertTriangle />
+                      </Box>
+                      <Text fontSize="xs" color="red.700" fontWeight="500">
+                        The billing period end date cannot be greater than
+                        today.
+                      </Text>
+                    </HStack>
+                  </Box>
+                )}
+                {form.startDate &&
+                  form.endDate &&
+                  form.startDate <= form.endDate &&
+                  !hasDateError && (
+                    <Box
+                      gridColumn={{ md: "span 2" }}
+                      p={3}
+                      bg="purple.50"
+                      borderRadius="lg"
+                      border="1px"
+                      borderColor="purple.100"
+                    >
+                      <HStack spacing={2}>
+                        <Box color="purple.500">
+                          <FiCalendar />
+                        </Box>
+                        <Text fontSize="xs" color="purple.700" fontWeight="500">
+                          Billing period:{" "}
+                          {Math.round(
+                            (new Date(form.endDate) -
+                              new Date(form.startDate)) /
+                              (1000 * 60 * 60 * 24) +
+                              1,
+                          )}{" "}
+                          days &nbsp;(
+                          {new Date(form.startDate).toLocaleDateString(
+                            "en-GB",
+                            { day: "2-digit", month: "short", year: "numeric" },
+                          )}
+                          &nbsp;→&nbsp;
+                          {new Date(form.endDate).toLocaleDateString("en-GB", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                          )
+                        </Text>
+                      </HStack>
+                    </Box>
+                  )}
               </SimpleGrid>
             </CardBody>
           </Card>
 
           {/* Financials */}
-          <Card bg={cardBg} border="1px" borderColor={border} shadow="sm" borderRadius="12px">
+          <Card
+            bg={cardBg}
+            border="1px"
+            borderColor={border}
+            shadow="sm"
+            borderRadius="12px"
+          >
             <CardHeader pb={3}>
-              <HStack><Box w={1} h={5} bg="green.500" borderRadius="full" /><Heading size="sm" color="gray.800">Financial & Usage Summary</Heading></HStack>
+              <HStack>
+                <Box w={1} h={5} bg="green.500" borderRadius="full" />
+                <Heading size="sm" color="gray.800">
+                  Financial & Usage Summary
+                </Heading>
+              </HStack>
             </CardHeader>
             <CardBody pt={0}>
               <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
                 <FormControl isInvalid={!!errors.grandTotal} isRequired>
-                  <FormLabel fontSize="sm" color={label} fontWeight="500">Grand Total</FormLabel>
+                  <FormLabel fontSize="sm" color={label} fontWeight="500">
+                    Grand Total
+                  </FormLabel>
                   <InputGroup>
-                    <InputLeftElement pointerEvents="none" color="gray.400"><FiDollarSign /></InputLeftElement>
-                    <Input pl={10} pr="90px" type="number" min={0} step="0.01" placeholder="0.00"
-                      value={form.grandTotal} onChange={e => handleField("grandTotal", e.target.value)}
-                      borderColor={border} fontSize="sm"
-                      _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }} />
+                    <InputLeftElement pointerEvents="none" color="gray.400">
+                      <FiDollarSign />
+                    </InputLeftElement>
+                    <Input
+                      pl={10}
+                      pr="90px"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="0.00"
+                      value={form.grandTotal}
+                      onChange={(e) =>
+                        handleField("grandTotal", e.target.value)
+                      }
+                      borderColor={border}
+                      fontSize="sm"
+                      _focus={{
+                        borderColor: "blue.400",
+                        boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)",
+                      }}
+                    />
                     <InputRightElement w="80px" pr={1}>
-                      <Select size="xs" value={form.currency} border="none"
-                        onChange={e => handleField("currency", e.target.value)}
-                        fontWeight="600" fontSize="xs" color="gray.600" bg="transparent" cursor="pointer">
-                        {CURRENCY.map(c => <option key={c} value={c}>{c}</option>)}
+                      <Select
+                        size="xs"
+                        value={form.currency}
+                        border="none"
+                        onChange={(e) =>
+                          handleField("currency", e.target.value)
+                        }
+                        fontWeight="600"
+                        fontSize="xs"
+                        color="gray.600"
+                        bg="transparent"
+                        cursor="pointer"
+                      >
+                        {CURRENCY.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
                       </Select>
                     </InputRightElement>
                   </InputGroup>
-                  <FormErrorMessage fontSize="xs">{errors.grandTotal}</FormErrorMessage>
+                  <FormErrorMessage fontSize="xs">
+                    {errors.grandTotal}
+                  </FormErrorMessage>
                 </FormControl>
                 <FormControl isInvalid={!!errors.totalSeconds}>
                   <FormLabel fontSize="sm" color={label} fontWeight="500">
                     Total Seconds (Usage)
-                    <Tooltip label="Sum of all call durations in seconds as reported by the vendor" placement="top">
-                      <Box as="span" ml={1.5} color="gray.400" display="inline-flex" verticalAlign="middle"><FiAlertTriangle /></Box>
+                    <Tooltip
+                      label="Sum of all call durations in seconds as reported by the vendor"
+                      placement="top"
+                    >
+                      <Box
+                        as="span"
+                        ml={1.5}
+                        color="gray.400"
+                        display="inline-flex"
+                        verticalAlign="middle"
+                      >
+                        <FiAlertTriangle />
+                      </Box>
                     </Tooltip>
                   </FormLabel>
                   <InputGroup>
-                    <InputLeftElement pointerEvents="none" color="gray.400"><FiClock /></InputLeftElement>
-                    <Input pl={10} type="number" min={0} placeholder="e.g. 3600000"
-                      value={form.totalSeconds} onChange={e => handleField("totalSeconds", e.target.value)}
-                      borderColor={border} fontSize="sm"
-                      _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }} />
+                    <InputLeftElement pointerEvents="none" color="gray.400">
+                      <FiClock />
+                    </InputLeftElement>
+                    <Input
+                      pl={10}
+                      type="number"
+                      min={0}
+                      placeholder="e.g. 3600000"
+                      value={form.totalSeconds}
+                      onChange={(e) =>
+                        handleField("totalSeconds", e.target.value)
+                      }
+                      borderColor={border}
+                      fontSize="sm"
+                      _focus={{
+                        borderColor: "blue.400",
+                        boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)",
+                      }}
+                    />
                   </InputGroup>
-                  {form.totalSeconds && !isNaN(form.totalSeconds) && +form.totalSeconds > 0 && (
-                    <Text fontSize="xs" color="teal.600" mt={1} fontWeight="500">≈ {fmtSeconds(+form.totalSeconds)}</Text>
-                  )}
-                  <FormErrorMessage fontSize="xs">{errors.totalSeconds}</FormErrorMessage>
+                  {form.totalSeconds &&
+                    !isNaN(form.totalSeconds) &&
+                    +form.totalSeconds > 0 && (
+                      <Text
+                        fontSize="xs"
+                        color="teal.600"
+                        mt={1}
+                        fontWeight="500"
+                      >
+                        ≈ {fmtSeconds(+form.totalSeconds)}
+                      </Text>
+                    )}
+                  <FormErrorMessage fontSize="xs">
+                    {errors.totalSeconds}
+                  </FormErrorMessage>
                 </FormControl>
-               
               </SimpleGrid>
             </CardBody>
           </Card>
 
           {/* Usage comparison */}
-          <Card bg={cardBg} border="1px" borderColor={border} shadow="sm" borderRadius="12px">
+          <Card
+            bg={cardBg}
+            border="1px"
+            borderColor={border}
+            shadow="sm"
+            borderRadius="12px"
+          >
             <CardHeader pb={3}>
-              <HStack><Box w={1} h={5} bg="orange.500" borderRadius="full" /><Heading size="sm" color="gray.800">Vendor Usage Comparison</Heading></HStack>
+              <HStack>
+                <Box w={1} h={5} bg="orange.500" borderRadius="full" />
+                <Heading size="sm" color="gray.800">
+                  Vendor Usage Comparison
+                </Heading>
+              </HStack>
             </CardHeader>
             <CardBody pt={0}>
               <Button
@@ -1673,7 +2704,11 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
               </Button>
 
               {usageComparison ? (
-                <TableContainer border="1px" borderColor={border} borderRadius="md">
+                <TableContainer
+                  border="1px"
+                  borderColor={border}
+                  borderRadius="md"
+                >
                   <Table size="sm">
                     <Thead bg="gray.50">
                       <Tr>
@@ -1686,7 +2721,9 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
                         <Tr key={row.label}>
                           <Td>{row.label}</Td>
                           <Td isNumeric fontWeight="600">
-                            {typeof row.value === "number" ? `${form.currency} ${row.value.toFixed(4)}` : row.value}
+                            {typeof row.value === "number"
+                              ? `${form.currency} ${row.value.toFixed(4)}`
+                              : row.value}
                           </Td>
                         </Tr>
                       ))}
@@ -1694,7 +2731,10 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
                   </Table>
                 </TableContainer>
               ) : (
-                <Text fontSize="xs" color="gray.500">Run usage check to view vendor invoice amount vs vendor usage difference and percentage.</Text>
+                <Text fontSize="xs" color="gray.500">
+                  Run usage check to view vendor invoice amount vs vendor usage
+                  difference and percentage.
+                </Text>
               )}
             </CardBody>
           </Card>
@@ -1702,36 +2742,105 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
 
         {/* RIGHT */}
         <VStack spacing={5} align="stretch">
-          <Card bg="blue.700" border="none" shadow="md" color="white" borderRadius="12px">
+          <Card
+            bg="blue.700"
+            border="none"
+            shadow="md"
+            color="white"
+            borderRadius="12px"
+          >
             <CardBody p={5}>
-              <Text fontSize="xs" fontWeight="600" color="whiteAlpha.800" letterSpacing="1px" mb={4} textTransform="uppercase">Invoice Summary</Text>
+              <Text
+                fontSize="xs"
+                fontWeight="600"
+                color="whiteAlpha.800"
+                letterSpacing="1px"
+                mb={4}
+                textTransform="uppercase"
+              >
+                Invoice Summary
+              </Text>
               <VStack spacing={3} align="stretch">
                 {[
-                  { label: "Vendor",     value: selectedVendor?.accountName || selectedVendor?.name || "—" },
-                  { label: "Invoice #",  value: form.invoiceNumber || "—" },
-                  { label: "Issue Date", value: form.issueDate ? new Date(form.issueDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—" },
-                  { label: "Period",     value: form.startDate && form.endDate ? `${new Date(form.startDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })} – ${new Date(form.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : "—" },
+                  {
+                    label: "Vendor",
+                    value:
+                      selectedVendor?.accountName ||
+                      selectedVendor?.name ||
+                      "—",
+                  },
+                  { label: "Invoice #", value: form.invoiceNumber || "—" },
+                  {
+                    label: "Issue Date",
+                    value: form.issueDate
+                      ? new Date(form.issueDate).toLocaleDateString("en-GB", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })
+                      : "—",
+                  },
+                  {
+                    label: "Period",
+                    value:
+                      form.startDate && form.endDate
+                        ? `${new Date(form.startDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })} – ${new Date(form.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
+                        : "—",
+                  },
                 ].map(({ label: l, value: v }) => (
                   <Flex key={l} justify="space-between" align="flex-start">
-                    <Text fontSize="xs" color="whiteAlpha.600">{l}</Text>
-                    <Text fontSize="xs" fontWeight="600" textAlign="right" maxW="60%" color="white">{v}</Text>
+                    <Text fontSize="xs" color="whiteAlpha.600">
+                      {l}
+                    </Text>
+                    <Text
+                      fontSize="xs"
+                      fontWeight="600"
+                      textAlign="right"
+                      maxW="60%"
+                      color="white"
+                    >
+                      {v}
+                    </Text>
                   </Flex>
                 ))}
                 <Divider borderColor="whiteAlpha.200" />
                 <Flex justify="space-between" align="baseline">
-                  <Text fontSize="xs" color="whiteAlpha.600">Grand Total</Text>
-                  <Text fontSize="xl" fontWeight="800" color="white" letterSpacing="-0.5px">
-                    {form.grandTotal ? `${form.currency} ${Number(form.grandTotal).toLocaleString("en", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : "—"}
+                  <Text fontSize="xs" color="whiteAlpha.600">
+                    Grand Total
+                  </Text>
+                  <Text
+                    fontSize="xl"
+                    fontWeight="800"
+                    color="white"
+                    letterSpacing="-0.5px"
+                  >
+                    {form.grandTotal
+                      ? `${form.currency} ${Number(form.grandTotal).toLocaleString("en", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+                      : "—"}
                   </Text>
                 </Flex>
                 <Flex justify="space-between" align="center">
-                  <Text fontSize="xs" color="whiteAlpha.600">Total Duration</Text>
-                  <Text fontSize="sm" fontWeight="600" color="teal.200">{form.totalSeconds ? fmtSeconds(+form.totalSeconds) : "—"}</Text>
+                  <Text fontSize="xs" color="whiteAlpha.600">
+                    Total Duration
+                  </Text>
+                  <Text fontSize="sm" fontWeight="600" color="teal.200">
+                    {form.totalSeconds ? fmtSeconds(+form.totalSeconds) : "—"}
+                  </Text>
                 </Flex>
                 <Flex justify="space-between" align="center">
-                  <Text fontSize="xs" color="whiteAlpha.600">Files Attached</Text>
-                  <Badge colorScheme={files.filter(f => f.done).length === files.length && files.length > 0 ? "green" : "yellow"} fontSize="xs">
-                    {files.filter(f => f.done).length}/{files.length} ready
+                  <Text fontSize="xs" color="whiteAlpha.600">
+                    Files Attached
+                  </Text>
+                  <Badge
+                    colorScheme={
+                      files.filter((f) => f.done).length === files.length &&
+                      files.length > 0
+                        ? "green"
+                        : "yellow"
+                    }
+                    fontSize="xs"
+                  >
+                    {files.filter((f) => f.done).length}/{files.length} ready
                   </Badge>
                 </Flex>
               </VStack>
@@ -1739,41 +2848,108 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
           </Card>
 
           {/* Checklist */}
-          <Card bg={cardBg} border="1px" borderColor={border} shadow="sm" borderRadius="12px">
+          <Card
+            bg={cardBg}
+            border="1px"
+            borderColor={border}
+            shadow="sm"
+            borderRadius="12px"
+          >
             <CardBody p={4}>
-              <Text fontSize="xs" fontWeight="600" color="gray.400" letterSpacing="1px" mb={3} textTransform="uppercase">Completion</Text>
+              <Text
+                fontSize="xs"
+                fontWeight="600"
+                color="gray.400"
+                letterSpacing="1px"
+                mb={3}
+                textTransform="uppercase"
+              >
+                Completion
+              </Text>
               <VStack spacing={2} align="stretch">
                 {[
-                  { label: "Vendor selected",   done: !!form.vendorCode },
-                  { label: "Invoice number",     done: !!form.invoiceNumber },
-                  { label: "Issue date",         done: !!form.issueDate },
-                  { label: "Billing period",     done: !!form.startDate && !!form.endDate },
-                  { label: "Grand total",        done: !!form.grandTotal },
-                  { label: "Total seconds",      done: !!form.totalSeconds },
-                  { label: "File(s) attached",   done: files.length > 0 && files.every(f => f.done) },
+                  { label: "Vendor selected", done: !!form.vendorCode },
+                  { label: "Invoice number", done: !!form.invoiceNumber },
+                  { label: "Issue date", done: !!form.issueDate },
+                  {
+                    label: "Billing period",
+                    done: !!form.startDate && !!form.endDate,
+                  },
+                  { label: "Grand total", done: !!form.grandTotal },
+                  { label: "Total seconds", done: !!form.totalSeconds },
+                  {
+                    label: "File(s) attached",
+                    done: files.length > 0 && files.every((f) => f.done),
+                  },
+                  { label: "Usage checked", done: !!usageComparison },
                 ].map(({ label: l, done }) => (
                   <Flex key={l} align="center" justify="space-between">
                     <HStack spacing={2}>
-                      <Circle size="18px" bg={done ? "green.100" : "gray.100"} border="1px" borderColor={done ? "green.200" : "gray.200"}>
-                        <Box color={done ? "green.500" : "gray.300"} transform="scale(0.8)"><FiCheck /></Box>
+                      <Circle
+                        size="18px"
+                        bg={done ? "green.100" : "gray.100"}
+                        border="1px"
+                        borderColor={done ? "green.200" : "gray.200"}
+                      >
+                        <Box
+                          color={done ? "green.500" : "gray.300"}
+                          transform="scale(0.8)"
+                        >
+                          <FiCheck />
+                        </Box>
                       </Circle>
-                      <Text fontSize="xs" color={done ? "gray.700" : "gray.400"} fontWeight={done ? "500" : "400"}>{l}</Text>
+                      <Text
+                        fontSize="xs"
+                        color={done ? "gray.700" : "gray.400"}
+                        fontWeight={done ? "500" : "400"}
+                      >
+                        {l}
+                      </Text>
                     </HStack>
-                    {done && <Badge colorScheme="green" fontSize="xs" variant="subtle">✓</Badge>}
+                    {done && (
+                      <Badge colorScheme="green" fontSize="xs" variant="subtle">
+                        ✓
+                      </Badge>
+                    )}
                   </Flex>
                 ))}
               </VStack>
               <Box mt={3}>
                 {(() => {
-                  const checks = [!!form.vendorCode, !!form.invoiceNumber, !!form.issueDate, !!form.startDate && !!form.endDate, !!form.grandTotal, !!form.totalSeconds, files.length > 0 && files.every(f => f.done)];
-                  const pct = Math.round(checks.filter(Boolean).length / checks.length * 100);
+                  const checks = [
+                    !!form.vendorCode,
+                    !!form.invoiceNumber,
+                    !!form.issueDate,
+                    !!form.startDate && !!form.endDate,
+                    !!form.grandTotal,
+                    !!form.totalSeconds,
+                    files.length > 0 && files.every((f) => f.done),
+                    !!usageComparison,
+                  ];
+                  const pct = Math.round(
+                    (checks.filter(Boolean).length / checks.length) * 100,
+                  );
                   return (
                     <>
                       <Flex justify="space-between" mb={1}>
-                        <Text fontSize="xs" color="gray.400">Form completion</Text>
-                        <Text fontSize="xs" fontWeight="600" color={pct === 100 ? "green.500" : "blue.500"}>{pct}%</Text>
+                        <Text fontSize="xs" color="gray.400">
+                          Form completion
+                        </Text>
+                        <Text
+                          fontSize="xs"
+                          fontWeight="600"
+                          color={pct === 100 ? "green.500" : "blue.500"}
+                        >
+                          {pct}%
+                        </Text>
                       </Flex>
-                      <Progress value={pct} size="sm" colorScheme={pct === 100 ? "green" : "blue"} borderRadius="full" bg="gray.100" />
+                      <Progress
+                        value={pct}
+                        size="sm"
+                        colorScheme={pct === 100 ? "green" : "blue"}
+                        borderRadius="full"
+                        bg="gray.100"
+                      />
                     </>
                   );
                 })()}
@@ -1781,18 +2957,28 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
             </CardBody>
           </Card>
 
+          {/*
+            ── FIX: Button section rewrite
+            1. "Submit Invoice" button removed — usage check is mandatory before saving.
+            2. Always show both action buttons once usageComparison is present.
+               When no mismatch or mismatch is favorable (canRaiseDispute = false),
+               "Save and Raise Dispute" is disabled with a tooltip explaining why.
+            3. Each button passes its own action string and checks submittingAction
+               for independent loading state — clicking one will NOT spin the other.
+            4. Before usage is checked, show a prompt nudging the user to run the check.
+          */}
           <VStack spacing={2}>
-            {usageComparison?.mismatchDetected && usageComparison?.canRaiseDispute ? (
+            {!usageComparison ? (
+              // No usage check yet — show a disabled state with guidance
               <>
                 <Button
                   w="full"
                   colorScheme="yellow"
                   size="md"
                   fontWeight="600"
-                  onClick={() => handleSubmit("without_dispute")}
-                  isLoading={isSubmitting}
-                  loadingText="Saving..."
                   borderRadius="8px"
+                  isDisabled
+                  opacity={0.5}
                 >
                   Save Without Dispute
                 </Button>
@@ -1801,29 +2987,80 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
                   colorScheme="red"
                   size="md"
                   fontWeight="600"
-                  onClick={() => handleSubmit("raise_dispute")}
-                  isLoading={isSubmitting}
-                  loadingText="Saving..."
                   borderRadius="8px"
+                  isDisabled
+                  opacity={0.5}
                 >
                   Save and Raise Dispute
                 </Button>
+                <Text fontSize="xs" color="gray.500" textAlign="center" mt={1}>
+                  Run "Check Vendor Usage" above before submitting
+                </Text>
               </>
             ) : (
-              <Button
-                w="full"
-                colorScheme="green"
-                size="md"
-                fontWeight="600"
-                onClick={() => handleSubmit("without_dispute")}
-                isLoading={isSubmitting}
-                loadingText="Submitting…"
-                borderRadius="8px"
-              >
-                Submit Invoice
-              </Button>
+              <>
+                <Button
+                  w="full"
+                  colorScheme="yellow"
+                  size="md"
+                  fontWeight="600"
+                  borderRadius="8px"
+                  onClick={() => handleSubmit("without_dispute")}
+                  // ── FIX: Only THIS button shows loading when its own action is running
+                  isLoading={submittingAction === "without_dispute"}
+                  loadingText="Saving..."
+                  // Disabled only when the OTHER button is actively submitting
+                  isDisabled={submittingAction === "raise_dispute"}
+                >
+                  Save Without Dispute
+                </Button>
+                <Tooltip
+                  label={
+                    !usageComparison?.mismatchDetected
+                      ? "No mismatch detected — dispute not applicable"
+                      : !usageComparison?.canRaiseDispute
+                        ? "Favorable mismatch — vendor charged less, no dispute needed"
+                        : undefined
+                  }
+                  isDisabled={
+                    usageComparison?.mismatchDetected &&
+                    usageComparison?.canRaiseDispute
+                  }
+                  placement="top"
+                >
+                  <Box w="full">
+                    <Button
+                      w="full"
+                      colorScheme="red"
+                      size="md"
+                      fontWeight="600"
+                      borderRadius="8px"
+                      onClick={() => handleSubmit("raise_dispute")}
+                      // ── FIX: Only THIS button shows loading when its own action is running
+                      isLoading={submittingAction === "raise_dispute"}
+                      loadingText="Saving..."
+                      // Disabled when other button is submitting OR when dispute is not applicable
+                      isDisabled={
+                        submittingAction === "without_dispute" ||
+                        !usageComparison?.mismatchDetected ||
+                        !usageComparison?.canRaiseDispute
+                      }
+                    >
+                      Save and Raise Dispute
+                    </Button>
+                  </Box>
+                </Tooltip>
+              </>
             )}
-            <Button w="full" variant="ghost" leftIcon={<FiRotateCcw />} size="sm" color="gray.600" onClick={handleReset}>
+            <Button
+              w="full"
+              variant="ghost"
+              leftIcon={<FiRotateCcw />}
+              size="sm"
+              color="gray.600"
+              onClick={handleReset}
+              isDisabled={isSubmitting}
+            >
               Reset Form
             </Button>
           </VStack>
@@ -1836,12 +3073,17 @@ const UploadTab = ({ onViewInvoices, onSuccess }) => {
 // ── Main Page with Custom Tabs ────────────────────────────────
 export default function VendorInvoicePage() {
   const [activeTab, setActiveTab] = useState(0); // 0 = Invoices, 1 = Upload
+  const [vendorRefreshToken, setVendorRefreshToken] = useState(0);
   const border = useColorModeValue("gray.200", "gray.700");
   const cardBg = useColorModeValue("white", "gray.800");
 
+  const refreshVendorData = useCallback(() => {
+    setVendorRefreshToken((value) => value + 1);
+  }, []);
+
   const tabs = [
-    { label: "Invoices",       icon: FiList,        index: 0 },
-    { label: "Upload Invoice", icon: FiUploadCloud,  index: 1 },
+    { label: "Invoices", icon: FiList, index: 0 },
+    { label: "Upload Invoice", icon: FiUploadCloud, index: 1 },
   ];
 
   return (
@@ -1893,11 +3135,20 @@ export default function VendorInvoicePage() {
       </Box>
 
       {/* Tab Content */}
-      {activeTab === 0 && <InvoicesTab onAddNew={() => setActiveTab(1)} />}
+      {activeTab === 0 && (
+        <InvoicesTab
+          onAddNew={() => setActiveTab(1)}
+          onVendorDataChanged={refreshVendorData}
+        />
+      )}
       {activeTab === 1 && (
         <UploadTab
           onViewInvoices={() => setActiveTab(0)}
-          onSuccess={() => setActiveTab(0)}
+          onSuccess={() => {
+            refreshVendorData();
+            setActiveTab(0);
+          }}
+          vendorRefreshToken={vendorRefreshToken}
         />
       )}
     </Box>

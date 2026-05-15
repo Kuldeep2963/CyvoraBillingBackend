@@ -137,6 +137,12 @@ async function autoSyncDatabase() {
     await sequelize.sync({ force: false, alter: false });
     console.log('Base table sync completed');
 
+    const pendingCdrModel = sequelize.models.PendingCDR;
+    if (pendingCdrModel) {
+      await pendingCdrModel.sync({ alter: true });
+      console.log('✓ pending_cdrs table synced');
+    }
+
     // Step 2: Add any missing columns/indexes from model definitions.
     await applyMissingColumnsAndIndexes();
 

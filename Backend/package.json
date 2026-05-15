@@ -5,11 +5,10 @@
   "description": "CDR Billing Backend API",
   "main": "index.js",
   "scripts": {
-    "build": "node scripts/build-backend.js",
-    "start": "node index.js",
-    "start:build": "node build/index.js",
-    "start:prod": "node scripts/start-production.js",
     "dev": "nodemon index.js",
+    "start": "node index.js",
+    "build": "node scripts/build-backend.js",
+    "build:start": "node scripts/start-production.js",
     "seed": "node seedUser.js",
     "autosync": "node autoSyncDB.js"
   },
@@ -33,7 +32,8 @@
     "pg-hstore": "^2.3.4",
     "puppeteer": "^22.12.1",
     "redis": "^5.11.0",
-    "sequelize": "^6.37.3"
+    "sequelize": "^6.37.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

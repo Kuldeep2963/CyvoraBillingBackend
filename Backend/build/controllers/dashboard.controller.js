@@ -1,28 +1,37 @@
-const { Op, fn, col } = require('sequelize');
-const moment = require('moment');
-const CDR = require('../models/CDR');
+'use strict';
+
+const { Op, fn, col, literal } = require('sequelize');
+const moment  = require('moment');
+const CDR     = require('../models/CDR');
 const Account = require('../models/Account');
 const CountryCode = require('../models/CountryCode');
-const H = require('../utils/reportHelper');
+const H       = require('../utils/reportHelper');
 
-/* ===================== HELPER: FORMAT TIME ===================== */
+/* ─── FORMAT TIME ────────────────────────────────────────────────────────────
+ *
+ * FIX Bug 2: use setUTCHours instead of setHours.
+ * setHours uses the server's local timezone. If the server is in IST (UTC+5:30),
+ * setHours(0) gives 00:00 IST = 18:30 UTC the day before — wrong.
+ * setUTCHours(0) always gives 00:00 UTC regardless of server timezone.
+ */
 const formatTime = (date, hour, isEnd = false) => {
   if (!date) return null;
   const d = new Date(date);
   if (isNaN(d.getTime())) return null;
-  d.setHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
+  d.setUTCHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
   return d.getTime().toString();
 };
 
-/* ===================== COUNTRY CODE CACHE ===================== */
+/* ─── COUNTRY CODE CACHE ─────────────────────────────────────────────────────*/
+
 let countryCodesCache = null;
-let cacheTimestamp = null;
-const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
+let cacheTimestamp    = null;
+const CACHE_DURATION  = 1000 * 60 * 60; // 1 hour
 
 const getCountryCodes = async () => {
   if (!countryCodesCache || (Date.now() - cacheTimestamp > CACHE_DURATION)) {
     countryCodesCache = await CountryCode.findAll({ raw: true });
-    cacheTimestamp = Date.now();
+    cacheTimestamp    = Date.now();
   }
   return countryCodesCache;
 };
@@ -30,17 +39,10 @@ const getCountryCodes = async () => {
 const getCountryFromNumber = (number, countryCodes, skipPrefix = false) => {
   if (!number) return 'Unknown';
   let cleaned = number.toString().replace(/^(\+|00)/, '');
-  
-  if (skipPrefix && cleaned.length > 5) {
-    cleaned = cleaned.substring(5);
-  }
-  
-  // Try to match longest prefix first
+  if (skipPrefix && cleaned.length > 5) cleaned = cleaned.substring(5);
   const sortedCodes = [...countryCodes].sort((a, b) => b.code.length - a.code.length);
   for (const cc of sortedCodes) {
-    if (cleaned.startsWith(cc.code)) {
-      return cc.country_name;
-    }
+    if (cleaned.startsWith(cc.code)) return cc.country_name;
   }
   return 'Unknown';
 };
@@ -55,137 +57,158 @@ const getTrunkName = (number) => {
   return 'Unknown';
 };
 
+/* ─── DATE RANGE BUILDER ─────────────────────────────────────────────────────
+ *
+ * FIX Bug 1 + Bug 3 (both fixed here):
+ *
+ * Bug 1 — moment().startOf('day') uses local server time.
+ *   Fix: use moment.utc().startOf('day') so all boundaries are UTC midnight,
+ *   which is what VOS3000 uses when writing starttime.
+ *
+ * Bug 3 — Op.between on string columns does lexicographic comparison.
+ *   "999" > "1000" lexicographically, so any timestamp range query on a
+ *   VARCHAR/TEXT starttime column silently returns wrong rows.
+ *   Fix: use literal('CAST(starttime AS BIGINT)') with Op.between so
+ *   PostgreSQL compares as numbers, not strings.
+ *   The values passed are JS numbers (not strings) so the cast is clean.
+ *
+ * We build a `where` using a literal cast every time so the comparison
+ * is always numeric regardless of how starttime is stored in the column.
+ */
+const buildTimeWhere = (startMs, endMs) => ({
+  // Cast starttime to BIGINT for numeric comparison.
+  // This is safe because starttime is always a valid integer string.
+  [Op.and]: literal(
+    `CAST(starttime AS BIGINT) BETWEEN ${startMs} AND ${endMs}`
+  ),
+});
+
 const getDateRange = (range, startDate, endDate) => {
-  let where = {};
   if (range) {
-    const now = moment();
-    let start;
+    // All boundaries in UTC so they match VOS3000's UTC timestamps
+    const endMs   = moment.utc().valueOf();
+    let   startMs;
+
     switch (range) {
       case 'today':
-        start = moment().startOf('day');
+        startMs = moment.utc().startOf('day').valueOf();
         break;
       case 'week':
-        start = moment().subtract(7, 'days').startOf('day');
+        startMs = moment.utc().subtract(7, 'days').startOf('day').valueOf();
         break;
       case 'biweekly':
-        start = moment().subtract(14, 'days').startOf('day');
+        startMs = moment.utc().subtract(14, 'days').startOf('day').valueOf();
         break;
       case 'monthly':
-        start = moment().subtract(30, 'days').startOf('day');
+        startMs = moment.utc().subtract(30, 'days').startOf('day').valueOf();
         break;
       case '3month':
-        start = moment().subtract(90, 'days').startOf('day');
+        startMs = moment.utc().subtract(90, 'days').startOf('day').valueOf();
         break;
       default:
-        start = moment().startOf('day');
+        startMs = moment.utc().startOf('day').valueOf();
     }
-    where.starttime = {
-      [Op.between]: [start.valueOf().toString(), now.valueOf().toString()]
-    };
-  } else if (startDate && endDate) {
-    const start = formatTime(startDate, 0);
-    const end = formatTime(endDate, 23, true);
-    
-    if (start && end) {
-      where.starttime = {
-        [Op.between]: [start, end]
-      };
-    }
-  } else {
-    // Default to today if no dates provided
-    const start = moment().startOf('day');
-    const now = moment();
-    where.starttime = {
-      [Op.between]: [start.valueOf().toString(), now.valueOf().toString()]
-    };
+
+    return buildTimeWhere(startMs, endMs);
   }
-  return where;
+
+  if (startDate && endDate) {
+    const startMs = Number(formatTime(startDate, 0));
+    const endMs   = Number(formatTime(endDate, 23, true));
+    if (startMs && endMs) return buildTimeWhere(startMs, endMs);
+  }
+
+  // Default: today in UTC
+  const startMs = moment.utc().startOf('day').valueOf();
+  const endMs   = moment.utc().valueOf();
+  return buildTimeWhere(startMs, endMs);
 };
+
+/* ─── CONTROLLERS ────────────────────────────────────────────────────────────*/
 
 exports.getTopDestinations = async (req, res) => {
   try {
     const { startDate, endDate, range, sortBy = 'cost', limit = 10 } = req.query;
-    
+
     const where = getDateRange(range, startDate, endDate);
 
     const destinationDataRaw = await CDR.findAll({
       attributes: [
         'calleee164',
-        [fn('COUNT', col('id')), 'totalCalls'],
+        [fn('COUNT', col('id')),    'totalCalls'],
         [fn('SUM', H.completedCall), 'completedCalls'],
-        [fn('SUM', H.durationSec), 'duration'],
-        [fn('SUM', H.revenue), 'revenue'],
-        [fn('SUM', H.cost), 'cost']
+        [fn('SUM', H.durationSec),  'duration'],
+        [fn('SUM', H.revenue),      'revenue'],
+        [fn('SUM', H.cost),         'cost'],
       ],
       where,
       group: ['calleee164'],
-      raw: true
+      raw: true,
     });
 
     const countryCodes = await getCountryCodes();
-    
-    // Group by destination and trunk
+
     const groupedDestinations = {};
     destinationDataRaw.forEach(item => {
       const destination = getCountryFromNumber(item.calleee164, countryCodes, true);
-      const trunk = getTrunkName(item.calleee164);
-      const key = `${destination}-${trunk}`;
-      
+      const trunk       = getTrunkName(item.calleee164);
+      const key         = `${destination}-${trunk}`;
+
       if (!groupedDestinations[key]) {
         groupedDestinations[key] = {
           destination,
           trunk,
-          totalCalls: 0,
+          totalCalls:     0,
           completedCalls: 0,
-          duration: 0,
-          revenue: 0,
-          cost: 0
+          duration:       0,
+          revenue:        0,
+          cost:           0,
         };
       }
-      groupedDestinations[key].totalCalls += Number(item.totalCalls);
+      groupedDestinations[key].totalCalls     += Number(item.totalCalls);
       groupedDestinations[key].completedCalls += Number(item.completedCalls);
-      groupedDestinations[key].duration += Number(item.duration);
-      groupedDestinations[key].revenue += Number(item.revenue);
-      groupedDestinations[key].cost += Number(item.cost);
+      groupedDestinations[key].duration       += Number(item.duration);
+      groupedDestinations[key].revenue        += Number(item.revenue);
+      groupedDestinations[key].cost           += Number(item.cost);
     });
 
     const topDestinations = Object.values(groupedDestinations)
       .map(item => {
         const minutes = item.duration / 60;
-        const revenue = item.revenue;
-        const cost = item.cost;
         return {
-          destination: item.destination,
-          trunk: item.trunk,
-          totalCalls: item.totalCalls,
-          completedCalls : item.completedCalls,
-          minutes: parseFloat(minutes.toFixed(2)),
-          revenue: parseFloat(revenue.toFixed(4)),
-          cost: parseFloat(cost.toFixed(4)),
-          margin: parseFloat((revenue - cost).toFixed(4)),
-          marginPercentage: revenue > 0 ? parseFloat((((revenue - cost) / revenue) * 100).toFixed(5)) : 0,
-          ASR: item.totalCalls > 0 ? parseFloat(((item.completedCalls / item.totalCalls) * 100).toFixed(4)) : 0,
-          ACD: item.completedCalls > 0 ? parseFloat((item.duration / item.completedCalls / 60).toFixed(4)) : 0
+          destination:      item.destination,
+          trunk:            item.trunk,
+          totalCalls:       item.totalCalls,
+          completedCalls:   item.completedCalls,
+          minutes:          parseFloat(minutes.toFixed(2)),
+          revenue:          parseFloat(item.revenue.toFixed(4)),
+          cost:             parseFloat(item.cost.toFixed(4)),
+          margin:           parseFloat((item.revenue - item.cost).toFixed(4)),
+          marginPercentage: item.revenue > 0
+            ? parseFloat((((item.revenue - item.cost) / item.revenue) * 100).toFixed(5))
+            : 0,
+          ASR: item.totalCalls > 0
+            ? parseFloat(((item.completedCalls / item.totalCalls) * 100).toFixed(4))
+            : 0,
+          ACD: item.completedCalls > 0
+            ? parseFloat((item.duration / item.completedCalls / 60).toFixed(4))
+            : 0,
         };
       })
       .sort((a, b) => {
         if (sortBy === 'completedCalls') return b.completedCalls - a.completedCalls;
-        if (sortBy === 'minutes') return b.minutes - a.minutes;
-        if (sortBy === 'cost') return b.cost - a.cost;
+        if (sortBy === 'minutes')        return b.minutes - a.minutes;
         return b.cost - a.cost;
       })
       .slice(0, parseInt(limit));
 
-    res.json({
-      success: true,
-      data: topDestinations
-    });
+    res.json({ success: true, data: topDestinations });
   } catch (error) {
     console.error('Top Destinations Error:', error);
     res.status(500).json({
-      success: false,
-      message: 'Failed to fetch top destinations',
-      error: error.message
+      success:  false,
+      message:  'Failed to fetch top destinations',
+      error:    error.message,
     });
   }
 };
@@ -193,114 +216,102 @@ exports.getTopDestinations = async (req, res) => {
 exports.getDashboardStats = async (req, res) => {
   try {
     const { startDate, endDate, range } = req.query;
-    
+
     const where = getDateRange(range, startDate, endDate);
 
-    // 1. Dashboard Stats: {total calls, completed calls, total revenue, active customers, total duration}
+    // 1. Summary stats
     const stats = await CDR.findOne({
       attributes: [
-        [fn('COUNT', col('id')), 'totalCalls'],
-        [fn('SUM', H.completedCall), 'completedCalls'],
-        [fn('SUM', H.revenue), 'totalRevenue'],
-        [fn('SUM', H.durationSec), 'totalDuration'],
-        [fn('COUNT', fn('DISTINCT', col('customeraccount'))), 'activeCustomers']
+        [fn('COUNT', col('id')),                          'totalCalls'],
+        [fn('SUM', H.completedCall),                      'completedCalls'],
+        [fn('SUM', H.revenue),                            'totalRevenue'],
+        [fn('SUM', H.durationSec),                        'totalDuration'],
+        [fn('COUNT', fn('DISTINCT', col('customeraccount'))), 'activeCustomers'],
       ],
       where,
-      raw: true
+      raw: true,
     });
 
-    // 2. Hourly Call Distribution: {hours and calls count}
+    // 2. Hourly call distribution
     const hourlyDistribution = await CDR.findAll({
-  attributes: [
-    [H.hour, 'hour'],
+      attributes: [
+        [H.hour,                      'hour'],
+        [fn('COUNT', col('id')),       'callsCount'],
+        [fn('SUM', H.durationSec),    'totalDurationSec'],
+        [fn('SUM', H.cost),           'totalCost'],
+      ],
+      where,
+      group:  [H.hour],
+      order:  [[H.hour, 'ASC']],
+      raw:    true,
+    });
 
-    // total calls
-    [fn('COUNT', col('id')), 'callsCount'],
-
-    // total duration (seconds)
-    [fn('SUM', H.durationSec), 'totalDurationSec'],
-
-    // total cost
-    [fn('SUM', H.cost), 'totalCost']
-  ],
-  where,
-  group: [H.hour],
-  order: [[H.hour, 'ASC']],
-  raw: true
-});
-
-    // 4. Top Customers Distribution: {customerName, totalCalls}
+    // 3. Top customers
     const customerDistributionRaw = await CDR.findAll({
       attributes: [
         'customername',
         'customeraccount',
-        [fn('COUNT', col('id')), 'totalCalls']
+        [fn('COUNT', col('id')), 'totalCalls'],
       ],
       where,
-      group: ['customername', 'customeraccount'],
-      order: [[fn('COUNT', col('id')), 'DESC']],
-      limit: 10,
-      raw: true
+      group:  ['customername', 'customeraccount'],
+      order:  [[fn('COUNT', col('id')), 'DESC']],
+      limit:  10,
+      raw:    true,
     });
 
     const topCustomers = customerDistributionRaw.map(c => ({
       customerName: c.customername || c.customeraccount,
-      totalCalls: Number(c.totalCalls)
+      totalCalls:   Number(c.totalCalls),
     }));
 
-    // 5. Financial Summary: total revenue, total margin, failed calls, total cost
+    // 4. Financial summary
     const financialSummary = await CDR.findOne({
       attributes: [
-        [fn('SUM', H.revenue), 'totalRevenue'],
-        [fn('SUM', H.cost), 'totalCost'],
+        [fn('SUM', H.revenue),    'totalRevenue'],
+        [fn('SUM', H.cost),       'totalCost'],
         [fn('SUM', H.failedCall), 'failedCalls'],
       ],
       where,
-      raw: true
+      raw: true,
     });
 
     const totalRevenue = Number(financialSummary.totalRevenue || 0);
-    const totalCost = Number(financialSummary.totalCost || 0);
-    const failedCalls = Number(financialSummary.failedCalls || 0);
-    const totalMargin = totalRevenue - totalCost;
+    const totalCost    = Number(financialSummary.totalCost    || 0);
+    const failedCalls  = Number(financialSummary.failedCalls  || 0);
+    const totalMargin  = totalRevenue - totalCost;
 
     res.json({
       success: true,
       data: {
         stats: {
-          totalCalls: Number(stats.totalCalls || 0),
-          completedCalls: Number(stats.completedCalls || 0),
-          totalRevenue: parseFloat(Number(stats.totalRevenue || 0).toFixed(4)),
-          totalDuration: parseFloat((Number(stats.totalDuration || 0) / 60).toFixed(2)), // in minutes
-          activeCustomers: Number(stats.activeCustomers || 0)
+          totalCalls:      Number(stats.totalCalls      || 0),
+          completedCalls:  Number(stats.completedCalls  || 0),
+          totalRevenue:    parseFloat(Number(stats.totalRevenue  || 0).toFixed(4)),
+          totalDuration:   parseFloat((Number(stats.totalDuration || 0) / 60).toFixed(2)),
+          activeCustomers: Number(stats.activeCustomers || 0),
         },
-        hourlyDistribution: hourlyDistribution.map(h => {
-  const durationSec = Number(h.totalDurationSec || 0);
-  const cost = Number(h.totalCost || 0);
-
-  return {
-    hour: parseInt(h.hour),
-    callsCount: Number(h.callsCount || 0),
-    minutes: parseFloat((durationSec / 60).toFixed(2)),
-    cost: parseFloat(cost.toFixed(4))
-  };
-}),
+        hourlyDistribution: hourlyDistribution.map(h => ({
+          hour:      parseInt(h.hour),
+          callsCount: Number(h.callsCount || 0),
+          minutes:   parseFloat((Number(h.totalDurationSec || 0) / 60).toFixed(2)),
+          cost:      parseFloat(Number(h.totalCost || 0).toFixed(4)),
+        })),
         customerDistribution: topCustomers,
         financialSummary: {
           totalRevenue: parseFloat(totalRevenue.toFixed(4)),
-          totalMargin: parseFloat(totalMargin.toFixed(4)),
-          failedCalls: Math.round(failedCalls),
-          totalCost: parseFloat(totalCost.toFixed(4))
-        }
-      }
+          totalMargin:  parseFloat(totalMargin.toFixed(4)),
+          failedCalls:  Math.round(failedCalls),
+          totalCost:    parseFloat(totalCost.toFixed(4)),
+        },
+      },
     });
-
   } catch (error) {
     console.error('Dashboard Stats Error:', error);
     res.status(500).json({
-      success: false,
-      message: 'Failed to fetch dashboard stats',
-      error: error.message
+      success:  false,
+      message:  'Failed to fetch dashboard stats',
+      error:    error.message,
     });
   }
 };

@@ -8,9 +8,10 @@ const { createNotification } = require('./notification-service');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const POLL_INTERVAL_MS         = 5 * 60_000;  // FIX: was 10 * 60_000 (600s) — corrected to 60s
+const POLL_INTERVAL_MS         = 5 * 60_000;   // 5 minutes
 const FETCH_BATCH_SIZE         = 500;
 const INSERT_BATCH_SIZE        = 500;
+const PENDING_IN_CHUNK_SIZE    = 1_000;         // FIX: chunk IN() queries to avoid max_allowed_packet
 const STARTUP_DELAY_MS         = 5_000;
 const MIN_POLL_GAP_MS          = 30_000;
 const SSH_TUNNEL_RESTART_DELAY = 5_000;
@@ -35,15 +36,13 @@ function firstNonEmptyValue(...values) {
 // ─── Column mapping ───────────────────────────────────────────────────────────
 
 /**
- * INSERTION RULE — stoptime only, no endreason filtering:
+ * Maps a raw source DB row to a local CDR shape.
  *
- *   Ongoing  →  stoptime IS NULL or stoptime = 0
- *               returns null → queued into pending_cdrs
- *               inserted by Phase B the moment stoptime is written
+ * INSERTION RULE — stoptime only:
+ *   Ongoing  →  stoptime IS NULL or stoptime = 0  →  returns null (queued to pending_cdrs)
+ *   All other rows  →  insert immediately (completed, failed, rejected, etc.)
  *
- *   All other rows  →  insert immediately
- *               completed, failed, rejected, instant-reject — everything
- *               endreason stored as-is, ASR and fail counts are correct
+ * NOTE: includeIncomplete=true bypasses the stoptime guard (used for historical backfill).
  */
 function mapRowToCDR(row, sourceTag, opts = {}) {
   const { includeIncomplete = false } = opts;
@@ -179,18 +178,10 @@ function getRecentTableNames(daysBack = LIVE_POLL_DAYS_BACK) {
 // ─── Bulk insert helper ───────────────────────────────────────────────────────
 
 /**
- * FIX Bug 1 — correct insert counting.
+ * Deduplicates against existing DB rows, then bulk-inserts only genuinely new rows.
  *
- * Sequelize bulkCreate with ignoreDuplicates:true uses INSERT IGNORE on MySQL.
- * The JS result array contains ALL input rows regardless of whether they were
- * actually written — result.length is ALWAYS equal to deduped.length, not
- * the number of rows physically inserted.
- *
- * The only reliable way to count real inserts is to check existence BEFORE
- * inserting (which we already do with CDR.findAll), then count the deduped
- * array — those are the rows that don't exist yet and will be inserted.
- * We keep ignoreDuplicates:true as a final safety net against race conditions,
- * but we trust the pre-check count as the accurate insert count.
+ * Returns the count of rows actually sent to bulkCreate (pre-verified as absent).
+ * ignoreDuplicates:true is kept as a last-resort race-condition guard only.
  */
 async function bulkInsertCDRs(mapped, sourceTag) {
   if (!mapped.length) return 0;
@@ -207,7 +198,6 @@ async function bulkInsertCDRs(mapped, sourceTag) {
     existingFlownos = new Set(existingRows.map(r => String(r.flowno)));
   }
 
-  // deduped = rows that genuinely don't exist yet
   const deduped = mapped.filter(
     c => c.flowno && !existingFlownos.has(String(c.flowno))
   );
@@ -217,13 +207,14 @@ async function bulkInsertCDRs(mapped, sourceTag) {
   for (let i = 0; i < deduped.length; i += INSERT_BATCH_SIZE) {
     const batch = deduped.slice(i, i + INSERT_BATCH_SIZE);
     await CDR.bulkCreate(batch, {
-      ignoreDuplicates: true,  // safety net for race conditions only
+      ignoreDuplicates: true,   // safety net for race conditions only
       validate:         false,
     });
   }
 
-  // FIX: return deduped.length (rows we verified don't exist before insert)
-  // NOT result.length (which equals input size regardless of actual inserts)
+  // Return deduped.length — the rows we verified don't exist before inserting.
+  // bulkCreate result.length is always equal to input size on MySQL with
+  // ignoreDuplicates, so it cannot be used for accurate insert counting.
   return deduped.length;
 }
 
@@ -235,24 +226,24 @@ async function bulkInsertCDRs(mapped, sourceTag) {
  * THREE PHASES every poll:
  *
  * PRE-SCAN
- *   Scan the entire table from flowno 0 for rows where stoptime IS NULL or = 0.
- *   Queue into pending_cdrs (idempotent — ignoreDuplicates).
- *   Must start from 0, not checkpoint: the completed-call checkpoint can advance
- *   past an ongoing call's flowno. Starting from 0 guarantees no ongoing call
- *   is ever missed regardless of flowno ordering.
+ *   Full table scan from flowno 0 for rows where stoptime IS NULL or = 0.
+ *   Queues them into pending_cdrs (idempotent — ignoreDuplicates).
+ *   Must start from 0, not the checkpoint: the completed-call checkpoint can
+ *   advance past an ongoing call's flowno, so starting from the checkpoint
+ *   would permanently miss older ongoing calls.
  *
  * PHASE A
- *   Fetch all rows with stoptime > 0 after the checkpoint.
- *   Insert all of them — no endreason filtering. Every CDR is stored.
- *   Cursor advances only to the last successfully mapped flowno.
- *   FIX Bug 2: checkpoint is saved after EVERY page (every 500 rows),
- *   not just at the end. If the process crashes mid-batch, it resumes
- *   from the last saved page rather than re-fetching the entire table.
+ *   Fetch all rows with stoptime > 0 after the checkpoint, page by page.
+ *   Cursor always advances by the last RAW row's flowno (not the last mapped
+ *   flowno) so no gap is left when mapRowToCDR filters some rows out.
+ *   Checkpoint is saved after every page so a crash mid-batch loses at most
+ *   one page of work.
  *
  * PHASE B
  *   Re-check every flowno in pending_cdrs for this table.
  *   If stoptime is now > 0 → insert + remove from pending_cdrs.
- *   If still 0/NULL → leave, log count.
+ *   Large pending sets are chunked to stay within MySQL's max_allowed_packet.
+ *   Rows still NULL/0 remain in pending and are logged.
  */
 async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts = {}) {
   const {
@@ -260,6 +251,7 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
     includeIncomplete = false,
   } = opts;
 
+  // ── Guard: skip silently if table doesn't exist yet ──────────────────────
   try {
     await pool.query(`SELECT 1 FROM \`${tableName}\` LIMIT 1`);
   } catch {
@@ -272,83 +264,113 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
   let   totalFetched  = 0;
   let   totalInserted = 0;
 
-  // ════════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
   // PRE-SCAN — queue all currently-ongoing calls into pending_cdrs
   //
-  // Starts from flowno 0, not from checkpoint.
-  // Reason: completed-call checkpoint advances independently of ongoing calls.
-  // A call with flowno 100 that is ongoing when checkpoint is at 200 would
-  // be permanently missed if pre-scan started from 200.
+  // Starts from flowno 0 (not checkpoint) so ongoing calls with a flowno
+  // lower than the current checkpoint are never missed.
   //
-  // Query is SELECT flowno only (no SELECT *) — lightweight even on large tables.
-  // ignoreDuplicates makes it fully idempotent across polls.
-  // ════════════════════════════════════════════════════════════════════════════
+  // SELECT flowno only — lightweight even on large tables.
+  // ignoreDuplicates makes repeated scans fully idempotent.
+  // ══════════════════════════════════════════════════════════════════════════
   if (!includeIncomplete) {
     let pendingCursor = 0n;
 
     while (true) {
-      const [ongoingRows] = await pool.query(
-        `SELECT flowno FROM \`${tableName}\`
-         WHERE flowno > ?
-           AND (stoptime IS NULL OR stoptime = 0)
-         ORDER BY flowno ASC
-         LIMIT ?`,
-        [pendingCursor.toString(), FETCH_BATCH_SIZE]
-      );
+      let ongoingRows;
+      try {
+        [ongoingRows] = await pool.query(
+          `SELECT flowno FROM \`${tableName}\`
+           WHERE flowno > ?
+             AND (stoptime IS NULL OR stoptime = 0)
+           ORDER BY flowno ASC
+           LIMIT ?`,
+          [pendingCursor.toString(), FETCH_BATCH_SIZE]
+        );
+      } catch (err) {
+        console.error(
+          `[MySQLCDRFetcher:${sourceId}] PRE-SCAN error on ${tableName}:`,
+          err.message
+        );
+        break;
+      }
 
       if (!ongoingRows.length) break;
 
       const nowMs = Date.now().toString();
-      await PendingCDR.bulkCreate(
-        ongoingRows.map(r => ({
-          source_id:  sourceId,
-          table_name: tableName,
-          flowno:     r.flowno.toString(),
-          first_seen: nowMs,
-        })),
-        { ignoreDuplicates: true }
-      );
+      try {
+        await PendingCDR.bulkCreate(
+          ongoingRows.map(r => ({
+            source_id:  sourceId,
+            table_name: tableName,
+            flowno:     r.flowno.toString(),
+            first_seen: nowMs,
+          })),
+          { ignoreDuplicates: true }
+        );
+      } catch (err) {
+        console.error(
+          `[MySQLCDRFetcher:${sourceId}] PRE-SCAN bulkCreate error on ${tableName}:`,
+          err.message
+        );
+      }
 
       console.log(
         `[MySQLCDRFetcher:${sourceId}] Queued ${ongoingRows.length} ` +
         `ongoing flowno(s) into pending_cdrs from ${tableName}`
       );
 
+      // FIX: advance pendingCursor by last RAW row — never miss a page
       pendingCursor = BigInt(ongoingRows[ongoingRows.length - 1].flowno);
       if (ongoingRows.length < FETCH_BATCH_SIZE) break;
     }
   }
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // PHASE A — insert all rows where stoptime > 0, after the checkpoint
+  // ══════════════════════════════════════════════════════════════════════════
+  // PHASE A — insert all completed rows (stoptime > 0) after the checkpoint
   //
-  // SQL filter mirrors mapRowToCDR exactly:
-  //   stoptime IS NOT NULL AND stoptime > 0  →  insert
-  //   stoptime IS NULL OR stoptime = 0       →  skip (handled by pending_cdrs)
+  // KEY FIX (cursor advancement):
+  //   cursor is always advanced by the last RAW row's flowno, not the last
+  //   mapped row's flowno. mapRowToCDR can return null for some rows (e.g.
+  //   ongoing rows that slipped through the SQL filter due to a race); if we
+  //   advanced by lastMapped we would re-fetch those rows forever and never
+  //   move the cursor past them.
   //
-  // FIX Bug 2: checkpoint saved after every page of 500.
-  // Previously it was saved only when cursor advanced past lastFlowno, meaning
-  // a 3000-row catch-up would save checkpoint only at the very end. A crash
-  // at row 2500 would re-fetch all 3000 from the start next restart.
-  // Now it saves every 500 rows — a crash re-fetches at most 500 rows,
-  // and ignoreDuplicates + pre-check in bulkInsertCDRs make re-processing safe.
-  // ════════════════════════════════════════════════════════════════════════════
+  // KEY FIX (infinite loop guard):
+  //   If the last raw row's flowno is ≤ cursor (duplicate flowno in source or
+  //   all rows filtered out), we force-advance by 1 so the loop always
+  //   terminates.
+  //
+  // KEY FIX (checkpoint frequency):
+  //   Checkpoint is saved after every page of FETCH_BATCH_SIZE rows.
+  //   A crash mid-batch loses at most one page, not the entire catch-up run.
+  // ══════════════════════════════════════════════════════════════════════════
   while (true) {
     const completionFilter = includeIncomplete
       ? ''
       : 'AND stoptime IS NOT NULL AND stoptime > 0';
 
-    const [rows] = await pool.query(
-      `SELECT * FROM \`${tableName}\`
-       WHERE flowno > ?
-         ${completionFilter}
-       ORDER BY flowno ASC
-       LIMIT ?`,
-      [cursor.toString(), FETCH_BATCH_SIZE]
-    );
+    let rows;
+    try {
+      [rows] = await pool.query(
+        `SELECT * FROM \`${tableName}\`
+         WHERE flowno > ?
+           ${completionFilter}
+         ORDER BY flowno ASC
+         LIMIT ?`,
+        [cursor.toString(), FETCH_BATCH_SIZE]
+      );
+    } catch (err) {
+      console.error(
+        `[MySQLCDRFetcher:${sourceId}] PHASE A query error on ${tableName}:`,
+        err.message
+      );
+      break;
+    }
 
     if (!rows.length) break;
 
+    // Map rows — some may return null (ongoing races, mapping errors)
     const mapped = rows
       .map(row => mapRowToCDR(row, sourceTag, { includeIncomplete }))
       .filter(Boolean);
@@ -360,43 +382,43 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
 
     totalFetched += rows.length;
 
-    // Advance cursor to last mapped flowno (SQL/JS filters are in sync so
-    // mapped always has entries when rows are returned with completionFilter).
-    const lastMapped = mapped[mapped.length - 1];
-    if (lastMapped?.flowno) {
-      const newCursor = BigInt(lastMapped.flowno);
-      if (newCursor > cursor) {
-        cursor = newCursor;
-        // FIX Bug 2: save checkpoint every page, not just at the end
-        if (updateCheckpoint) {
-          await saveCheckpoint(sourceId, tableName, cursor);
-        }
-      }
+    // ── Advance cursor by the last RAW row — critical fix ────────────────
+    // Using lastMapped.flowno would leave a gap when mapRowToCDR filters rows.
+    const lastRawFlowno = BigInt(rows[rows.length - 1].flowno);
+
+    if (lastRawFlowno > cursor) {
+      cursor = lastRawFlowno;
     } else {
-      // Safety fallback (SQL/JS mismatch — shouldn't happen)
-      const fallback = BigInt(rows[rows.length - 1].flowno);
-      if (fallback > cursor) {
-        cursor = fallback;
-        if (updateCheckpoint) {
-          await saveCheckpoint(sourceId, tableName, cursor);
-        }
-      }
+      // Source has duplicate flowno values or all rows were filtered out.
+      // Force-advance by 1 to prevent an infinite loop on the same page.
+      console.warn(
+        `[MySQLCDRFetcher:${sourceId}] Cursor stall detected at ${cursor} ` +
+        `(lastRaw=${lastRawFlowno}) in ${tableName}. Force-advancing by 1.`
+      );
+      cursor = cursor + 1n;
+    }
+
+    // Save checkpoint after every page (not just at the end of the whole run)
+    if (updateCheckpoint) {
+      await saveCheckpoint(sourceId, tableName, cursor);
     }
 
     if (rows.length < FETCH_BATCH_SIZE) break;
   }
 
-  // ════════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
   // PHASE B — resolve all pending_cdrs rows for this table
   //
-  // Fetches the current state of every pending flowno from source.
-  // Inserts rows where stoptime is now > 0, then removes them from pending.
-  // Rows still with stoptime NULL/0 stay in pending — logged for monitoring.
+  // KEY FIX (IN() chunking):
+  //   MySQL's max_allowed_packet limits the size of IN() queries. Large pending
+  //   sets (thousands of flownos) can silently fail or truncate. We chunk the
+  //   pending list into PENDING_IN_CHUNK_SIZE slices and query each chunk
+  //   independently to guarantee every pending flowno is checked.
   //
-  // No endreason check. A failed call with stoptime written is resolved.
-  // ignoreDuplicates + pre-check in bulkInsertCDRs prevent any duplicates
-  // even if Phase A already inserted the row in the same poll cycle.
-  // ════════════════════════════════════════════════════════════════════════════
+  // No endreason filter — a failed call with stoptime written is resolved.
+  // bulkInsertCDRs pre-check prevents duplicates even if Phase A already
+  // inserted the row in the same poll cycle.
+  // ══════════════════════════════════════════════════════════════════════════
   const pendingRows = await PendingCDR.findAll({
     where: { source_id: sourceId, table_name: tableName },
     raw:   true,
@@ -404,22 +426,27 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
 
   if (pendingRows.length) {
     const pendingFlownos = pendingRows.map(p => p.flowno);
+    let   nowResolved    = [];
 
-    let nowResolved = [];
-    try {
-      const [resolvedRows] = await pool.query(
-        `SELECT * FROM \`${tableName}\`
-         WHERE flowno IN (?)
-           AND stoptime IS NOT NULL
-           AND stoptime > 0`,
-        [pendingFlownos]
-      );
-      nowResolved = resolvedRows;
-    } catch (err) {
-      console.error(
-        `[MySQLCDRFetcher:${sourceId}] Phase B query error for ${tableName}:`,
-        err.message
-      );
+    // Chunk the IN() query to avoid max_allowed_packet limits
+    for (let i = 0; i < pendingFlownos.length; i += PENDING_IN_CHUNK_SIZE) {
+      const chunk = pendingFlownos.slice(i, i + PENDING_IN_CHUNK_SIZE);
+      try {
+        const [chunkRows] = await pool.query(
+          `SELECT * FROM \`${tableName}\`
+           WHERE flowno IN (?)
+             AND stoptime IS NOT NULL
+             AND stoptime > 0`,
+          [chunk]
+        );
+        nowResolved = nowResolved.concat(chunkRows);
+      } catch (err) {
+        console.error(
+          `[MySQLCDRFetcher:${sourceId}] PHASE B chunk query error for ${tableName}:`,
+          err.message
+        );
+        // Continue with remaining chunks — don't abort the entire phase
+      }
     }
 
     if (nowResolved.length) {
@@ -439,13 +466,25 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
       }
 
       const resolvedFlownos = nowResolved.map(r => r.flowno.toString());
-      await PendingCDR.destroy({
-        where: {
-          source_id:  sourceId,
-          table_name: tableName,
-          flowno:     resolvedFlownos,
-        },
-      });
+
+      // Chunk the destroy call as well for safety with large sets
+      for (let i = 0; i < resolvedFlownos.length; i += PENDING_IN_CHUNK_SIZE) {
+        const chunk = resolvedFlownos.slice(i, i + PENDING_IN_CHUNK_SIZE);
+        try {
+          await PendingCDR.destroy({
+            where: {
+              source_id:  sourceId,
+              table_name: tableName,
+              flowno:     chunk,
+            },
+          });
+        } catch (err) {
+          console.error(
+            `[MySQLCDRFetcher:${sourceId}] PHASE B destroy error for ${tableName}:`,
+            err.message
+          );
+        }
+      }
 
       console.log(
         `[MySQLCDRFetcher:${sourceId}] Cleared ${resolvedFlownos.length} ` +
@@ -784,7 +823,6 @@ class MySQLCDRFetcher {
         console.error(`[MySQLCDRFetcher:${this.sourceId}] Notification error:`, err)
       );
     } else if (totalFetched > 0) {
-      // Fetched rows but all were already in DB — normal on subsequent polls
       console.log(
         `[MySQLCDRFetcher:${this.sourceId}] ` +
         `Fetched ${totalFetched} row(s), 0 new (all already stored) in ${durationMs}ms`

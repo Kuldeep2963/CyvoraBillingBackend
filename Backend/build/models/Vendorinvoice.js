@@ -37,6 +37,11 @@ const VendorInvoice = sequelize.define('VendorInvoice', {
     type: DataTypes.DECIMAL(15, 2),
     allowNull: false
   },
+  creditNoteAmount: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: false,
+    defaultValue: 0
+  },
   currency: {
     type: DataTypes.STRING(3),
     defaultValue: 'USD',
@@ -52,8 +57,18 @@ const VendorInvoice = sequelize.define('VendorInvoice', {
     comment: 'Stored as JSON array of file paths'
   },
   status: {
-    type: DataTypes.ENUM('pending', 'approved', 'rejected', 'processing', 'paid', 'processed', 'error'),
+    type: DataTypes.ENUM('pending', 'paid', 'disputed'),
     defaultValue: 'pending'
+  },
+  disputeDetails: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: null
+  },
+  billingStateSnapshot: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: null
   }
 }, {
   tableName: 'vendor_invoices',

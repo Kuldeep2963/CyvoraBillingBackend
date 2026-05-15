@@ -70,6 +70,7 @@ import {
   generateInvoice as apiGenerateInvoice,
   fetchReportAccounts,
   deleteInvoice as apiDeleteInvoice,
+  deleteInvoices as apiDeleteInvoices,
   recordPayment,
   downloadInvoice,
   sendInvoiceEmail,
@@ -660,7 +661,7 @@ const Invoices = () => {
     });
   }, [selectedInvoiceIds, invoices, openConfirm, toast, executeBulkSend]);
 
-  // BUG FIX: uses ConfirmDialog; Promise.allSettled for partial-failure handling
+  // BUG FIX: uses ConfirmDialog; bulk delete is handled server-side in billing order
   const handleDeleteSelected = useCallback(() => {
     if (selectedInvoiceIds.length === 0) {
       toast({ title: "No invoices selected", status: "warning", duration: 3000, isClosable: true });
@@ -672,11 +673,9 @@ const Invoices = () => {
       confirmText: `Delete ${selectedInvoiceIds.length} Invoices`,
       type:        "danger",
       onConfirm:   async () => {
-        const results = await Promise.allSettled(
-          selectedInvoiceIds.map((id) => apiDeleteInvoice(id)),
-        );
-        const succeeded = results.filter((r) => r.status === "fulfilled").length;
-        const failed    = results.length - succeeded;
+        const result = await apiDeleteInvoices(selectedInvoiceIds);
+        const succeeded = Number(result?.summary?.succeeded || 0);
+        const failed = Number(result?.summary?.failed || 0);
         loadData();
         setSelectedInvoiceIds([]);
         toast({

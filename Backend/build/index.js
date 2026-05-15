@@ -13,7 +13,7 @@ require('./models/InvoiceItem');
 require('./models/Payment');
 require('./models/PaymentAllocation');
 require('./models/Allocation');
-require('./models/Dispute');
+require('./models/PendingCDR');
 require('./models/CountryCode');
 require('./models/Vendorinvoice');
 require('./models/SystemSetting');

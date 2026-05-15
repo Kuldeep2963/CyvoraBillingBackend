@@ -3,27 +3,20 @@ const { Op } = require('sequelize');
 const Account = require('../models/Account');
 const InvoiceService = require('./InvoiceService');
 const moment = require('moment');
+const {
+  buildBillingUpdates,
+  calculateNextBillingDate,
+  getInitialLastBillingDate,
+  getBillingPeriodWindow,
+  normalizeDateOnly,
+} = require('../utils/CalendarBillingCalculator');
 
 class BillingAutomationService {
   /**
    * Calculate next billing date based on cycle
    */
   calculateNextBillingDate(currentDate, cycle) {
-    const date = moment(currentDate);
-    switch (cycle) {
-      case 'daily':
-        return date.add(1, 'days').format('YYYY-MM-DD');
-      case 'weekly':
-        return date.add(1, 'weeks').format('YYYY-MM-DD');
-      case 'monthly':
-        return date.add(1, 'months').format('YYYY-MM-DD');
-      case 'quarterly':
-        return date.add(3, 'months').format('YYYY-MM-DD');
-      case 'annually':
-        return date.add(1, 'years').format('YYYY-MM-DD');
-      default:
-        return date.add(1, 'months').format('YYYY-MM-DD');
-    }
+    return calculateNextBillingDate(currentDate, cycle);
   }
 
   getStreamConfig(invoiceType) {
@@ -40,38 +33,27 @@ class BillingAutomationService {
 
   resolveStreamWindow(account, invoiceType) {
     const { lastField, nextField } = this.getStreamConfig(invoiceType);
-    const legacyLast = account.lastbillingdate || account.billingStartDate || account.createdAt;
-    const lastBillingDate = account[lastField] || legacyLast;
+    const lastBillingDate = account[lastField]
+      || getInitialLastBillingDate(account.billingCycle || 'monthly', account.billingStartDate || account.createdAt || new Date());
     
     // Normalize dates to 'YYYY-MM-DD' format to ensure consistency across different DB types
     const normalizedLastBillingDate = lastBillingDate 
-      ? moment(lastBillingDate).format('YYYY-MM-DD') 
+      ? normalizeDateOnly(lastBillingDate)
       : null;
     
     const rawNextBillingDate = account[nextField]
-      || account.nextbillingdate
       || (normalizedLastBillingDate ? this.calculateNextBillingDate(normalizedLastBillingDate, account.billingCycle) : null);
     
     // Normalize next billing date to 'YYYY-MM-DD' format
     const normalizedNextBillingDate = rawNextBillingDate
-      ? moment(rawNextBillingDate).format('YYYY-MM-DD')
+      ? normalizeDateOnly(rawNextBillingDate)
       : null;
 
     return { lastBillingDate: normalizedLastBillingDate, nextBillingDate: normalizedNextBillingDate };
   }
 
-  buildStreamUpdates(account, invoiceType, billedThroughDate) {
-    const { lastField, nextField } = this.getStreamConfig(invoiceType);
-    const nextBillingDate = this.calculateNextBillingDate(billedThroughDate, account.billingCycle);
-    const updates = {
-      [lastField]: billedThroughDate,
-      [nextField]: nextBillingDate,
-      // Keep legacy cursors in sync for compatibility with older flows/UI.
-      lastbillingdate: billedThroughDate,
-      nextbillingdate: nextBillingDate,
-    };
-
-    return updates;
+  buildStreamUpdates(account, invoiceType, invoicePeriodEnd) {
+    return buildBillingUpdates(account, invoiceType, invoicePeriodEnd);
   }
 
   /**
@@ -85,7 +67,6 @@ class BillingAutomationService {
     const accounts = await Account.findAll({
       where: {
         [Op.or]: [
-          { nextbillingdate: null },
           { customerNextBillingDate: null },
           { vendorNextBillingDate: null },
         ]
@@ -94,29 +75,29 @@ class BillingAutomationService {
 
     for (const account of accounts) {
       const startDate = account.billingStartDate || account.createdAt || new Date();
-      const legacyLast = account.lastbillingdate || startDate;
-      const legacyNext = account.nextbillingdate || this.calculateNextBillingDate(legacyLast, account.billingCycle);
       const role = String(account.accountRole || '').toLowerCase();
       const updates = {};
 
       if (!account.customerLastBillingDate) {
-        updates.customerLastBillingDate = legacyLast;
+        updates.customerLastBillingDate = getInitialLastBillingDate(account.billingCycle || 'monthly', startDate);
       }
       if (!account.customerNextBillingDate) {
-        updates.customerNextBillingDate = legacyNext;
+        updates.customerNextBillingDate = this.calculateNextBillingDate(
+          account.customerLastBillingDate || updates.customerLastBillingDate,
+          account.billingCycle
+        );
       }
 
       if (role === 'vendor' || role === 'both') {
         if (!account.vendorLastBillingDate) {
-          updates.vendorLastBillingDate = legacyLast;
+          updates.vendorLastBillingDate = getInitialLastBillingDate(account.billingCycle || 'monthly', startDate);
         }
         if (!account.vendorNextBillingDate) {
-          updates.vendorNextBillingDate = legacyNext;
+          updates.vendorNextBillingDate = this.calculateNextBillingDate(
+            account.vendorLastBillingDate || updates.vendorLastBillingDate,
+            account.billingCycle
+          );
         }
-      }
-
-      if (!account.nextbillingdate) {
-        updates.nextbillingdate = legacyNext;
       }
 
       if (Object.keys(updates).length > 0) {
@@ -197,9 +178,20 @@ class BillingAutomationService {
             break;
           }
 
-          const billingPeriodStart = window.lastBillingDate;
-          const billedThroughDate = window.nextBillingDate;
-          const billingPeriodEnd = moment(billedThroughDate).subtract(1, 'days').format('YYYY-MM-DD');
+          const {
+            billingPeriodStart,
+            billingPeriodEnd,
+          } = getBillingPeriodWindow(window.lastBillingDate, account.billingCycle);
+
+          if (!billingPeriodStart || !billingPeriodEnd) {
+            accountHadFatalError = true;
+            streamResults.push({
+              invoiceType,
+              status: 'failed',
+              error: 'Invalid billing period window',
+            });
+            break;
+          }
 
           try {
             const invoice = await InvoiceService.generateInvoiceFromCDRs({
@@ -214,7 +206,7 @@ class BillingAutomationService {
 
             // Do not auto-send invoice emails on generation.
             // Invoices are sent explicitly through the UI/API send-email action.
-            const updates = this.buildStreamUpdates(account, invoiceType, billedThroughDate);
+            const updates = this.buildStreamUpdates(account, invoiceType, billingPeriodEnd);
             await account.update(updates);
             accountChanged = true;
             generatedInvoicesCount++;
@@ -236,7 +228,7 @@ class BillingAutomationService {
               console.log(`No customer CDRs for ${account.accountName} from ${billingPeriodStart} to ${billingPeriodEnd}`);
 
               // Advance cursor even when no CDRs exist for the cycle, so catch-up continues.
-              const updates = this.buildStreamUpdates(account, invoiceType, billedThroughDate);
+              const updates = this.buildStreamUpdates(account, invoiceType, billingPeriodEnd);
               await account.update(updates);
               accountChanged = true;
               skippedCyclesCount++;

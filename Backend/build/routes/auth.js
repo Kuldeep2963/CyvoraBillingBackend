@@ -5,6 +5,31 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
 
+const ACCESS_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET;
+const REFRESH_TOKEN_SECRET = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+
+const buildTokenPayload = (user) => ({
+  id: user.id,
+  email: user.email,
+  role: user.role,
+  firstName: user.first_name,
+  lastName: user.last_name,
+  tv: Number(user.tokenVersion || 0),
+});
+
+const signAccessToken = (user) => jwt.sign(buildTokenPayload(user), ACCESS_TOKEN_SECRET, { expiresIn: '2h' });
+
+const signRefreshToken = (user) =>
+  jwt.sign(
+    {
+      id: user.id,
+      type: 'refresh',
+      tv: Number(user.tokenVersion || 0),
+    },
+    REFRESH_TOKEN_SECRET,
+    { expiresIn: '7d' }
+  );
+
 
 
 // Login Route
@@ -24,19 +49,8 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Generate Access Token (2 hours)
-    const accessToken = jwt.sign(
-      { id: user.id, email: user.email, role: user.role, firstName: user.first_name, lastName: user.last_name },
-      process.env.JWT_SECRET,
-      { expiresIn: '2h' }
-    );
-
-    // Generate Refresh Token (7 days)
-    const refreshToken = jwt.sign(
-      { id: user.id, type: 'refresh' },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const accessToken = signAccessToken(user);
+    const refreshToken = signRefreshToken(user);
 
     res.json({
       accessToken,
@@ -65,7 +79,7 @@ router.post('/refresh', async (req, res) => {
     }
 
     // Verify refresh token
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    const decoded = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET);
 
     // Check if token is a refresh token
     if (decoded.type !== 'refresh') {
@@ -78,15 +92,16 @@ router.post('/refresh', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Generate new access token (2 hours)
-    const newAccessToken = jwt.sign(
-      { id: user.id, email: user.email, role: user.role, firstName: user.first_name, lastName: user.last_name },
-      process.env.JWT_SECRET,
-      { expiresIn: '2h' }
-    );
+    if (Number(decoded.tv) !== Number(user.tokenVersion || 0)) {
+      return res.status(401).json({ error: 'Refresh token has been revoked, please login again' });
+    }
+
+    const newAccessToken = signAccessToken(user);
+    const newRefreshToken = signRefreshToken(user);
 
     res.json({
       accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
       user: {
         id: user.id,
         email: user.email,
@@ -101,6 +116,24 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'Refresh token expired, please login again' });
     }
     res.status(401).json({ error: 'Invalid refresh token' });
+  }
+});
+
+// Logout Route (requires authentication)
+router.post('/logout', auth, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Revoke all currently issued access/refresh tokens for this user.
+    await user.increment('tokenVersion', { by: 1 });
+
+    return res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Logout error:', error);
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -141,8 +174,9 @@ router.post('/change-password', auth, async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-    // Update user password
+    // Update password and revoke all existing sessions/tokens.
     await user.update({ hashedpassword: hashedPassword });
+    await user.increment('tokenVersion', { by: 1 });
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {

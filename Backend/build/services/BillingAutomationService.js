@@ -40,13 +40,22 @@ class BillingAutomationService {
 
   resolveStreamWindow(account, invoiceType) {
     const { lastField, nextField } = this.getStreamConfig(invoiceType);
-    const legacyLast = account.lastbillingdate || account.billingStartDate || account.createdAt;
-    const lastBillingDate = account[lastField] || legacyLast;
-    const nextBillingDate = account[nextField]
-      || account.nextbillingdate
-      || (lastBillingDate ? this.calculateNextBillingDate(lastBillingDate, account.billingCycle) : null);
+    const lastBillingDate = account[lastField] || account.billingStartDate || account.createdAt;
+    
+    // Normalize dates to 'YYYY-MM-DD' format to ensure consistency across different DB types
+    const normalizedLastBillingDate = lastBillingDate 
+      ? moment(lastBillingDate).format('YYYY-MM-DD') 
+      : null;
+    
+    const rawNextBillingDate = account[nextField]
+      || (normalizedLastBillingDate ? this.calculateNextBillingDate(normalizedLastBillingDate, account.billingCycle) : null);
+    
+    // Normalize next billing date to 'YYYY-MM-DD' format
+    const normalizedNextBillingDate = rawNextBillingDate
+      ? moment(rawNextBillingDate).format('YYYY-MM-DD')
+      : null;
 
-    return { lastBillingDate, nextBillingDate };
+    return { lastBillingDate: normalizedLastBillingDate, nextBillingDate: normalizedNextBillingDate };
   }
 
   buildStreamUpdates(account, invoiceType, billedThroughDate) {
@@ -55,25 +64,24 @@ class BillingAutomationService {
     const updates = {
       [lastField]: billedThroughDate,
       [nextField]: nextBillingDate,
+      lastbillingdate: billedThroughDate,
+      nextbillingdate: nextBillingDate,
     };
-
-    if (invoiceType === 'customer' || String(account.accountRole || '').toLowerCase() !== 'both') {
-      updates.lastbillingdate = billedThroughDate;
-      updates.nextbillingdate = nextBillingDate;
-    }
 
     return updates;
   }
 
   /**
    * Initialize billing dates for accounts where they are missing
+   * Initializes both customer and vendor dates to support independent advancement.
+   * Note: Automation only uses customerNextBillingDate; vendor dates are managed
+   * separately on the vendor invoice page.
    */
   async initializeMissingDates() {
     // Backfill directional dates so each billing stream can advance independently.
     const accounts = await Account.findAll({
       where: {
         [Op.or]: [
-          { nextbillingdate: null },
           { customerNextBillingDate: null },
           { vendorNextBillingDate: null },
         ]
@@ -82,29 +90,30 @@ class BillingAutomationService {
 
     for (const account of accounts) {
       const startDate = account.billingStartDate || account.createdAt || new Date();
-      const legacyLast = account.lastbillingdate || startDate;
-      const legacyNext = account.nextbillingdate || this.calculateNextBillingDate(legacyLast, account.billingCycle);
+      const startDateStr = moment(startDate).format('YYYY-MM-DD');
       const role = String(account.accountRole || '').toLowerCase();
       const updates = {};
 
       if (!account.customerLastBillingDate) {
-        updates.customerLastBillingDate = legacyLast;
+        updates.customerLastBillingDate = startDateStr;
       }
       if (!account.customerNextBillingDate) {
-        updates.customerNextBillingDate = legacyNext;
+        updates.customerNextBillingDate = this.calculateNextBillingDate(
+          account.customerLastBillingDate || startDateStr, 
+          account.billingCycle
+        );
       }
 
       if (role === 'vendor' || role === 'both') {
         if (!account.vendorLastBillingDate) {
-          updates.vendorLastBillingDate = legacyLast;
+          updates.vendorLastBillingDate = startDateStr;
         }
         if (!account.vendorNextBillingDate) {
-          updates.vendorNextBillingDate = legacyNext;
+          updates.vendorNextBillingDate = this.calculateNextBillingDate(
+            account.vendorLastBillingDate || startDateStr,
+            account.billingCycle
+          );
         }
-      }
-
-      if (!account.nextbillingdate) {
-        updates.nextbillingdate = legacyNext;
       }
 
       if (Object.keys(updates).length > 0) {
@@ -114,7 +123,12 @@ class BillingAutomationService {
   }
 
   /**
-   * Run automation for all due accounts
+   * Run automation for all due accounts (customer invoices only)
+   * Vendor invoices are uploaded manually on the vendor invoice page.
+   * Only customerNextBillingDate is used for automation scheduling.
+   *
+   * Catch-up behavior: if multiple billing cycles are overdue, this method
+   * processes them sequentially in a single run.
    */
   async runAutomation() {
     // First, ensure all accounts have a nextbillingdate
@@ -124,11 +138,8 @@ class BillingAutomationService {
     const accounts = await Account.findAll({
       where: {
         active: true,
-        [Op.or]: [
-          { nextbillingdate: { [Op.lte]: today } },
-          { customerNextBillingDate: { [Op.lte]: today } },
-          { vendorNextBillingDate: { [Op.lte]: today } },
-        ]
+        // Only check customer billing dates for automation
+        customerNextBillingDate: { [Op.lte]: today }
       }
     });
 
@@ -143,30 +154,49 @@ class BillingAutomationService {
     for (const account of accounts) {
       results.processed++;
       try {
-        const role = String(account.accountRole || '').toLowerCase();
-        const eligibleInvoiceTypes = [
-          ...(role === 'customer' || role === 'both' ? ['customer'] : []),
-          ...(role === 'vendor' || role === 'both' ? ['vendor'] : []),
-        ];
-
         let customerInvoice = null;
-        let vendorInvoice = null;
         let accountChanged = false;
         let accountHadFatalError = false;
         const streamResults = [];
+        let generatedInvoicesCount = 0;
+        let skippedCyclesCount = 0;
 
-        for (const invoiceType of eligibleInvoiceTypes) {
-          const { lastBillingDate, nextBillingDate } = this.resolveStreamWindow(account, invoiceType);
-          if (!nextBillingDate || moment(nextBillingDate).isAfter(today, 'day')) {
-            streamResults.push({ invoiceType, status: 'not_due' });
-            continue;
+        // Only generate customer invoices (vendor invoices are uploaded manually)
+        const invoiceType = 'customer';
+        let window = this.resolveStreamWindow(account, invoiceType);
+        const maxCatchupCycles = 12; // Prevent infinite loops if something goes wrong with billing dates
+        let cyclesProcessed = 0;
+
+        if (!window.nextBillingDate || moment(window.nextBillingDate).isAfter(today, 'day')) {
+          streamResults.push({ invoiceType, status: 'not_due' });
+          skippedCyclesCount++;
+          results.details.push({
+            accountId: account.accountId,
+            accountName: account.accountName,
+            status: 'skipped',
+            customerInvoice: null,
+            streams: streamResults
+          });
+          results.skipped += skippedCyclesCount;
+          continue;
+        }
+        const customerId = account.gatewayId || account.customerCode;
+
+        while (window.nextBillingDate && !moment(window.nextBillingDate).isAfter(today, 'day')) {
+          cyclesProcessed++;
+          if (cyclesProcessed > maxCatchupCycles) {
+            accountHadFatalError = true;
+            streamResults.push({
+              invoiceType,
+              status: 'failed',
+              error: `Maximum catch-up cycles (${maxCatchupCycles}) reached`,
+            });
+            break;
           }
 
-          const billingPeriodStart = lastBillingDate;
-          const billingPeriodEnd = moment(nextBillingDate).subtract(1, 'days').format('YYYY-MM-DD');
-          const customerId = invoiceType === 'vendor'
-            ? account.gatewayId || account.vendorCode
-            : account.gatewayId || account.customerCode;
+          const billingPeriodStart = window.lastBillingDate;
+          const billedThroughDate = window.nextBillingDate;
+          const billingPeriodEnd = moment(billedThroughDate).subtract(1, 'days').format('YYYY-MM-DD');
 
           try {
             const invoice = await InvoiceService.generateInvoiceFromCDRs({
@@ -174,52 +204,82 @@ class BillingAutomationService {
               invoiceType,
               billingPeriodStart,
               billingPeriodEnd,
-              generatedBy: 'SYSTEM'
+              generatedBy: null
             });
 
-            if (invoiceType === 'customer') {
-              customerInvoice = invoice;
-            } else {
-              vendorInvoice = invoice;
-            }
+            customerInvoice = invoice;
 
             // Do not auto-send invoice emails on generation.
             // Invoices are sent explicitly through the UI/API send-email action.
-
-            await account.update(this.buildStreamUpdates(account, invoiceType, nextBillingDate));
+            const updates = this.buildStreamUpdates(account, invoiceType, billedThroughDate);
+            await account.update(updates);
             accountChanged = true;
-            streamResults.push({ invoiceType, status: 'success', invoiceNumber: invoice?.invoiceNumber || null });
+            generatedInvoicesCount++;
+
+            streamResults.push({
+              invoiceType,
+              status: 'success',
+              billingPeriodStart,
+              billingPeriodEnd,
+              invoiceNumber: invoice?.invoiceNumber || null,
+            });
+
+            window = {
+              lastBillingDate: updates.customerLastBillingDate,
+              nextBillingDate: updates.customerNextBillingDate,
+            };
           } catch (e) {
             if (e.message.includes('No CDR records found') || e.message.includes('No successful calls found')) {
-              console.log(`No ${invoiceType} CDRs for ${account.accountName} from ${billingPeriodStart} to ${billingPeriodEnd}`);
-              streamResults.push({ invoiceType, status: 'no_cdr' });
+              console.log(`No customer CDRs for ${account.accountName} from ${billingPeriodStart} to ${billingPeriodEnd}`);
+
+              // Advance cursor even when no CDRs exist for the cycle, so catch-up continues.
+              const updates = this.buildStreamUpdates(account, invoiceType, billedThroughDate);
+              await account.update(updates);
+              accountChanged = true;
+              skippedCyclesCount++;
+
+              streamResults.push({
+                invoiceType,
+                status: 'no_cdr',
+                billingPeriodStart,
+                billingPeriodEnd,
+                advanced: true,
+              });
+
+              window = {
+                lastBillingDate: updates.customerLastBillingDate,
+                nextBillingDate: updates.customerNextBillingDate,
+              };
             } else {
               accountHadFatalError = true;
-              streamResults.push({ invoiceType, status: 'failed', error: e.message });
+              streamResults.push({
+                invoiceType,
+                status: 'failed',
+                billingPeriodStart,
+                billingPeriodEnd,
+                error: e.message,
+              });
+              break;
             }
           }
         }
 
-        if (!accountChanged) {
-          if (accountHadFatalError) {
-            results.failed++;
-          } else {
-            results.skipped++;
-          }
-        } else {
-          results.succeeded++;
-          if (accountHadFatalError) {
-            results.failed++;
-          }
+        results.succeeded += generatedInvoicesCount;
+        results.skipped += skippedCyclesCount;
+        if (accountHadFatalError) {
+          results.failed++;
         }
 
         results.details.push({
           accountId: account.accountId,
           accountName: account.accountName,
-          status: accountChanged ? 'success' : 'skipped',
+          status: accountHadFatalError
+            ? (accountChanged ? 'partial_failed' : 'failed')
+            : (accountChanged ? 'success' : 'skipped'),
           customerInvoice: customerInvoice?.invoiceNumber || null,
-          vendorInvoice: vendorInvoice?.invoiceNumber || null,
-          streams: streamResults,
+          generatedInvoicesCount,
+          skippedCyclesCount,
+          streams: streamResults
         });
 
       } catch (error) {
@@ -228,7 +288,8 @@ class BillingAutomationService {
           accountId: account.accountId,
           accountName: account.accountName,
           status: 'failed',
-          error: error.message
+          error: error.message,
+          streams: []
         });
         console.error(`Automation failed for account ${account.accountId}:`, error);
       }

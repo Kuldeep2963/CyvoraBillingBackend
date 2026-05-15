@@ -11,7 +11,7 @@ const { createNotification } = require('./notification-service');
 const STARTUP_CLEANUP_DELAY_MS = 15_000;       // 15 s — let the app fully boot first
 const MIN_CLEANUP_GAP_MS       = 5 * 60_000;   // 5 min — debounce guard for manual triggers
 const MIN_RETENTION_DAYS       = 1;            // safety floor: never delete less than 1 day old
-const MAX_RETENTION_DAYS       = 60;        // safety ceiling: 10 years
+const MAX_RETENTION_DAYS       = 90;           // keep in sync with global settings default
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -23,6 +23,7 @@ const MAX_RETENTION_DAYS       = 60;        // safety ceiling: 10 years
  * regardless of the server's TZ environment variable.
  *
  * @param {number} retentionDays
+ * @param {number} maxRetentionDays
  * @returns {Date} UTC midnight-aligned cutoff
  */
 function buildUtcCutoff(retentionDays) {
@@ -43,9 +44,10 @@ function buildUtcCutoff(retentionDays) {
  * out before touching the database.
  *
  * @param {unknown} raw
+ * @param {number} [maxAllowedDays=MAX_RETENTION_DAYS]
  * @returns {number}
  */
-function parseRetentionDays(raw) {
+function parseRetentionDays(raw, maxAllowedDays = MAX_RETENTION_DAYS) {
   const value = Number(raw);
 
   if (!Number.isFinite(value)) {
@@ -68,9 +70,9 @@ function parseRetentionDays(raw) {
     );
   }
 
-  if (value > MAX_RETENTION_DAYS) {
+  if (value > maxAllowedDays) {
     throw new Error(
-      `dataRetentionDays (${value}) exceeds the maximum allowed value of ${MAX_RETENTION_DAYS}. ` +
+      `dataRetentionDays (${value}) exceeds the maximum allowed value of ${maxAllowedDays}. `+
       'Check your global settings configuration.',
     );
   }
@@ -175,7 +177,10 @@ class CDRRetentionService {
       // BUG FIX: parseRetentionDays throws a descriptive error on NaN/invalid
       // values, preventing the catastrophic "delete everything" failure that
       // Number(undefined) → NaN → setDate(NaN) → Invalid Date would cause.
-      const retentionDays = parseRetentionDays(settings?.dataRetentionDays);
+      const maxRetentionDays = Number.isFinite(Number(settings?.dataRetentionMaxDays))
+        ? Number(settings.dataRetentionMaxDays)
+        : MAX_RETENTION_DAYS;
+      const retentionDays = parseRetentionDays(settings?.dataRetentionDays, maxRetentionDays);
 
       // BUG FIX: build cutoff in pure UTC arithmetic so the result is
       // independent of the server's local timezone (TZ env var).

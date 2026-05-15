@@ -30,6 +30,12 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: true
   },
+  tokenVersion: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Increment to invalidate all issued JWT access/refresh tokens for this user'
+  },
 });
 
 module.exports = User;

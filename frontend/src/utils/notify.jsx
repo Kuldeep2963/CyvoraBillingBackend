@@ -3,14 +3,24 @@ import { useToast, Box, Text, HStack, Button } from '@chakra-ui/react';
 
 export default function useNotify() {
   const toast = useToast();
+  return useCallback((opts = {}, maybeDescription) => {
+    let title = '';
+    let description = '';
+    let status = 'info';
+    let duration = 4000;
+    let isClosable = true;
 
-  return useCallback(({
-    title = '',
-    description = '',
-    status = 'info',
-    duration = 4000,
-    isClosable = true,
-  } = {}) => {
+    // Support legacy positional calls: notify(status, message)
+    if (typeof opts === 'string') {
+      status = opts;
+      description = maybeDescription || '';
+    } else if (opts && typeof opts === 'object') {
+      title = opts.title || '';
+      description = opts.description || maybeDescription || '';
+      status = opts.status || 'info';
+      duration = typeof opts.duration === 'number' ? opts.duration : 4000;
+      isClosable = typeof opts.isClosable === 'boolean' ? opts.isClosable : true;
+    }
     const bgMap = {
       success: 'green.50',
       error: 'red.50',
@@ -53,9 +63,11 @@ export default function useNotify() {
         >
           <HStack justify="space-between" align="start">
             <Box>
-              <Text fontSize="14px" fontWeight="600" color={titleColor[status] || titleColor.info}>
-                {title}
-              </Text>
+              {title ? (
+                <Text fontSize="14px" fontWeight="600" color={titleColor[status] || titleColor.info}>
+                  {title}
+                </Text>
+              ) : null}
               {description && (
                 <Text fontSize="13px" color={descColor[status] || descColor.info} mt={1}>
                   {description}

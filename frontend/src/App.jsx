@@ -19,6 +19,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Unauthorized from './pages/Unauthorized';
 import { useAuth } from './context/AuthContext';
 import AccountExposure from './pages/AccountExposure';
+import CustomerRates from './pages/CustomerRates';
 
 const AppLayout = () => (
   <ProtectedRoute allowedRoles={["admin", "sales-manager", "rates-dept", "noc-dept", "view only"]}>
@@ -126,6 +127,11 @@ function App() {
             <Route path="/account-exposure" element={
               <ProtectedRoute allowedRoles={["admin","rates-dept", "view only"]}>
                 <AccountExposure />
+              </ProtectedRoute>
+            } />
+            <Route path="/customer-rates" element={
+              <ProtectedRoute allowedRoles={["admin", "rates-dept", "view only"]}>
+                <CustomerRates />
               </ProtectedRoute>
             } />
 
