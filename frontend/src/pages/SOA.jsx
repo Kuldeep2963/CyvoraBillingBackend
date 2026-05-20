@@ -48,10 +48,15 @@ const formatDate = (date) => {
   if (!date) return "N/A";
   const parsedDate = isNaN(date) ? new Date(date) : new Date(Number(date));
   if (parsedDate.toString() === "Invalid Date") return "N/A";
-  return parsedDate.toLocaleDateString("en-US", {
+  return new Date(Date.UTC(
+    parsedDate.getUTCFullYear(),
+    parsedDate.getUTCMonth(),
+    parsedDate.getUTCDate(),
+  )).toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
+    timeZone: "UTC",
   });
 };
 

@@ -6,6 +6,7 @@
   "scripts": {
     "dev:frontend": "pnpm --filter cdrbilling-frontend dev",
     "dev:backend": "pnpm --filter cdrbilling-backend dev",
+    "migrate:backend": "pnpm --filter cdrbilling-backend migrate",
     "build:frontend": "pnpm --filter cdrbilling-frontend build",
     "build:backend": "pnpm --filter cdrbilling-backend build",
     "build:start:frontend": "pnpm --filter cdrbilling-frontend build:start",

@@ -46,8 +46,17 @@ import {
   FiSearch,
   FiX,
 } from "react-icons/fi";
-import { format } from "date-fns";
 import { fetchInvoiceItems } from "../../utils/api";
+
+const formatUtcDate = (value, options) => {
+  if (!value) return "N/A";
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return "N/A";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    ...options,
+  }).format(date);
+};
 
 const ViewInvoiceModal = ({
   isOpen,
@@ -167,33 +176,32 @@ const ViewInvoiceModal = ({
                         </Text>
                         <Text>
                           <strong>Generated: </strong>{" "}
-                          {format(
-                            new Date(parseInt(selectedInvoice.invoiceDate)),
-                            "MMMM dd, yyyy",
-                          )}
+                          {formatUtcDate(selectedInvoice.invoiceDate, {
+                            year: "numeric",
+                            month: "long",
+                            day: "2-digit",
+                          })}
                         </Text>
                         <Text>
                           <strong>Due Date:</strong>{" "}
-                          {format(
-                            new Date(parseInt(selectedInvoice.dueDate)),
-                            "MMMM dd, yyyy",
-                          )}
+                          {formatUtcDate(selectedInvoice.dueDate, {
+                            year: "numeric",
+                            month: "long",
+                            day: "2-digit",
+                          })}
                         </Text>
                         <Text color={"blue.800"}>
                           <strong>Period:</strong>{" "}
-                          {format(
-                            new Date(
-                              parseInt(selectedInvoice.billingPeriodStart),
-                            ),
-                            "MMM dd",
-                          )}{" "}
+                          {formatUtcDate(selectedInvoice.billingPeriodStart, {
+                            month: "short",
+                            day: "2-digit",
+                          })}{" "}
                           -{" "}
-                          {format(
-                            new Date(
-                              parseInt(selectedInvoice.billingPeriodEnd),
-                            ),
-                            "MMM dd, yyyy",
-                          )}
+                          {formatUtcDate(selectedInvoice.billingPeriodEnd, {
+                            year: "numeric",
+                            month: "short",
+                            day: "2-digit",
+                          })}
                         </Text>
                       </VStack>
                     </Box>

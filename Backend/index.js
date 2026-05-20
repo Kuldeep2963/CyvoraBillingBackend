@@ -37,7 +37,6 @@ const { MySQLCDRFetcher } = require('./services/cdr-auto-fetch');
 const BillingScheduler = require('./schedulers/BillingScheduler');
 const CDRRetentionService = require('./services/cdr-retention-service');
 const NotificationRetentionService = require('./services/notification-retention-service');
-const runMigrations = require('./utils/runMigrations');
 const { vendorInvoiceUploadDir, accountDocumentUploadDir, ensureDirSync } = require('./config/storage');
 
 const app = express();
@@ -89,9 +88,7 @@ app.use((req, res) => {
 });
 
 // Start server and sync database
-runMigrations().then(() => {
-  return sequelize.sync();
-}).then(() => {
+sequelize.sync().then(() => {
 
   new MySQLCDRFetcher();
   new BillingScheduler();

@@ -318,7 +318,7 @@ const fetchVendorUsage = async (account, startDate, endDate) => {
       const numericDate = Number(date);
       const d = !isNaN(numericDate) ? new Date(numericDate) : new Date(date);
       if (isNaN(d.getTime())) return null;
-      d.setHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
+      d.setUTCHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
       return d.getTime().toString();
     };
 

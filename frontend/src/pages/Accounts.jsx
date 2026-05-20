@@ -572,6 +572,18 @@ const Accounts = () => {
     },
   ];
 
+  // Function to determine row background color based on credit limit status
+  const getRowBg = (row) => {
+    if (!row) return 'transparent';
+    const balance = parseFloat(row.balance || 0);
+    const creditLimit = parseFloat(row.creditLimit || 0);
+    // If balance has reached or exceeded credit limit (negative balance or equal to limit)
+    if (balance <= -creditLimit && creditLimit > 0) {
+      return 'red.50';
+    }
+    return 'transparent';
+  };
+
   const columns = [
     {
       key: "accountOwner",
@@ -995,6 +1007,7 @@ const Accounts = () => {
             onEdit={handleEdit}
             onDelete={handleDelete}
             onView={handleView}
+            getRowBg={getRowBg}
             serverPagination
             page={pagination.page || page}
             pageSize={pagination.limit || pageSize}

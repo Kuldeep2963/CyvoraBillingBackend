@@ -40,6 +40,11 @@ const DataTable = ({
    * buttons such as "Topup" alongside the built‑in menu.
    */
   rowActions,
+  /**
+   * Optional function that returns a background color for a row based on the row data.
+   * If provided, overrides the default striped background.
+   */
+  getRowBg,
   actions = true,
   compact = false,
   striped = false,
@@ -274,13 +279,15 @@ const DataTable = ({
                 </Td>
               </Tr>
             ) : (
-              paginatedData.map((item, index) => (
+              paginatedData.map((item, index) => {
+                const rowBgColor = getRowBg ? getRowBg(item) : (striped && index % 2 === 0 ? stripedBg : 'transparent');
+                return (
                 <Tr
                   className="app-table-row"
                   key={item.id || index}
                   _hover={{ bg: rowHoverBg }}
                   transition="all 0.2s"
-                  bg={striped && index % 2 === 0 ? stripedBg : 'transparent'}
+                  bg={rowBgColor}
                 >
                   {columns.map((column) => (
                     <Td  className="app-table-cell" key={`${item.id}-${column.key}`} minWidth={column.minWidth || "auto"}>
@@ -351,7 +358,8 @@ const DataTable = ({
                     </Td>
                   )}
                 </Tr>
-              ))
+                );
+              })
             )}
           </Tbody>
         </Table>

@@ -77,6 +77,7 @@ import {
   runBillingAutomation,
 } from "../utils/api";
 import { format, differenceInDays, subDays } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -770,25 +771,33 @@ const Invoices = () => {
           </Box>
         ),
       },
-      {
-        key: "period",
-        header: "Period",
-        minWidth: "140px",
-        render: (_, row) => {
-          const periodStartParsed = safeParseDateValue(row.billingPeriodStart);
-          const periodEndParsed = safeParseDateValue(row.billingPeriodEnd);
-          return (
-            <VStack align="start" spacing={0}>
-              <Text fontSize="sm">
-                {periodStartParsed ? format(periodStartParsed, "MMM dd") : "—"}
-              </Text>
-              <Text fontSize="xs" color="gray.500">
-                to {periodEndParsed ? format(periodEndParsed, "MMM dd, yyyy") : "—"}
-              </Text>
-            </VStack>
-          );
-        },
-      },
+
+{
+  key: "period",
+  header: "Period",
+  minWidth: "140px",
+  render: (_, row) => {
+    const periodStartParsed = safeParseDateValue(row.billingPeriodStart);
+    const periodEndParsed = safeParseDateValue(row.billingPeriodEnd);
+
+    return (
+      <VStack align="start" spacing={0}>
+        <Text fontSize="sm">
+          {periodStartParsed
+            ? formatInTimeZone(periodStartParsed, "UTC", "MMM dd")
+            : "—"}
+        </Text>
+
+        <Text fontSize="xs" color="gray.500">
+          to{" "}
+          {periodEndParsed
+            ? formatInTimeZone(periodEndParsed, "UTC", "MMM dd, yyyy")
+            : "—"}
+        </Text>
+      </VStack>
+    );
+  },
+},
       {
         key: "totalAmount",
         header: "Amount",

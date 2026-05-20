@@ -26,7 +26,7 @@ const formatTime = (date, hour = 0, isEnd = false) => {
   
   if (isNaN(d.getTime())) return null;
   
-  d.setHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
+  d.setUTCHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
   return d.getTime().toString();
 };
 
@@ -738,6 +738,43 @@ class InvoiceService {
     });
 
     return invoices;
+  }
+
+  /**
+   * Mark all eligible invoices as overdue.
+   * This is intended to run from a cron job.
+   */
+  async syncOverdueInvoiceStatuses() {
+    const overdueInvoices = await Invoice.findAll({
+      where: {
+        status: {
+          [Op.in]: ['pending', 'sent', 'partial'],
+        },
+        dueDate: {
+          [Op.lt]: Date.now(),
+        },
+        balanceAmount: {
+          [Op.gt]: 0,
+        },
+      },
+      order: [['dueDate', 'ASC']],
+    });
+
+    let updatedCount = 0;
+
+    for (const invoice of overdueInvoices) {
+      const previousStatus = invoice.status;
+      await invoice.update({ status: 'overdue' });
+
+      if (previousStatus !== invoice.status) {
+        updatedCount += 1;
+      }
+    }
+
+    return {
+      checked: overdueInvoices.length,
+      updated: updatedCount,
+    };
   }
 
   /**

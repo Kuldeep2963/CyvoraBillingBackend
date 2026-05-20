@@ -37,7 +37,7 @@ const formatTime = (date, hour = 0, isEnd = false) => {
 
   if (isNaN(d.getTime())) return null;
 
-  d.setHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
+  d.setUTCHours(hour, isEnd ? 59 : 0, isEnd ? 59 : 0, isEnd ? 999 : 0);
   return d.getTime().toString();
 };
 
@@ -1232,16 +1232,16 @@ const generateInvoicePDFBuffer = async (invoice) => {
     // Format dates for the template
     const formattedInvoiceDate = moment(
       parseInt(invoiceData.invoiceDate),
-    ).format("DD-MM-YYYY");
-    const formattedDueDate = moment(parseInt(invoiceData.dueDate)).format(
+    ).utc().format("DD-MM-YYYY");
+    const formattedDueDate = moment(parseInt(invoiceData.dueDate)).utc().format(
       "DD-MM-YYYY",
     );
     const formattedPeriodStart = moment(
       parseInt(invoiceData.billingPeriodStart),
-    ).format("DD MMM");
+    ).utc().format("DD MMM");
     const formattedPeriodEnd = moment(
       parseInt(invoiceData.billingPeriodEnd),
-    ).format("DD MMM YYYY");
+    ).utc().format("DD MMM YYYY");
 
     const invoiceHtml = `
       <html>
