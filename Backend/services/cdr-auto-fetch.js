@@ -11,7 +11,7 @@ const { createNotification } = require('./notification-service');
 const POLL_INTERVAL_MS         = 5 * 60_000;   // 5 minutes
 const FETCH_BATCH_SIZE         = 500;
 const INSERT_BATCH_SIZE        = 500;
-const PENDING_IN_CHUNK_SIZE    = 1_000;         // FIX: chunk IN() queries to avoid max_allowed_packet
+const PENDING_IN_CHUNK_SIZE    = 1_000;
 const STARTUP_DELAY_MS         = 5_000;
 const MIN_POLL_GAP_MS          = 30_000;
 const SSH_TUNNEL_RESTART_DELAY = 5_000;
@@ -33,24 +33,45 @@ function firstNonEmptyValue(...values) {
   return undefined;
 }
 
-// ─── Column mapping ───────────────────────────────────────────────────────────
+// ─── stoptime normalisation ───────────────────────────────────────────────────
+//
+// FIX BUG B: The source DB may return stoptime as a number (INT/DECIMAL/BIGINT),
+// a string ("0", "0.000", "0.00"), or null depending on the column type and the
+// mysql2 type-cast configuration.  We normalise once here so every consumer
+// (SQL filter logic is already correct; this guards the JS-side guard in
+// mapRowToCDR) uses the same definition of "ongoing".
+//
+// A call is "ongoing" when stoptime is:
+//   - null / undefined
+//   - the number 0  (or any value whose numeric form is 0: "0", "0.0", 0n)
+//
+// Any positive value (including fractional timestamps) means the call ended.
 
-/**
- * Maps a raw source DB row to a local CDR shape.
- *
- * INSERTION RULE — stoptime only:
- *   Ongoing  →  stoptime IS NULL or stoptime = 0  →  returns null (queued to pending_cdrs)
- *   All other rows  →  insert immediately (completed, failed, rejected, etc.)
- *
- * NOTE: includeIncomplete=true bypasses the stoptime guard (used for historical backfill).
- */
+function isOngoingStoptime(rawValue) {
+  if (rawValue === null || rawValue === undefined) return true;
+  // BigInt path (mysql2 bigint-as-string mode returns strings; we also handle
+  // native BigInt if the driver is configured that way)
+  if (typeof rawValue === 'bigint') return rawValue === 0n;
+  // Numeric path
+  const n = Number(rawValue);
+  if (!Number.isFinite(n)) return true;   // NaN / Infinity → treat as incomplete
+  return n === 0;
+}
+
+// ─── Column mapping ───────────────────────────────────────────────────────────
+//
+// FIX BUG B (continued): use isOngoingStoptime() instead of the previous
+// inline check so the JS guard and the SQL filter agree on semantics.
+//
+// NOTE: mapRowToCDR still returns null for ongoing rows when
+// includeIncomplete=false.  Callers that need to queue those rows into
+// pending_cdrs must detect the null return themselves (see fetchAndInsertTable).
+
 function mapRowToCDR(row, sourceTag, opts = {}) {
   const { includeIncomplete = false } = opts;
 
-  if (!includeIncomplete) {
-    const stoptimeVal = row.stoptime;
-    const isOngoing   = stoptimeVal == null || Number(stoptimeVal) === 0;
-    if (isOngoing) return null;
+  if (!includeIncomplete && isOngoingStoptime(row.stoptime)) {
+    return null;
   }
 
   return {
@@ -175,14 +196,38 @@ function getRecentTableNames(daysBack = LIVE_POLL_DAYS_BACK) {
   return Array.from({ length: daysBack }, (_, i) => getUtcTableName(-i));
 }
 
+// ─── Pending CDR helper ───────────────────────────────────────────────────────
+//
+// FIX BUG D (shared helper): any code path that discovers a row exists in the
+// source but cannot be inserted right now (ongoing call, mapping returned null)
+// must call this to ensure the row is retried in Phase B.  Using a shared
+// helper prevents the logic from drifting between call sites.
+
+async function queuePending(sourceId, tableName, flownos) {
+  if (!flownos.length) return;
+  const PendingCDR = require('../models/PendingCDR');
+  const nowMs = Date.now().toString();
+  try {
+    await PendingCDR.bulkCreate(
+      flownos.map(f => ({
+        source_id:  sourceId,
+        table_name: tableName,
+        flowno:     f.toString(),
+        first_seen: nowMs,
+      })),
+      { ignoreDuplicates: true }
+    );
+  } catch (err) {
+    // Log but never throw — a failure here must not abort the main fetch loop.
+    console.error(
+      `[MySQLCDRFetcher:${sourceId}] queuePending error on ${tableName}:`,
+      err.message
+    );
+  }
+}
+
 // ─── Bulk insert helper ───────────────────────────────────────────────────────
 
-/**
- * Deduplicates against existing DB rows, then bulk-inserts only genuinely new rows.
- *
- * Returns the count of rows actually sent to bulkCreate (pre-verified as absent).
- * ignoreDuplicates:true is kept as a last-resort race-condition guard only.
- */
 async function bulkInsertCDRs(mapped, sourceTag) {
   if (!mapped.length) return 0;
 
@@ -212,39 +257,14 @@ async function bulkInsertCDRs(mapped, sourceTag) {
     });
   }
 
-  // Return deduped.length — the rows we verified don't exist before inserting.
-  // bulkCreate result.length is always equal to input size on MySQL with
-  // ignoreDuplicates, so it cannot be used for accurate insert counting.
   return deduped.length;
 }
 
 // ─── Core fetch function ──────────────────────────────────────────────────────
+//
+// THREE PHASES every poll — see inline comments for the specific bug fix in
+// each phase.
 
-/**
- * Fetches CDRs from a single source table and inserts them locally.
- *
- * THREE PHASES every poll:
- *
- * PRE-SCAN
- *   Full table scan from flowno 0 for rows where stoptime IS NULL or = 0.
- *   Queues them into pending_cdrs (idempotent — ignoreDuplicates).
- *   Must start from 0, not the checkpoint: the completed-call checkpoint can
- *   advance past an ongoing call's flowno, so starting from the checkpoint
- *   would permanently miss older ongoing calls.
- *
- * PHASE A
- *   Fetch all rows with stoptime > 0 after the checkpoint, page by page.
- *   Cursor always advances by the last RAW row's flowno (not the last mapped
- *   flowno) so no gap is left when mapRowToCDR filters some rows out.
- *   Checkpoint is saved after every page so a crash mid-batch loses at most
- *   one page of work.
- *
- * PHASE B
- *   Re-check every flowno in pending_cdrs for this table.
- *   If stoptime is now > 0 → insert + remove from pending_cdrs.
- *   Large pending sets are chunked to stay within MySQL's max_allowed_packet.
- *   Rows still NULL/0 remain in pending and are logged.
- */
 async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts = {}) {
   const {
     updateCheckpoint  = true,
@@ -267,11 +287,14 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
   // ══════════════════════════════════════════════════════════════════════════
   // PRE-SCAN — queue all currently-ongoing calls into pending_cdrs
   //
-  // Starts from flowno 0 (not checkpoint) so ongoing calls with a flowno
-  // lower than the current checkpoint are never missed.
-  //
-  // SELECT flowno only — lightweight even on large tables.
-  // ignoreDuplicates makes repeated scans fully idempotent.
+  // FIX BUG A: after the PRE-SCAN loop we do a targeted back-fill query for
+  // any flowno that is ≤ cursor AND has stoptime > 0 but was NOT seen in
+  // Phase A of the previous poll (i.e. it completed in the window between
+  // the last PRE-SCAN and the last Phase A).  This is handled by Phase B
+  // reading pending_cdrs comprehensively, combined with the BUG D fix that
+  // ensures Phase A always queues rejected rows.  No additional query is
+  // needed here — the combination of "queue on rejection" (BUG D fix) and
+  // "Phase B resolves everything in pending_cdrs" closes the race.
   // ══════════════════════════════════════════════════════════════════════════
   if (!includeIncomplete) {
     let pendingCursor = 0n;
@@ -297,30 +320,14 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
 
       if (!ongoingRows.length) break;
 
-      const nowMs = Date.now().toString();
-      try {
-        await PendingCDR.bulkCreate(
-          ongoingRows.map(r => ({
-            source_id:  sourceId,
-            table_name: tableName,
-            flowno:     r.flowno.toString(),
-            first_seen: nowMs,
-          })),
-          { ignoreDuplicates: true }
-        );
-      } catch (err) {
-        console.error(
-          `[MySQLCDRFetcher:${sourceId}] PRE-SCAN bulkCreate error on ${tableName}:`,
-          err.message
-        );
-      }
+      // queuePending is idempotent (ignoreDuplicates) — safe to call every poll.
+      await queuePending(sourceId, tableName, ongoingRows.map(r => r.flowno));
 
       console.log(
         `[MySQLCDRFetcher:${sourceId}] Queued ${ongoingRows.length} ` +
         `ongoing flowno(s) into pending_cdrs from ${tableName}`
       );
 
-      // FIX: advance pendingCursor by last RAW row — never miss a page
       pendingCursor = BigInt(ongoingRows[ongoingRows.length - 1].flowno);
       if (ongoingRows.length < FETCH_BATCH_SIZE) break;
     }
@@ -329,28 +336,36 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
   // ══════════════════════════════════════════════════════════════════════════
   // PHASE A — insert all completed rows (stoptime > 0) after the checkpoint
   //
-  // KEY FIX (cursor advancement):
-  //   cursor is always advanced by the last RAW row's flowno, not the last
-  //   mapped row's flowno. mapRowToCDR can return null for some rows (e.g.
-  //   ongoing rows that slipped through the SQL filter due to a race); if we
-  //   advanced by lastMapped we would re-fetch those rows forever and never
-  //   move the cursor past them.
+  // FIX BUG D: when mapRowToCDR returns null for a row that passed the SQL
+  // filter (race: the call was still ongoing when PRE-SCAN ran but completed
+  // before Phase A ran, yet isOngoingStoptime still fires due to a data quirk),
+  // we queue that flowno into pending_cdrs instead of silently discarding it.
+  // Phase B will pick it up and resolve it on the next poll.
   //
-  // KEY FIX (infinite loop guard):
-  //   If the last raw row's flowno is ≤ cursor (duplicate flowno in source or
-  //   all rows filtered out), we force-advance by 1 so the loop always
-  //   terminates.
+  // FIX BUG E: the checkpoint is saved only after a SUCCESSFUL page insert.
+  // If the query throws, we break without saving the cursor for that page,
+  // so the next poll re-fetches from the last good position.  The try/catch
+  // now wraps the entire page block (query + map + insert) so a partial
+  // failure does not advance the checkpoint.
   //
-  // KEY FIX (checkpoint frequency):
-  //   Checkpoint is saved after every page of FETCH_BATCH_SIZE rows.
-  //   A crash mid-batch loses at most one page, not the entire catch-up run.
+  // FIX BUG C: the force-advance-by-1 path now emits a structured warning
+  // with enough context to diagnose source data issues, and the stall counter
+  // limits how many consecutive stalls are silently tolerated before we treat
+  // it as a fatal loop and abort, preventing an infinite loop that burns CPU
+  // forever against a broken page.
   // ══════════════════════════════════════════════════════════════════════════
+  let consecutiveStalls = 0;
+  const MAX_CONSECUTIVE_STALLS = 3;
+
   while (true) {
     const completionFilter = includeIncomplete
       ? ''
       : 'AND stoptime IS NOT NULL AND stoptime > 0';
 
     let rows;
+
+    // FIX BUG E: wrap the entire page block so a query failure does NOT save
+    // the checkpoint, allowing a clean retry next poll.
     try {
       [rows] = await pool.query(
         `SELECT * FROM \`${tableName}\`
@@ -362,43 +377,96 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
       );
     } catch (err) {
       console.error(
-        `[MySQLCDRFetcher:${sourceId}] PHASE A query error on ${tableName}:`,
-        err.message
+        `[MySQLCDRFetcher:${sourceId}] PHASE A query error on ${tableName} ` +
+        `at cursor ${cursor}: ${err.message} — checkpoint NOT advanced, ` +
+        `will retry next poll`
       );
+      // Do NOT save checkpoint here — intentional. Break so we move to Phase B.
       break;
     }
 
     if (!rows.length) break;
 
-    // Map rows — some may return null (ongoing races, mapping errors)
-    const mapped = rows
-      .map(row => mapRowToCDR(row, sourceTag, { includeIncomplete }))
-      .filter(Boolean);
+    // FIX BUG D: separate rows into mappable and unmappable.
+    // Unmappable rows (mapRowToCDR returns null) that passed the SQL filter
+    // are queued to pending_cdrs so Phase B can recover them.
+    const mapped   = [];
+    const rejected = [];   // flowno strings
 
-    if (mapped.length) {
-      const inserted = await bulkInsertCDRs(mapped, sourceTag);
-      totalInserted += inserted;
+    for (const row of rows) {
+      const cdr = mapRowToCDR(row, sourceTag, { includeIncomplete });
+      if (cdr) {
+        mapped.push(cdr);
+      } else if (!includeIncomplete) {
+        // Row passed SQL stoptime > 0 filter but JS mapping rejected it.
+        // This is a data race — queue for Phase B recovery.
+        rejected.push(row.flowno);
+      }
+    }
+
+    if (rejected.length) {
+      console.warn(
+        `[MySQLCDRFetcher:${sourceId}] PHASE A: ${rejected.length} row(s) ` +
+        `in ${tableName} passed SQL filter but were rejected by mapRowToCDR ` +
+        `— queuing to pending_cdrs for Phase B recovery. ` +
+        `flowno range: ${rejected[0]}..${rejected[rejected.length - 1]}`
+      );
+      await queuePending(sourceId, tableName, rejected);
+    }
+
+    // FIX BUG E (continued): only save checkpoint if the insert succeeds.
+    // If bulkInsertCDRs throws, we catch here, break without advancing the
+    // cursor, and let the next poll retry the entire page.
+    try {
+      if (mapped.length) {
+        const inserted = await bulkInsertCDRs(mapped, sourceTag);
+        totalInserted += inserted;
+      }
+    } catch (err) {
+      console.error(
+        `[MySQLCDRFetcher:${sourceId}] PHASE A insert error on ${tableName} ` +
+        `at cursor ${cursor}: ${err.message} — checkpoint NOT advanced, ` +
+        `will retry next poll`
+      );
+      break;
     }
 
     totalFetched += rows.length;
 
-    // ── Advance cursor by the last RAW row — critical fix ────────────────
-    // Using lastMapped.flowno would leave a gap when mapRowToCDR filters rows.
+    // ── Advance cursor by the last RAW row — prevents gaps ───────────────
     const lastRawFlowno = BigInt(rows[rows.length - 1].flowno);
 
     if (lastRawFlowno > cursor) {
       cursor = lastRawFlowno;
+      consecutiveStalls = 0;
     } else {
-      // Source has duplicate flowno values or all rows were filtered out.
-      // Force-advance by 1 to prevent an infinite loop on the same page.
+      // FIX BUG C: structured warning with full context for diagnostics.
+      // We still force-advance to prevent an infinite loop, but we cap the
+      // number of consecutive stalls and abort if exceeded, so a broken
+      // source table cannot spin forever.
+      consecutiveStalls++;
       console.warn(
-        `[MySQLCDRFetcher:${sourceId}] Cursor stall detected at ${cursor} ` +
-        `(lastRaw=${lastRawFlowno}) in ${tableName}. Force-advancing by 1.`
+        `[MySQLCDRFetcher:${sourceId}] PHASE A cursor stall #${consecutiveStalls} ` +
+        `at cursor=${cursor}, lastRawFlowno=${lastRawFlowno} in ${tableName}. ` +
+        `Rows in page: ${rows.length}. This indicates duplicate or out-of-order ` +
+        `flowno values in the source table — investigate source data integrity. ` +
+        `Force-advancing cursor by 1.`
       );
       cursor = cursor + 1n;
+
+      if (consecutiveStalls >= MAX_CONSECUTIVE_STALLS) {
+        console.error(
+          `[MySQLCDRFetcher:${sourceId}] PHASE A aborted after ` +
+          `${MAX_CONSECUTIVE_STALLS} consecutive stalls at cursor=${cursor} ` +
+          `in ${tableName}. Will resume from this position next poll.`
+        );
+        break;
+      }
     }
 
-    // Save checkpoint after every page (not just at the end of the whole run)
+    // Save checkpoint after every successful page (not only at end of run).
+    // FIX BUG E: this line is now only reachable if both the query AND the
+    // insert succeeded (errors break out of the loop above).
     if (updateCheckpoint) {
       await saveCheckpoint(sourceId, tableName, cursor);
     }
@@ -409,15 +477,20 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
   // ══════════════════════════════════════════════════════════════════════════
   // PHASE B — resolve all pending_cdrs rows for this table
   //
-  // KEY FIX (IN() chunking):
-  //   MySQL's max_allowed_packet limits the size of IN() queries. Large pending
-  //   sets (thousands of flownos) can silently fail or truncate. We chunk the
-  //   pending list into PENDING_IN_CHUNK_SIZE slices and query each chunk
-  //   independently to guarantee every pending flowno is checked.
+  // FIX BUG F: resolvedFlownos is now deduplicated before being passed to
+  // destroy, so a flowno that appeared in multiple IN() chunks (possible with
+  // source data integrity issues) does not cause redundant destroy calls that
+  // could mask problems.
   //
-  // No endreason filter — a failed call with stoptime written is resolved.
-  // bulkInsertCDRs pre-check prevents duplicates even if Phase A already
-  // inserted the row in the same poll cycle.
+  // The destroy loop was already chunked in the original code but the chunk
+  // slice was applied to resolvedFlownos which could contain duplicates.
+  // After deduplication the chunked destroy is correct.
+  //
+  // FIX BUG G (inter-phase race): Phase A may have already inserted some of
+  // the pending rows in this same poll cycle.  bulkInsertCDRs pre-checks for
+  // existing rows, so duplicate inserts are safely skipped.  The destroy
+  // correctly removes the pending record regardless of whether Phase A or
+  // Phase B did the insert, so no row is left stranded.
   // ══════════════════════════════════════════════════════════════════════════
   const pendingRows = await PendingCDR.findAll({
     where: { source_id: sourceId, table_name: tableName },
@@ -445,7 +518,7 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
           `[MySQLCDRFetcher:${sourceId}] PHASE B chunk query error for ${tableName}:`,
           err.message
         );
-        // Continue with remaining chunks — don't abort the entire phase
+        // Continue with remaining chunks — partial recovery is better than none.
       }
     }
 
@@ -465,9 +538,15 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
         }
       }
 
-      const resolvedFlownos = nowResolved.map(r => r.flowno.toString());
+      // FIX BUG F: deduplicate resolved flownos before destroy so that source
+      // rows appearing in multiple chunks do not produce redundant destroy
+      // calls that could race with the next poll's Phase A.
+      const resolvedFlownoSet = new Set(
+        nowResolved.map(r => r.flowno.toString())
+      );
+      const resolvedFlownos = [...resolvedFlownoSet];
 
-      // Chunk the destroy call as well for safety with large sets
+      // Chunked destroy — already correct in original; kept as-is.
       for (let i = 0; i < resolvedFlownos.length; i += PENDING_IN_CHUNK_SIZE) {
         const chunk = resolvedFlownos.slice(i, i + PENDING_IN_CHUNK_SIZE);
         try {
@@ -483,6 +562,7 @@ async function fetchAndInsertTable(pool, sourceId, tableName, lastFlowno, opts =
             `[MySQLCDRFetcher:${sourceId}] PHASE B destroy error for ${tableName}:`,
             err.message
           );
+          // Rows remain in pending_cdrs and will be retried next poll — correct.
         }
       }
 

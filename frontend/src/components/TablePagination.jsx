@@ -88,7 +88,7 @@ const TablePagination = ({
         />
 
         <Flex align="center" px={2}>
-          <Text fontSize="sm" fontWeight="medium">
+          <Text fontSize="sm">
             Page {currentPage} of {totalPages}
           </Text>
         </Flex>

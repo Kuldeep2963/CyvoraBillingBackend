@@ -42,9 +42,9 @@ import {
 import DataTable from "../components/DataTable";
 import useNotify from "../utils/notify";
 import ConfirmDialog from "../components/ConfirmDialog";
-import CreateAccountModal from "../components/modals/CreateAccountModal";
+import CreateAccountModal from "../components/modals/Accounts/CreateAccountModal";
 import TopupModal from "../components/modals/TopupModal";
-import BulkAccountUploadModal from "../components/modals/BulkAccountUploadModal";
+import BulkAccountUploadModal from "../components/modals/Accounts/BulkAccountUploadModal";
 import {
   fetchCustomers,
   createCustomer,
@@ -209,6 +209,16 @@ const Accounts = () => {
     { value: "paypal", label: "PayPal" },
     { value: "invoice", label: "Invoice" },
   ];
+
+  const handleClearFilters = () => {
+    setSearchTerm("");
+    setDebouncedSearch("");
+    setRoleFilter("all");
+    setStatusFilter("all");
+    setBillingTypeFilter("all");
+    setOwnerFilter("all");
+    setPage(1);
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -993,6 +1003,23 @@ const Accounts = () => {
               </InputRightElement>
             )}
           </InputGroup>
+
+          <Button
+            colorScheme="red"
+            leftIcon={<FiX/>}
+            size="sm"
+            variant="outline"
+            onClick={handleClearFilters}
+            isDisabled={
+              !searchTerm &&
+              roleFilter === "all" &&
+              statusFilter === "all" &&
+              billingTypeFilter === "all" &&
+              ownerFilter === "all"
+            }
+          >
+            Clear Filters
+          </Button>
         </Flex>
         {/* Data Table */}
         {loading ? (

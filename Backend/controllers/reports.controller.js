@@ -312,13 +312,13 @@ const buildAllAccountsWhereClause = async (timerangeLiteral, vendorReport) => {
         'id', 'accountRole', 'customerCode', 'vendorCode', 'gatewayId',
         'customerauthenticationType', 'customerauthenticationValue',
         'vendorauthenticationType', 'vendorauthenticationValue',
-        'customername', 'accountName'
+        'accountName'
       ],
       raw: true
     });
 
     if (accounts.length === 0) {
-      console.log('⚠️  No active accounts found for all-account report');
+      console.log('  No active accounts found for all-account report');
       return where; // Return time-range only filter
     }
 
@@ -397,12 +397,12 @@ const buildAllAccountsWhereClause = async (timerangeLiteral, vendorReport) => {
       where[Op.and].push({
         [Op.or]: allAccountConditions
       });
-      console.log(`✅ Built optimized WHERE clause matching ${accounts.length} accounts with ${allAccountConditions.length} conditions`);
+      console.log(` Built optimized WHERE clause matching ${accounts.length} accounts with ${allAccountConditions.length} conditions`);
     } else {
-      console.warn('⚠️  No matching account conditions found for report type');
+      console.warn(' No matching account conditions found for report type');
     }
   } catch (error) {
-    console.error('❌ Error in buildAllAccountsWhereClause:', error);
+    console.error(' Error in buildAllAccountsWhereClause:', error);
     // Fallback to time-range only, don't throw
   }
 
@@ -1528,23 +1528,218 @@ exports.getAccountExposure = async (req, res) => {
 /* ===================== EXPORT REPORT ===================== */
 exports.exportReport = async (req, res) => {
   try {
-    const { data, format, fileName } = req.body;
+    const { data, format, fileName, meta = {} } = req.body;
 
     if (!data || !Array.isArray(data)) {
       return res.status(400).json({ error: 'Data is required and must be an array' });
     }
 
+    // Determine columns (union of keys to be stable)
+    const columns = data.length > 0
+      ? Array.from(new Set(data.flatMap(d => Object.keys(d))))
+      : [];
+
+    const safeMeta = {
+      title: meta.title || 'Report',
+      account: meta.account || '',
+      accountCode: meta.accountCode || '',
+      startDate: meta.startDate || '',
+      endDate: meta.endDate || '',
+      periodLabel: meta.periodLabel || '',
+      trunk: meta.trunk || '',
+      generatedAt: meta.generatedAt || Date.now(),
+      summary: meta.summary || {},
+      totalRecords: Number(meta.totalRecords || data.length || 0),
+    };
+
+    // Helper to convert column index to Excel letter (1 -> A)
+    const columnToLetter = (col) => {
+      let temp; let letter = '';
+      while (col > 0) {
+        temp = (col - 1) % 26;
+        letter = String.fromCharCode(65 + temp) + letter;
+        col = Math.floor((col - temp - 1) / 26);
+      }
+      return letter;
+    };
+
+    // Normalizer for column keys
+    const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // Helper to find column index by key name with robust normalization and aliases
+    const findColumnIndex = (desired) => {
+      if (!desired) return -1;
+
+      const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const dNorm = normalize(desired);
+
+      const aliases = {
+        attempts: ['attempts', 'totalcalls', 'total_calls', 'calls', 'total_calls'],
+        completed: ['completed', 'comp', 'answeredcalls', 'answered_calls', 'answered', 'comp.'],
+        revenue: ['revenue', 'totalrevenue', 'total_revenue', 'rev', 'amount', 'totalrevenue', 'revenue_usd', 'rev/min'],
+        cost: ['cost', 'totalcost', 'total_cost', 'cost_per_min', 'costpermin', 'cost/min'],
+        margin: ['margin', 'totalmargin', 'total_margin', 'profit'],
+        asr: ['asr', 'avgasr', 'asrpercent', 'asrpercent', 'asrpercentvalue'],
+        marginpercent: ['marginpercent', 'margin_percent', 'marginpercentvalue', 'margin%'],
+        duration: ['duration', 'totalduration', 'acd', 'acdsec', 'acdsec'],
+      };
+
+      // Build normalized candidates for the desired key
+      const candidates = new Set([dNorm]);
+      const aliasList = aliases[dNorm] || [];
+      aliasList.forEach((a) => candidates.add(normalize(a)));
+
+      // Also include normalized desired and some common forms
+      candidates.add(dNorm);
+
+      for (let i = 0; i < columns.length; i++) {
+        const colKeyNorm = normalize(columns[i]);
+        if (candidates.has(colKeyNorm)) return i;
+      }
+
+      // Fallback: try partial matches (contains)
+      for (let i = 0; i < columns.length; i++) {
+        const colKeyNorm = normalize(columns[i]);
+        if (colKeyNorm.includes(dNorm) || dNorm.includes(colKeyNorm)) return i;
+      }
+
+      // No match
+      console.warn('Export: could not map summary key to column:', desired, 'columns:', columns);
+      return -1;
+    };
+
     if (format === 'excel') {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Report');
 
-      if (data.length > 0) {
-        worksheet.columns = Object.keys(data[0]).map(key => ({
-          header: key.charAt(0).toUpperCase() + key.slice(1),
-          key: key,
-          width: 20
-        }));
-        worksheet.addRows(data);
+      const colCount = Math.max(columns.length, 1);
+      const lastCol = columnToLetter(colCount);
+
+      // Top info rows
+      worksheet.mergeCells(`A1:${lastCol}1`);
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = safeMeta.title;
+      titleCell.font = { bold: true, size: 14 };
+      titleCell.alignment = { horizontal: 'center' };
+
+      worksheet.mergeCells(`A2:${lastCol}2`);
+      const metaCell = worksheet.getCell('A2');
+      metaCell.value = `Account: ${safeMeta.account} (${safeMeta.accountCode}) | Period: ${safeMeta.periodLabel} | Trunk: ${safeMeta.trunk}`;
+      metaCell.font = { italic: false, size: 10 };
+      metaCell.alignment = { horizontal: 'center' };
+
+      worksheet.mergeCells(`A3:${lastCol}3`);
+      const genCell = worksheet.getCell('A3');
+      genCell.value = `Generated: ${new Date(safeMeta.generatedAt).toLocaleString()}`;
+      genCell.font = { size: 9 };
+      genCell.alignment = { horizontal: 'center' };
+
+      // Header row (row 5)
+      const headerRowIndex = 5;
+      const headerRow = worksheet.getRow(headerRowIndex);
+      headerRow.height = 20;
+      columns.forEach((key, idx) => {
+        const colIdx = idx + 1;
+        const cell = headerRow.getCell(colIdx);
+        cell.value = String(key).toUpperCase();
+        cell.font = { bold: true };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
+        cell.border = {
+          top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
+        };
+        // set column width heuristically
+        worksheet.getColumn(colIdx).width = Math.max(12, Math.min(40, String(key).length + 10));
+      });
+
+      // Data rows start after headerRowIndex
+      let currentRow = headerRowIndex + 1;
+      for (const rowObj of data) {
+        const row = worksheet.getRow(currentRow);
+        columns.forEach((key, idx) => {
+          const colIdx = idx + 1;
+          const val = rowObj[key];
+          row.getCell(colIdx).value = (val === null || val === undefined) ? '' : val;
+        });
+        currentRow += 1;
+      }
+
+      // Footer / summary: compute totals from data and place them into matching table columns
+      const summary = safeMeta.summary || {};
+      // Compute numeric totals per column
+      const totals = {};
+      let rowCount = 0;
+      for (const rowObj of data) {
+        rowCount += 1;
+        for (const colName of columns) {
+          const v = rowObj[colName];
+          const n = Number(v);
+          if (!Number.isNaN(n) && typeof v !== 'object') {
+            totals[colName] = (totals[colName] || 0) + n;
+          }
+        }
+      }
+
+      // Add an empty row as spacer
+      currentRow += 1;
+      const summaryRow = worksheet.getRow(currentRow);
+      summaryRow.getCell(1).value = 'SUMMARY';
+      summaryRow.getCell(1).font = { bold: true };
+      summaryRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7FAFC' } };
+
+      // Populate summary row by examining each exported column
+      for (let idx = 0; idx < columns.length; idx++) {
+        const colName = columns[idx];
+        const colNorm = normalize(colName);
+        let rawValue = '';
+        let label = '';
+
+        if (['attempts', 'calls', 'totalcalls', 'total_calls'].some(k => colNorm === k || colNorm.includes(k))) {
+          label = 'Total Calls :-';
+          rawValue = totals[colName] ?? 0;
+        } else if (['completed', 'comp', 'answeredcalls'].some(k => colNorm === k || colNorm.includes(k))) {
+          label = 'Completed Calls :-';
+          rawValue = totals[colName] ?? 0;
+        } else if (colNorm.includes('revenue') || colNorm.includes('rev') || colNorm.includes('amount')) {
+          label = 'Total Revenue :-';
+          rawValue = totals[colName] ?? 0;
+        } else if (colNorm.includes('cost') && !colNorm.includes('costper')) {
+          label = 'Total Cost :-';
+          rawValue = totals[colName] ?? 0;
+        } else if (colNorm.includes('margin') && !colNorm.includes('marginpercent')) {
+          label = 'Total Margin :-';
+          rawValue = totals[colName] ?? 0;
+        } else if (colNorm === 'duration' || colNorm.includes('duration') || colNorm.includes('acd')) {
+          label = 'Total Duration :-';
+          rawValue = totals[colName] ?? 0;
+        } else if (colNorm === 'asr' || colNorm.includes('asr')) {
+          label = 'Avg ASR :-';
+          const attemptsKey = Object.keys(totals).find(k => normalize(k).includes('attempt'));
+          const completedKey = Object.keys(totals).find(k => normalize(k).includes('completed') || normalize(k).includes('comp'));
+          const attemptsSum = attemptsKey ? totals[attemptsKey] : undefined;
+          const completedSum = completedKey ? totals[completedKey] : undefined;
+          if (attemptsSum > 0 && completedSum >= 0) {
+            rawValue = parseFloat(((completedSum / attemptsSum) * 100).toFixed(6));
+          } else if (totals[colName] !== undefined) {
+            rawValue = parseFloat((totals[colName] / rowCount).toFixed(6));
+          } else {
+            rawValue = '';
+          }
+        } else {
+          // fallback: if column has numeric total computed, show it
+          if (totals[colName] !== undefined) {
+            label = 'Total :-';
+            rawValue = totals[colName];
+          }
+        }
+
+        if (rawValue !== '' && rawValue !== undefined) {
+          const cell = summaryRow.getCell(idx + 1);
+          const formatted = (typeof rawValue === 'number') ? Number(rawValue).toFixed(4) : String(rawValue);
+          cell.value = `${label} ${formatted}`.trim();
+          cell.font = { bold: true };
+          cell.alignment = { horizontal: 'right' };
+        }
       }
 
       res.setHeader(
@@ -1559,15 +1754,100 @@ exports.exportReport = async (req, res) => {
       await workbook.xlsx.write(res);
       res.end();
     } else {
-      const json2csvParser = new Parser();
-      const csv = json2csvParser.parse(data);
+      // CSV: craft top info, header with bold-like labels (CSV can't style), but include a header row and add header indicator row
+      const json2csvParser = new Parser({ fields: columns, quote: '"' });
+
+      const topLines = [];
+      topLines.push(`${safeMeta.title}`);
+      topLines.push(`Account: ${safeMeta.account} (${safeMeta.accountCode})`);
+      topLines.push(`Period: ${safeMeta.periodLabel}`);
+      topLines.push(`Trunk: ${safeMeta.trunk}`);
+      topLines.push(`Generated: ${new Date(safeMeta.generatedAt).toLocaleString()}`);
+      topLines.push('');
+
+      const csvBody = json2csvParser.parse(data);
+
+      // Compute totals similar to Excel branch
+      const totalsCsv = {};
+      let csvRowCount = 0;
+      for (const rowObj of data) {
+        csvRowCount += 1;
+        for (const colName of columns) {
+          const v = rowObj[colName];
+          const n = Number(v);
+          if (!Number.isNaN(n) && typeof v !== 'object') {
+            totalsCsv[colName] = (totalsCsv[colName] || 0) + n;
+          }
+        }
+      }
+
+      const summaryRowArr = Array(columns.length).fill('');
+      summaryRowArr[0] = 'SUMMARY';
+
+      for (let i = 0; i < columns.length; i++) {
+        const colName = columns[i];
+        const colNorm = normalize(colName);
+        let rawValue = '';
+        let label = '';
+        if (['attempts', 'calls', 'totalcalls', 'total_calls'].some(k => colNorm === k || colNorm.includes(k))) {
+          label = 'Total Calls :-';
+          rawValue = totalsCsv[colName] ?? '';
+        } else if (['completed', 'comp', 'answeredcalls'].some(k => colNorm === k || colNorm.includes(k))) {
+          label = 'Completed Calls :-';
+          rawValue = totalsCsv[colName] ?? '';
+        } else if (colNorm.includes('revenue') || colNorm.includes('rev') || colNorm.includes('amount')) {
+          label = 'Total Revenue :-';
+          rawValue = totalsCsv[colName] ?? '';
+        } else if (colNorm.includes('cost') && !colNorm.includes('costper')) {
+          label = 'Total Cost :-';
+          rawValue = totalsCsv[colName] ?? '';
+        } else if (colNorm.includes('margin') && !colNorm.includes('marginpercent')) {
+          label = 'Total Margin :-';
+          rawValue = totalsCsv[colName] ?? '';
+        } else if (colNorm === 'duration' || colNorm.includes('duration') || colNorm.includes('acd')) {
+          label = 'Total Duration :-';
+          rawValue = totalsCsv[colName] ?? '';
+        } else if (colNorm === 'asr' || colNorm.includes('asr')) {
+          label = 'Avg ASR :-';
+          const attemptsKey = Object.keys(totalsCsv).find(k => normalize(k).includes('attempt'));
+          const completedKey = Object.keys(totalsCsv).find(k => normalize(k).includes('completed') || normalize(k).includes('comp'));
+          const attemptsSum = attemptsKey ? totalsCsv[attemptsKey] : undefined;
+          const completedSum = completedKey ? totalsCsv[completedKey] : undefined;
+          if (attemptsSum > 0 && completedSum >= 0) {
+            rawValue = parseFloat(((completedSum / attemptsSum) * 100).toFixed(6));
+          } else if (totalsCsv[colName] !== undefined) {
+            rawValue = parseFloat((totalsCsv[colName] / csvRowCount).toFixed(6));
+          } else {
+            rawValue = '';
+          }
+        } else {
+          if (totalsCsv[colName] !== undefined) {
+            label = 'Total :-';
+            rawValue = totalsCsv[colName];
+          }
+        }
+
+        if (rawValue !== '' && rawValue !== undefined) {
+          const formatted = (typeof rawValue === 'number') ? Number(rawValue).toFixed(4) : String(rawValue);
+          summaryRowArr[i] = `${label} ${formatted}`.trim();
+        }
+      }
+
+      const csvEscape = (v) => {
+        if (v === null || v === undefined) return '';
+        const s = String(v).replace(/"/g, '""');
+        return `"${s}"`;
+      };
+
+      const summaryCsvLine = summaryRowArr.map(csvEscape).join(',');
+      const finalCsv = [...topLines, csvBody, '', summaryCsvLine].join('\n');
 
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader(
         'Content-Disposition',
         `attachment; filename=${fileName || 'report'}.csv`
       );
-      res.status(200).send(csv);
+      res.status(200).send(finalCsv);
     }
   } catch (e) {
     console.error('Export Report Error:', e);

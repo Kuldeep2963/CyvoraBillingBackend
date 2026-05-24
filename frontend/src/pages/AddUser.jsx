@@ -39,7 +39,7 @@ import {
 import useNotify from "../utils/notify";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import { useState, useEffect, useCallback } from "react";
-import { createUser, fetchUsers, deleteUser } from "../utils/api";
+import { createUser, fetchUsers, deleteUser, updateUser } from "../utils/api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import PageNavBar from "../components/PageNavBar";
 import { FiMail } from "react-icons/fi";
@@ -69,7 +69,7 @@ const roleColor = (role) => {
 };
 
 // ── Users Table Tab ───────────────────────────────────────────
-const UsersTab = ({ onAddNew, refreshSignal }) => {
+const UsersTab = ({ onAddNew, refreshSignal, onEdit }) => {
   const border  = useColorModeValue("gray.200", "gray.700");
   const cardBg  = useColorModeValue("white", "gray.800");
   const hoverBg = useColorModeValue("gray.50", "gray.750");
@@ -265,6 +265,7 @@ const UsersTab = ({ onAddNew, refreshSignal }) => {
                           <MenuButton as={IconButton} icon={<FiMoreVertical />} variant="ghost" size="xs"
                             color="gray.600" _hover={{ color: "gray.700", bg: "gray.100" }} borderRadius="6px" />
                           <MenuList fontSize="sm" minW="130px" shadow="lg" borderColor={border}>
+                            <MenuItem fontSize="13px" onClick={() => onEdit?.(u)}>Edit</MenuItem>
                             <MenuItem fontSize="13px" color="red.500" onClick={() => setDeleteUserId(u.id)}>Delete</MenuItem>
                           </MenuList>
                         </Menu>
@@ -295,7 +296,7 @@ const UsersTab = ({ onAddNew, refreshSignal }) => {
 };
 
 // ── Add User Form Tab ─────────────────────────────────────────
-const AddUserTab = ({ onSuccess }) => {
+const AddUserTab = ({ onSuccess, editingUser, onCancel }) => {
   const toast        = useNotify();
   const cardBg       = useColorModeValue("white", "gray.800");
   const borderColor  = useColorModeValue("gray.200", "gray.700");
@@ -338,23 +339,34 @@ const AddUserTab = ({ onSuccess }) => {
     }
     setIsSubmitting(true);
     try {
-      await createUser({ 
-        email: form.email, 
-        password: form.password,
-        first_name: form.firstName, 
-        last_name: form.lastName,
-        phone: form.phone,  
-        role: form.role.toLowerCase(),
-      });
+      if (editingUser) {
+        await updateUser(editingUser.id, {
+          email: form.email,
+          first_name: form.firstName,
+          last_name: form.lastName,
+          phone: form.phone,
+          role: form.role.toLowerCase(),
+        });
+      } else {
+        await createUser({ 
+          email: form.email, 
+          password: form.password,
+          first_name: form.firstName, 
+          last_name: form.lastName,
+          phone: form.phone,  
+          role: form.role.toLowerCase(),
+        });
+      }
       toast({
         title: "User Created Successfully",
-        description: `${form.firstName} ${form.lastName} has been added.`,
+        description: editingUser ? `${form.firstName} ${form.lastName} has been updated.` : `${form.firstName} ${form.lastName} has been added.`,
         status: "success", duration: 4000, isClosable: true,
       });
       handleReset();
       if (onSuccess) onSuccess(); // switch tab + refresh
+      if (onCancel) onCancel();
     } catch (err) {
-      toast({ title: "Error Creating User", description: err.message, status: "error", duration: 4000, isClosable: true });
+      toast({ title: editingUser ? "Error Updating User" : "Error Creating User", description: err.message, status: "error", duration: 4000, isClosable: true });
     } finally {
       setIsSubmitting(false);
     }
@@ -365,6 +377,25 @@ const AddUserTab = ({ onSuccess }) => {
       password: "", confirmPassword: "", role: "", isActive: true, sendWelcome: true, mfaRequired: false });
     setErrors({});
   };
+
+  useEffect(() => {
+    if (editingUser) {
+      setForm(prev => ({
+        ...prev,
+        firstName: editingUser.first_name || "",
+        lastName: editingUser.last_name || "",
+        email: editingUser.email || "",
+        phone: editingUser.phone || "",
+        role: (editingUser.role && typeof editingUser.role === 'string') ? editingUser.role : prev.role,
+        // keep password fields empty for security
+        password: "",
+        confirmPassword: "",
+      }));
+      setErrors({});
+    } else {
+      handleReset();
+    }
+  }, [editingUser]);
 
   return (
     <Box>
@@ -501,7 +532,7 @@ const AddUserTab = ({ onSuccess }) => {
         {/* RIGHT */}
         <VStack spacing={3} align="stretch">
           {/* Settings */}
-          <Card bg={cardBg} border="1px" borderColor={borderColor} shadow="sm">
+          {/* <Card bg={cardBg} border="1px" borderColor={borderColor} shadow="sm">
             <CardHeader pb={2}><Heading size="sm" color="gray.800">Account Settings</Heading></CardHeader>
             <CardBody pt={0}>
               <VStack spacing={4} align="stretch">
@@ -522,7 +553,7 @@ const AddUserTab = ({ onSuccess }) => {
                 ))}
               </VStack>
             </CardBody>
-          </Card>
+          </Card> */}
 
           {/* Preview */}
           <Card bg={cardBg} border="1px" borderColor={borderColor} shadow="sm">
@@ -559,12 +590,18 @@ const AddUserTab = ({ onSuccess }) => {
 
           <VStack spacing={2}>
             <Button w="full" colorScheme="blue" onClick={handleSubmit}
-              isLoading={isSubmitting} loadingText="Creating User..." size="sm" fontWeight="600">
-              Create User
+              isLoading={isSubmitting} loadingText={editingUser ? "Updating..." : "Creating User..."} size="sm" fontWeight="600">
+              {editingUser ? "Update User" : "Create User"}
             </Button>
-            <Button leftIcon={<FiRotateCcw />} w="full" variant="ghost" size="sm" color="gray.600" onClick={handleReset}>
-              Reset Form
-            </Button>
+            {editingUser ? (
+              <Button leftIcon={<FiRotateCcw />} w="full" variant="ghost" size="sm" color="gray.600" onClick={() => { handleReset(); onCancel?.(); }}>
+                Cancel Edit
+              </Button>
+            ) : (
+              <Button leftIcon={<FiRotateCcw />} w="full" variant="ghost" size="sm" color="gray.600" onClick={handleReset}>
+                Reset Form
+              </Button>
+            )}
           </VStack>
         </VStack>
       </Grid>
@@ -576,6 +613,7 @@ const AddUserTab = ({ onSuccess }) => {
 export default function AddUser() {
   const [activeTab, setActiveTab]       = useState(0); // 0 = Users, 1 = Add User
   const [refreshSignal, setRefreshSignal] = useState(0);
+  const [editingUser, setEditingUser] = useState(null);
   const border  = useColorModeValue("gray.200", "gray.700");
   const cardBg  = useColorModeValue("white", "gray.800");
 
@@ -620,10 +658,10 @@ export default function AddUser() {
 
       {/* Tab content */}
       {activeTab === 0 && (
-        <UsersTab onAddNew={() => setActiveTab(1)} refreshSignal={refreshSignal} />
+        <UsersTab onAddNew={() => setActiveTab(1)} refreshSignal={refreshSignal} onEdit={(u) => { setEditingUser(u); setActiveTab(1); }} />
       )}
       {activeTab === 1 && (
-        <AddUserTab onSuccess={handleUserCreated} />
+        <AddUserTab editingUser={editingUser} onCancel={() => setEditingUser(null)} onSuccess={handleUserCreated} />
       )}
     </Box>
   );

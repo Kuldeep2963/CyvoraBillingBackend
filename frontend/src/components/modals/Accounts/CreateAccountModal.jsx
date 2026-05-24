@@ -54,7 +54,7 @@ import {
   FiAlertCircle,
   FiFile,
 } from "react-icons/fi";
-import useNotify from "../../utils/notify";
+import useNotify from "../../../utils/notify";
 import {
   createCustomer,
   updateCustomer,
@@ -63,12 +63,12 @@ import {
   downloadAccountDocument,
   viewAccountDocument,
   fetchCountryCodes,
-} from "../../utils/api";
+} from "../../../utils/api";
 import {
   MemoizedInput as Input,
   MemoizedSelect as Select,
   MemoizedSearchSelect as SearchSelect,
-} from "../memoizedinput/memoizedinput";
+} from "../../memoizedinput/memoizedinput";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DEBOUNCE_MS = 500;
@@ -630,68 +630,58 @@ const CreateAccountModal = ({
 
     switch (billingCycle) {
       case "daily":
+        // lastBillingDate is the inclusive period start, so trigger is next day
         return addDays(lastBillingDateStr, 1);
 
       case "weekly": {
-        // Weekly cycles are Monday -> Sunday.
-        // If today is Monday and lastBillingDate is Monday, next is upcoming Sunday.
+        // lastBillingDate is the inclusive Monday start; trigger is next Monday.
         const day = last.getDay(); // 0 = Sunday, 1 = Monday, ... 6 = Saturday
-        const daysToSunday = day === 0 ? 7 : 7 - day;
-        return addDays(lastBillingDateStr, daysToSunday);
+        const daysToSunday = day === 0 ? 0 : 7 - day;
+        return addDays(lastBillingDateStr, daysToSunday + 1);
       }
 
       case "monthly": {
-        // Move to the last day of the next month
-        const nextMonth = new Date(last.getFullYear(), last.getMonth() + 1, 1);
-        const eom = new Date(
-          nextMonth.getFullYear(),
-          nextMonth.getMonth() + 1,
-          0,
-        );
-        return formatLocalDate(eom);
+        // lastBillingDate is the 1st of the month; trigger is the 1st of next month
+        return formatLocalDate(new Date(last.getFullYear(), last.getMonth() + 1, 1));
       }
 
       case "biweekly": {
         const day = last.getDate();
 
-        // If last is before 15th -> move to 15th same month
-        if (day < 15) {
+        // Period starts are 1st or 16th; trigger is the day after period end.
+        if (day <= 15) {
           const dt = new Date(last.getFullYear(), last.getMonth(), 15);
+          dt.setDate(dt.getDate() + 1);
           return formatLocalDate(dt);
         }
 
-        // If last is exactly 15th -> move to EOM same month
-        if (day === 15) {
-          return formatLocalDate(
-            new Date(last.getFullYear(), last.getMonth() + 1, 0),
-          );
+        if (day === 16) {
+          const dt = new Date(last.getFullYear(), last.getMonth() + 1, 0);
+          dt.setDate(dt.getDate() + 1);
+          return formatLocalDate(dt);
         }
 
-        // If last is after 15th (including EOM) -> move to 15th of next month
-        const dt = new Date(last.getFullYear(), last.getMonth() + 1, 15);
+        if (day < 16) {
+          const dt = new Date(last.getFullYear(), last.getMonth(), 15);
+          dt.setDate(dt.getDate() + 1);
+          return formatLocalDate(dt);
+        }
+
+        const dt = new Date(last.getFullYear(), last.getMonth() + 1, 0);
+        dt.setDate(dt.getDate() + 1);
         return formatLocalDate(dt);
       }
 
       case "quarterly": {
-        // Next quarter end: add 3 months to current quarter end
         const month = last.getMonth();
-        const quarterEndMonth = Math.floor(month / 3) * 3 + 2; // 0-based month of quarter end
-        const currentQuarterEnd = new Date(
-          last.getFullYear(),
-          quarterEndMonth + 1,
-          0,
-        );
-        const nextQuarterEnd = new Date(
-          currentQuarterEnd.getFullYear(),
-          currentQuarterEnd.getMonth() + 3 + 1,
-          0,
-        );
-        return formatLocalDate(nextQuarterEnd);
+        const quarterEndMonth = Math.floor(month / 3) * 3 + 2;
+        const currentQuarterEnd = new Date(last.getFullYear(), quarterEndMonth + 1, 0);
+        const nextQuarterStart = new Date(currentQuarterEnd.getFullYear(), currentQuarterEnd.getMonth() + 1, 1);
+        return formatLocalDate(nextQuarterStart);
       }
 
       case "annually": {
-        const next = new Date(last.getFullYear() + 1, 11, 31);
-        return formatLocalDate(next);
+        return formatLocalDate(new Date(last.getFullYear() + 1, 0, 1));
       }
 
       default:
@@ -705,13 +695,12 @@ const CreateAccountModal = ({
 
     switch (billingCycle) {
       case "monthly": {
-        // Last day of previous month relative to reference
-        const prevMonthEnd = new Date(ref.getFullYear(), ref.getMonth(), 0);
-        return formatLocalDate(prevMonthEnd);
+        // Start (1st) of the current month
+        return formatLocalDate(new Date(ref.getFullYear(), ref.getMonth(), 1));
       }
 
       case "weekly": {
-        // Return the most recent Monday anchor for the current week.
+        // Return the Monday anchor for the current week.
         const d = new Date(ref);
         const day = d.getDay(); // 0=Sun..6=Sat
         const offsetToMonday = day === 0 ? -6 : 1 - day;
@@ -722,14 +711,9 @@ const CreateAccountModal = ({
 
       case "biweekly": {
         const day = ref.getDate();
-        // If created in period 1 (1-15): lastBillingDate = EOM previous month
-        if (day <= 15) {
-          const prevEOM = new Date(ref.getFullYear(), ref.getMonth(), 0);
-          return formatLocalDate(prevEOM);
-        }
-        // If created in period 2 (16+): lastBillingDate = 15th of current month
-        const fifteenth = new Date(ref.getFullYear(), ref.getMonth(), 15);
-        return formatLocalDate(fifteenth);
+        return day <= 15
+          ? formatLocalDate(new Date(ref.getFullYear(), ref.getMonth(), 1))
+          : formatLocalDate(new Date(ref.getFullYear(), ref.getMonth(), 16));
       }
 
       case "quarterly": {
@@ -744,9 +728,8 @@ const CreateAccountModal = ({
       }
 
       case "daily": {
-        return formatLocalDate(
-          new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 1),
-        );
+        // For daily the lastBillingDate default is yesterday (period start)
+        return formatLocalDate(new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 1));
       }
 
       default:

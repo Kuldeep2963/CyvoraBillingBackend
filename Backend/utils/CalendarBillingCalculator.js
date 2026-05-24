@@ -167,62 +167,40 @@ const getBiweeklyPeriod = (date) => {
  * @returns {string|null} - 'YYYY-MM-DD' or null if invalid input
  */
 const calculateNextBillingDate = (lastBillingDateStr, billingCycle = 'monthly') => {
-  const lastDate = parseMomentDate(lastBillingDateStr);
-  if (!lastDate) return null;
+  // Under new semantics lastBillingDateStr represents the inclusive START of
+  // the last invoiced period. Compute that period's end, then return the
+  // trigger date (day after the period end).
+  const startDate = parseMomentDate(lastBillingDateStr);
+  if (!startDate) return null;
 
   switch (billingCycle) {
     case 'daily':
-      return lastDate.clone().add(1, 'day').format(DATE_FORMAT);
+      // period end == startDate, trigger == startDate + 1 day
+      return startDate.clone().add(1, 'day').format(DATE_FORMAT);
 
     case 'weekly':
-      // Next billing date is the Sunday that ends the NEXT week
-      // If lastBillingDate is a Sunday (end of week), add 7 days
-      return lastDate.clone().add(1, 'week').endOf('isoWeek').format(DATE_FORMAT);
+      return startDate.clone().endOf('isoWeek').add(1, 'day').format(DATE_FORMAT);
 
-    case 'biweekly':
-      // Biweekly periods are 1-15 and 16-EOM
-      {
-        const day = lastDate.date();
-        const year = lastDate.year();
-        const month = lastDate.month() + 1; // moment uses 0-based
-
-        // If lastBillingDate is the 15th → next period ends on EOM of same month
-        if (day === 15) {
-          return lastDate.clone().endOf('month').format(DATE_FORMAT);
-        }
-
-        // If lastBillingDate is EOM → next period ends on 15th of next month
-        const eom = lastDate.clone().endOf('month').date();
-        if (day === eom) {
-          const nextMonth = lastDate.clone().add(1, 'month');
-          return nextMonth.date(15).format(DATE_FORMAT);
-        }
-
-        // Fallback for manual dates: determine current period
-        // If we're in period 1 (days 1-15) → go to day 15
-        if (day <= 15) {
-          return lastDate.clone().date(15).format(DATE_FORMAT);
-        }
-        // If we're in period 2 (days 16+) → go to EOM
-        return lastDate.clone().endOf('month').format(DATE_FORMAT);
-      }
+    case 'biweekly': {
+      const day = startDate.date();
+      if (day === 1) return startDate.clone().date(15).add(1, 'day').format(DATE_FORMAT);
+      if (day === 16) return startDate.clone().endOf('month').add(1, 'day').format(DATE_FORMAT);
+      if (day <= 15) return startDate.clone().date(15).add(1, 'day').format(DATE_FORMAT);
+      return startDate.clone().endOf('month').add(1, 'day').format(DATE_FORMAT);
+    }
 
     case 'monthly':
-      // Next billing date is the last day of the next calendar month
-      return lastDate.clone().add(1, 'month').endOf('month').format(DATE_FORMAT);
+      return startDate.clone().endOf('month').add(1, 'day').format(DATE_FORMAT);
 
-    case 'quarterly':
-      {
-        const quarter = getQuarter(lastDate);
-        const year = lastDate.year();
-        const nextQuarter = quarter === 4 ? 1 : quarter + 1;
-        const nextYear = quarter === 4 ? year + 1 : year;
-        return getQuarterEnd(nextYear, nextQuarter).format(DATE_FORMAT);
-      }
+    case 'quarterly': {
+      const quarter = getQuarter(startDate);
+      const year = startDate.year();
+      const qEnd = getQuarterEnd(year, quarter);
+      return qEnd.add(1, 'day').format(DATE_FORMAT);
+    }
 
     case 'annually':
-      // Next billing date is Dec 31 of next year
-      return lastDate.clone().add(1, 'year').month(11).date(31).format(DATE_FORMAT);
+      return startDate.clone().month(11).date(31).add(1, 'day').format(DATE_FORMAT);
 
     default:
       return null;
@@ -242,61 +220,52 @@ const calculateNextBillingDate = (lastBillingDateStr, billingCycle = 'monthly') 
  * @returns {string|null}
  */
 const calculatePrevBillingDate = (currentLastBillingDateStr, billingCycle = 'monthly') => {
-  const date = parseMomentDate(currentLastBillingDateStr);
-  if (!date) return null;
+  // Under the new semantics, callers provide a period END date (invoice.billingPeriodEnd)
+  // and we must return the previous period's START (the inclusive lastBillingDate value).
+  const periodEnd = parseMomentDate(currentLastBillingDateStr);
+  if (!periodEnd) return null;
 
-  switch (billingCycle) {
-    case 'daily':
-      return date.clone().subtract(1, 'day').format(DATE_FORMAT);
-
-    case 'weekly':
-      // Previous billing date is the Sunday ending the previous ISO week
-      return date.clone().subtract(1, 'week').endOf('isoWeek').format(DATE_FORMAT);
-
-    case 'biweekly':
-      {
-        const day = date.date();
-        const year = date.year();
-        const month = date.month() + 1;
-
-        // If currentLastBillingDate is the 15th → previous period ended on EOM of prev month
-        if (day === 15) {
-          return date.clone().subtract(1, 'month').endOf('month').format(DATE_FORMAT);
-        }
-
-        // If currentLastBillingDate is EOM → previous period ended on 15th of this month
-        const eom = date.clone().endOf('month').date();
-        if (day === eom) {
-          return date.clone().date(15).format(DATE_FORMAT);
-        }
-
-        // Fallback for manual dates
-        if (day > 15) {
-          return date.clone().date(15).format(DATE_FORMAT);
-        }
-        return date.clone().subtract(1, 'month').endOf('month').format(DATE_FORMAT);
+  // Helper to compute the start of a period given its end
+  const getPeriodStartFromPeriodEnd = (endMoment, cycle) => {
+    const d = endMoment.clone();
+    switch (cycle) {
+      case 'daily':
+        return d.clone().format(DATE_FORMAT);
+      case 'weekly':
+        return d.clone().startOf('isoWeek').format(DATE_FORMAT);
+      case 'biweekly': {
+        const day = d.date();
+        const eom = d.clone().endOf('month').date();
+        // If period end is 15th -> start is 1st
+        if (day === 15) return d.clone().startOf('month').format(DATE_FORMAT);
+        // If period end is EOM -> start is 16th
+        if (day === eom) return d.clone().date(16).format(DATE_FORMAT);
+        // Fallback: if day <= 15 treat as period 1 start, else period 2 start
+        return (day <= 15) ? d.clone().startOf('month').format(DATE_FORMAT) : d.clone().date(16).format(DATE_FORMAT);
       }
-
-    case 'monthly':
-      // Previous billing date is EOM of previous month
-      return date.clone().subtract(1, 'month').endOf('month').format(DATE_FORMAT);
-
-    case 'quarterly':
-      {
-        const quarter = getQuarter(date);
-        const year = date.year();
-        const prevQuarter = quarter === 1 ? 4 : quarter - 1;
-        const prevYear = quarter === 1 ? year - 1 : year;
-        return getQuarterEnd(prevYear, prevQuarter).format(DATE_FORMAT);
+      case 'monthly':
+        return d.clone().startOf('month').format(DATE_FORMAT);
+      case 'quarterly': {
+        const quarter = getQuarter(d);
+        const year = d.year();
+        return getQuarterStart(year, quarter).format(DATE_FORMAT);
       }
+      case 'annually':
+        return d.clone().month(0).date(1).format(DATE_FORMAT);
+      default:
+        return d.clone().startOf('month').format(DATE_FORMAT);
+    }
+  };
 
-    case 'annually':
-      // Previous billing date is Dec 31 of previous year
-      return date.clone().subtract(1, 'year').month(11).date(31).format(DATE_FORMAT);
+  // Find the START of the current period, then step back one day to get the
+  // previous period's end, then compute the previous period's start.
+  const thisPeriodStartStr = getPeriodStartFromPeriodEnd(periodEnd, billingCycle);
+  const thisPeriodStart = parseMomentDate(thisPeriodStartStr);
+  if (!thisPeriodStart) return null;
 
-    default:
-      return null;
-  }
+  const prevPeriodEnd = thisPeriodStart.clone().subtract(1, 'day');
+  const prevPeriodStartStr = getPeriodStartFromPeriodEnd(prevPeriodEnd, billingCycle);
+  return prevPeriodStartStr || null;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -320,24 +289,24 @@ const getInitialLastBillingDate = (billingCycle = 'monthly', referenceDate = nul
       return ref.clone().subtract(1, 'day').format(DATE_FORMAT);
 
     case 'weekly':
-      // For weekly, lastBillingDate is the Sunday ending the PREVIOUS week
-      return ref.clone().subtract(1, 'week').endOf('isoWeek').format(DATE_FORMAT);
+      // For weekly, lastBillingDate is the Monday starting the CURRENT week
+      return ref.clone().startOf('isoWeek').format(DATE_FORMAT);
 
     case 'biweekly':
-      // For biweekly, lastBillingDate is the end of the PREVIOUS period
-      // If today is in period 1 (day 1-15) → lastBillingDate = EOM of previous month
-      // If today is in period 2 (day 16+) → lastBillingDate = 15th of this month
+      // For biweekly, lastBillingDate is the START of the CURRENT period
+      // If today is in period 1 (day 1-15) → lastBillingDate = 1st of this month
+      // If today is in period 2 (day 16+) → lastBillingDate = 16th of this month
       {
         const day = ref.date();
         if (day <= 15) {
-          return ref.clone().subtract(1, 'month').endOf('month').format(DATE_FORMAT);
+          return ref.clone().startOf('month').format(DATE_FORMAT);
         }
-        return ref.clone().date(15).format(DATE_FORMAT);
+        return ref.clone().date(16).format(DATE_FORMAT);
       }
 
     case 'monthly':
-      // For monthly, lastBillingDate is EOM of the PREVIOUS month
-      return ref.clone().subtract(1, 'month').endOf('month').format(DATE_FORMAT);
+      // For monthly, lastBillingDate is the 1st day of the CURRENT month
+      return ref.clone().startOf('month').format(DATE_FORMAT);
 
     case 'quarterly':
       {
@@ -386,11 +355,11 @@ const getBillingPeriodWindow = (lastBillingDateStr, billingCycle = 'monthly') =>
     return { billingPeriodStart: null, billingPeriodEnd: null, nextBillingDate: null };
   }
 
-  // Period start is always the day after lastBillingDate
-  const periodStart = last.clone().add(1, 'day').format(DATE_FORMAT);
+  // Period start is the inclusive lastBillingDate (start of the period)
+  const periodStart = last.clone().format(DATE_FORMAT);
 
-  // Period end is the nextBillingDate
-  const periodEnd = nextBillingDate;
+  // Period end is the day BEFORE the nextBillingDate trigger
+  const periodEnd = addDays(nextBillingDate, -1);
 
   return {
     billingPeriodStart: periodStart,
@@ -420,7 +389,38 @@ const buildBillingUpdates = (account, invoiceType = 'customer', invoicePeriodEnd
   if (!endDate) return {};
 
   const cycle = account.billingCycle || 'monthly';
-  const lastBillingDate = endDate; // Invoice period end becomes lastBillingDate
+  // Invoice period START becomes the account's lastBillingDate (inclusive start)
+  const invoicePeriodStart = (() => {
+    const endMoment = parseMomentDate(endDate);
+    if (!endMoment) return null;
+
+    switch (cycle) {
+      case 'daily':
+        return endMoment.clone().format(DATE_FORMAT);
+      case 'weekly':
+        return endMoment.clone().startOf('isoWeek').format(DATE_FORMAT);
+      case 'biweekly': {
+        const day = endMoment.date();
+        const eom = endMoment.clone().endOf('month').date();
+        if (day === 15) return endMoment.clone().startOf('month').format(DATE_FORMAT);
+        if (day === eom) return endMoment.clone().date(16).format(DATE_FORMAT);
+        return (day <= 15) ? endMoment.clone().startOf('month').format(DATE_FORMAT) : endMoment.clone().date(16).format(DATE_FORMAT);
+      }
+      case 'monthly':
+        return endMoment.clone().startOf('month').format(DATE_FORMAT);
+      case 'quarterly': {
+        const quarter = getQuarter(endMoment);
+        const year = endMoment.year();
+        return getQuarterStart(year, quarter).format(DATE_FORMAT);
+      }
+      case 'annually':
+        return endMoment.clone().month(0).date(1).format(DATE_FORMAT);
+      default:
+        return endMoment.clone().startOf('month').format(DATE_FORMAT);
+    }
+  })();
+
+  const lastBillingDate = invoicePeriodStart;
   const nextBillingDate = calculateNextBillingDate(lastBillingDate, cycle);
 
   const isVendor = invoiceType === 'vendor';

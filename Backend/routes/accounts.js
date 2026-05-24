@@ -8,6 +8,9 @@ const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
 const {
+  calculateNextBillingDate: calculateBillingNextDate,
+} = require('../utils/CalendarBillingCalculator');
+const {
   accountDocumentUploadDir,
   ensureDirSync,
   toStoredRelativePath,
@@ -260,33 +263,7 @@ const normalizeDocuments = (input) => {
 };
 
 const computeNextBillingDate = (lastBillingDate, billingCycle) => {
-  const dt = new Date(lastBillingDate);
-  if (Number.isNaN(dt.getTime())) return null;
-
-  switch (billingCycle) {
-    case 'daily':
-      dt.setDate(dt.getDate() + 1);
-      break;
-    case 'weekly':
-      dt.setDate(dt.getDate() + 7);
-      break;
-    case 'biweekly':
-      dt.setDate(dt.getDate() + 14);
-      break;
-    case 'monthly':
-      dt.setMonth(dt.getMonth() + 1);
-      break;
-    case 'quarterly':
-      dt.setMonth(dt.getMonth() + 3);
-      break;
-    case 'annually':
-      dt.setFullYear(dt.getFullYear() + 1);
-      break;
-    default:
-      break;
-  }
-
-  return dt.toISOString().split('T')[0];
+  return calculateBillingNextDate(lastBillingDate, billingCycle);
 };
 
 const syncDirectionalBillingDates = (data, existingAccount = null) => {
@@ -912,20 +889,8 @@ router.put('/:id', async (req, res) => {
     }
 
     // recalc nextBilling if last or cycle changed
-    const computeNext2 = (last, cycle) => {
-      const dt = new Date(last);
-      switch (cycle) {
-        case 'daily': dt.setDate(dt.getDate() + 1); break;
-        case 'weekly': dt.setDate(dt.getDate() + 7); break;
-        case 'monthly': dt.setMonth(dt.getMonth() + 1); break;
-        case 'quarterly': dt.setMonth(dt.getMonth() + 3); break;
-        case 'annually': dt.setFullYear(dt.getFullYear() + 1); break;
-        default: break;
-      }
-      return dt.toISOString().split('T')[0];
-    };
     if (updates.lastbillingdate && updates.billingCycle) {
-      updates.nextbillingdate = computeNext2(updates.lastbillingdate, updates.billingCycle);
+      updates.nextbillingdate = calculateBillingNextDate(updates.lastbillingdate, updates.billingCycle);
     }
 
     syncDirectionalBillingDates(updates, account);

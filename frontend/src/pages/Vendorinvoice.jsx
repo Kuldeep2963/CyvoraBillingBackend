@@ -352,6 +352,13 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
   const isSelectedInvoicePaid =
     String(selectedInvoice?.status || "").toLowerCase() === "paid";
 
+  const handleClearFilters = () => {
+    setSearch("");
+    setDebouncedSearch("");
+    setStatusFilter("all");
+    setPage(1);
+  };
+
   const safeOpenBlob = (blob, nameHint = "file") => {
     const blobUrl = window.URL.createObjectURL(blob);
     const opened = window.open(blobUrl, "_blank", "noopener,noreferrer");
@@ -1030,18 +1037,20 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
                   Edit invoice
                 </MenuItem>
                 <MenuItem
-                  icon={<FiTrash2 />}
-                  onClick={() => setDeleteInvoiceTarget(row)}
-                  fontSize="13px"
-                >
-                  Delete
-                </MenuItem>
-                <MenuItem
                   icon={<FiDollarSign />}
                   onClick={() => openRecordPaymentModal(row)}
                   fontSize="13px"
                 >
                   Record payment
+                </MenuItem>
+                <Divider />
+                <MenuItem
+                  color={"red"}
+                  icon={<FiTrash2 />}
+                  onClick={() => setDeleteInvoiceTarget(row)}
+                  fontSize="13px"
+                >
+                  Delete
                 </MenuItem>
               </>
             )}
@@ -1116,6 +1125,16 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
               }}
             />
           </InputGroup>
+          <Button
+            colorScheme="red"
+            leftIcon={<FiX/>}
+            size="sm"
+            variant="outline"
+            onClick={handleClearFilters}
+            isDisabled={!search && statusFilter === "all"}
+          >
+            Clear Filters
+          </Button>
           {/* Refresh */}
           <Tooltip label="Refresh" placement="top">
             <IconButton
@@ -3015,6 +3034,9 @@ const UploadTab = ({ onViewInvoices, onSuccess, vendorRefreshToken }) => {
                   Save Without Dispute
                 </Button>
                 <Tooltip
+                  bg={"white"}
+                  color={"grey.500"}
+                  fontStyle={"italic"}
                   label={
                     !usageComparison?.mismatchDetected
                       ? "No mismatch detected — dispute not applicable"

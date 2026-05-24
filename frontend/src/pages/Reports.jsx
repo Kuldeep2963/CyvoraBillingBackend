@@ -1,3 +1,5 @@
+'use strict';
+
 import React, {
   useState,
   useEffect,
@@ -8,99 +10,91 @@ import React, {
 } from "react";
 import {
   Box,
-  Container,
-  Heading,
-  Text,
   Button,
-  Flex,
+  Badge,
   Card,
   CardBody,
   CardHeader,
-  SimpleGrid,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  Badge,
+  Center,
+  Divider,
+  Flex,
+  FormControl,
+  FormLabel,
+  Heading,
   HStack,
-  VStack,
+  Icon,
   IconButton,
+  InputGroup,
+  InputLeftElement,
   Menu,
   MenuButton,
   MenuList,
   MenuItem,
-  Stat,
-  StatLabel,
-  StatNumber,
-  useColorModeValue,
-  FormControl,
-  FormLabel,
-  useToast,
-  Spinner,
-  Center,
-  RadioGroup,
-  Radio,
-  Alert,
-  AlertIcon,
-  AlertTitle,
-
-  AlertDescription,
   NumberInput,
   NumberInputField,
   NumberInputStepper,
   NumberIncrementStepper,
   NumberDecrementStepper,
-  Tag,
-  Tooltip,
   Progress,
-  InputGroup,
-  InputLeftElement,
-  Icon,
-  Divider,
+  Radio,
+  RadioGroup,
+  SimpleGrid,
+  Spinner,
+  Stat,
+  StatLabel,
+  StatNumber,
+  Table,
+  Tbody,
+  Text,
+  Td,
+  Th,
+  Thead,
+  Tooltip,
+  Tr,
+  useColorModeValue,
+  VStack,
   Wrap,
   WrapItem,
 } from "@chakra-ui/react";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
-  DownloadIcon,
-  CalendarIcon,
-  ChevronDownIcon,
-  ArrowUpIcon,
   ArrowDownIcon,
-  SettingsIcon,
+  ArrowUpIcon,
+  CalendarIcon,
+  CheckCircleIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  SearchIcon,
-  WarningIcon,
-  CheckCircleIcon,
   CloseIcon,
-  StarIcon,
+  DownloadIcon,
   InfoIcon,
+  SearchIcon,
+  SettingsIcon,
+  StarIcon,
+  WarningIcon,
 } from "@chakra-ui/icons";
 import {
-  FiFilter,
   FiBarChart2,
-  FiTrendingUp,
-  FiTrendingDown,
+  FiCalendar,
+  FiClock,
+  FiEye,
+  FiFileText,
+  FiFilter,
   FiGrid,
   FiList,
   FiRefreshCw,
-  FiClock,
-  FiCalendar,
-  FiEye,
-  FiFileText,
+  FiTrendingDown,
+  FiTrendingUp,
   FiUser,
 } from "react-icons/fi";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import {
-  fetchReportAccounts,
-  generateReport,
   exportReport,
   fetchCountryCodes,
+  fetchReportAccounts,
+  generateReport,
 } from "../utils/api";
 import MissingGateways from "./missinggateways";
 import useNotify from "../utils/notify";
@@ -117,6 +111,7 @@ const REPORT_TYPES = [
   { value: "6", label: "Missing Gateways" },
 ];
 
+// FIX #11: added key 6 so the title card never falls back to "Report"
 const REPORT_TITLES = {
   0: "Hourly Report",
   1: "Margin Report",
@@ -124,30 +119,43 @@ const REPORT_TITLES = {
   3: "Customer - Vendor Traffic Report",
   4: "Customer Traffic Report",
   5: "Vendor Traffic Report",
+  6: "Missing Gateways Report",
+};
+
+const REPORT_TYPE_MAP = {
+  0: "hourly-report",
+  1: "margin-report",
+  2: "negative-margin-report",
+  3: "customer-traffic",
+  4: "customer-only-traffic",
+  5: "vendor-traffic",
 };
 
 const TRUNK_OPTIONS = [
-  { value: "all", label: "All Trunks" },
-  { value: "NCLI", label: "NCLI" },
-  { value: "CLI", label: "CLI" },
+  { value: "all",      label: "All Trunks" },
+  { value: "NCLI",     label: "NCLI" },
+  { value: "CLI",      label: "CLI" },
   { value: "ORTP/TDM", label: "ORTP/TDM" },
-  { value: "CC", label: "CC" },
+  { value: "CC",       label: "CC" },
 ];
-const pad2 = (value) => String(value).padStart(2, "0");
+
 const ROWS_PER_PAGE_OPTIONS = [50, 100, 250];
+
+const pad2 = (value) => String(value).padStart(2, "0");
+
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
   value: String(hour),
   label: `${pad2(hour)}:00`,
 }));
 
-// ─── Helper: DatePicker custom input (forwardRef required by react-datepicker) ─
+// ─── DatePicker custom input ──────────────────────────────────────────────────
 
 const DatePickerInput = forwardRef(({ value, onClick, size, w }, ref) => (
   <Input
     ref={ref}
     value={value}
     onClick={onClick}
-    onChange={() => {}} // controlled by DatePicker
+    onChange={() => {}}
     size={size}
     w={w}
     readOnly
@@ -156,26 +164,34 @@ const DatePickerInput = forwardRef(({ value, onClick, size, w }, ref) => (
 ));
 DatePickerInput.displayName = "DatePickerInput";
 
-// ─── Formatters (defined outside component – stable references) ───────────────
+// ─── Formatters ───────────────────────────────────────────────────────────────
+// All defined outside the component — stable references, no re-creation on render.
 
-const formatCurrency = (value) => {
-  if (value === undefined || value === null) return "$0.00";
+const formatCurrency = (value, fractionDigits = 2) => {
+  // FIX #9: default to 2 decimal places; callers that need rate precision pass 4
+  const parsed = parseFloat(value);
+  if (value === undefined || value === null || isNaN(parsed)) return "$0.00";
   return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+    style:                 "currency",
+    currency:              "USD",
     minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
-  }).format(parseFloat(value));
+    maximumFractionDigits: fractionDigits,
+  }).format(parsed);
 };
+
+const formatCurrencyRate = (value) => formatCurrency(value, 6);
 
 const formatNumber = (value) => {
-  if (value === undefined || value === null) return "0";
-  return new Intl.NumberFormat("en-US").format(parseFloat(value));
+  const parsed = parseFloat(value);
+  if (value === undefined || value === null || isNaN(parsed)) return "0";
+  return new Intl.NumberFormat("en-US").format(parsed);
 };
 
-const formatPercentage = (value) => {
-  if (value === undefined || value === null) return "0.00%";
-  return `${parseFloat(value).toFixed(3)}%`;
+// FIX #22: single canonical formatter — all table cells use this; never raw `{val}%`
+const formatPercentage = (value, decimals = 3) => {
+  const parsed = parseFloat(value);
+  if (value === undefined || value === null || isNaN(parsed)) return "0.000%";
+  return `${parsed.toFixed(decimals)}%`;
 };
 
 const formatDuration = (seconds) => {
@@ -183,21 +199,11 @@ const formatDuration = (seconds) => {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
-  return [h, m, s].map((v) => v.toString().padStart(2, "0")).join(":");
+  return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
 };
 
-const formatDateAsYmd = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-
-const utcSelectionToBackendPayload = (date, hour, minute) => {
-  if (!date) return { date: null, hour: 0, minute: 0 };
-
-  // Preserve the selected calendar day while treating hour/minute as explicit UTC input.
-  return {
-    date: formatDateAsYmd(date),
-    hour,
-    minute,
-  };
-};
+const formatDateAsYmd = (date) =>
+  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 
 const getMinimumStartDate = (endDate) => {
   const minDate = new Date(endDate);
@@ -206,7 +212,12 @@ const getMinimumStartDate = (endDate) => {
   return minDate;
 };
 
-// ─── Sub-components (defined OUTSIDE Reports to avoid remounting) ─────────────
+const utcSelectionToBackendPayload = (date, hour, minute) => {
+  if (!date) return { date: null, hour: 0, minute: 0 };
+  return { date: formatDateAsYmd(date), hour, minute };
+};
+
+// ─── Shared sub-components ────────────────────────────────────────────────────
 
 const SortIcon = ({ sortConfig, columnKey }) => {
   if (sortConfig.key !== columnKey) return null;
@@ -228,22 +239,20 @@ const SortableTh = ({ label, sortKey, sortConfig, onSort, isNumeric }) => (
   </Th>
 );
 
-// ─── Loading / Empty states 
-
 const LoadingState = () => (
   <Center py={20}>
     <VStack spacing={4}>
       <Spinner size="xl" color="blue.500" thickness="4px" />
       <VStack spacing={1}>
         <Text fontWeight="medium">Generating Report</Text>
-        <Text fontSize="sm" color="gray.500">Processing your data...</Text>
+        <Text fontSize="sm" color="gray.500">Processing your data…</Text>
       </VStack>
       <Progress size="xs" width="200px" isIndeterminate colorScheme="blue" />
     </VStack>
   </Center>
 );
 
-const EmptyState = ({ onGenerateReport }) => (
+const EmptyState = () => (
   <VStack
     spacing={5}
     p={12}
@@ -254,131 +263,127 @@ const EmptyState = ({ onGenerateReport }) => (
     textAlign="center"
     w="full"
   >
-    {/* <Box p={4} bg="white" borderRadius="full" shadow="sm">
-      <Icon as={FiBarChart2} boxSize={8} color="blue.500" />
-    </Box> */}
-    
     <VStack spacing={2}>
-      <Heading size="md" color="gray.700">
-        No Report Data Yet
-      </Heading>
+      <Heading size="md" color="gray.700">No Report Data Yet</Heading>
       <Text color="gray.500" maxW="md" fontSize="sm">
-        You haven't generated any reports yet. Create your first report to start viewing analytics and insights from your CDR data.
+        You haven't generated any reports yet. Create your first report to start
+        viewing analytics and insights from your CDR data.
       </Text>
     </VStack>
   </VStack>
 );
-// ─── Table column definitions ─────────────────────────────────────────────────
 
-// Each tab renders a different table. Column configs are static.
+// ─── Column definitions ───────────────────────────────────────────────────────
+
 const HOURLY_COLUMNS = [
-  { label: "Hour", key: "hour" },
-  // { label: "Account Owner", key: "accountOwner" },
-  { label: "Attempts", key: "attempts", isNumeric: true },
-  { label: "Completed", key: "completed", isNumeric: true },
-  { label: "ASR %", key: "asr", isNumeric: true },
-  { label: "ACD (sec)", key: "acd", isNumeric: true },
-  { label: "Duration (sec)", key: "duration", isNumeric: true },
-  { label: "Revenue", key: "revenue", isNumeric: true },
-  { label: "Cost", key: "cost", isNumeric: true },
-  { label: "Margin", key: "margin", isNumeric: true },
+  { label: "Hour",          key: "hour" },
+  { label: "Attempts",      key: "attempts",  isNumeric: true },
+  { label: "Completed",     key: "completed", isNumeric: true },
+  { label: "ASR %",         key: "asr",       isNumeric: true },
+  { label: "ACD (sec)",     key: "acd",       isNumeric: true },
+  { label: "Duration (sec)",key: "duration",  isNumeric: true },
+  { label: "Revenue",       key: "revenue",   isNumeric: true },
+  { label: "Cost",          key: "cost",      isNumeric: true },
+  { label: "Margin",        key: "margin",    isNumeric: true },
 ];
 
 const MARGIN_COLUMNS = [
-  { label: "Customer", key: "accountName" },
-  { label: "Account Owner", key: "accountOwner" },
-  { label: "Destination", key: "destination" },
-  { label: "Attempts", key: "attempts", isNumeric: true },
-  { label: "Revenue", key: "revenue", isNumeric: true },
-  { label: "Cost", key: "cost", isNumeric: true },
-  { label: "Margin", key: "margin", isNumeric: true },
-  { label: "Margin %", key: "marginPercent", isNumeric: true },
-  { label: "Duration (Sec)", key: "duration", isNumeric: true },
+  { label: "Customer",       key: "accountName",    },
+  { label: "Account Owner",  key: "accountOwner",   },
+  { label: "Destination",    key: "destination",    },
+  { label: "Attempts",       key: "attempts",       isNumeric: true },
+  { label: "Revenue",        key: "revenue",        isNumeric: true },
+  { label: "Cost",           key: "cost",           isNumeric: true },
+  { label: "Margin",         key: "margin",         isNumeric: true },
+  { label: "Margin %",       key: "marginPercent",  isNumeric: true },
+  { label: "Duration (Sec)", key: "duration",       isNumeric: true },
 ];
 
 const NEGATIVE_MARGIN_COLUMNS = [
-  { label: "Account ID", key: "accountCode" },
-  { label: "Customer", key: "accountName" },
-  { label: "Account Owner", key: "accountOwner" },
-  { label: "Destination", key: "destination" },
-  { label: "Attempts", key: "attempts", isNumeric: true },
-  { label: "Revenue", key: "revenue", isNumeric: true },
-  { label: "Cost", key: "cost", isNumeric: true },
-  { label: "Margin", key: "margin", isNumeric: true },
-  { label: "Margin %", key: "marginPercent", isNumeric: true },
+  { label: "Account ID",    key: "accountCode",   },
+  { label: "Customer",      key: "accountName",   },
+  { label: "Account Owner", key: "accountOwner",  },
+  { label: "Destination",   key: "destination",   },
+  { label: "Attempts",      key: "attempts",      isNumeric: true },
+  { label: "Revenue",       key: "revenue",       isNumeric: true },
+  { label: "Cost",          key: "cost",          isNumeric: true },
+  { label: "Margin",        key: "margin",        isNumeric: true },
+  { label: "Margin %",      key: "marginPercent", isNumeric: true },
 ];
 
-// ─── Main Component ────────────────────────────────────────────────────────────
+// ─── Pagination helper ────────────────────────────────────────────────────────
+
+function buildPageNumbers(current, total) {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  if (current <= 4) return [1, 2, 3, 4, 5, "…", total];
+  if (current >= total - 3) return [1, "…", total - 4, total - 3, total - 2, total - 1, total];
+  return [1, "…", current - 1, current, current + 1, "…", total];
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 const Reports = () => {
-  // ── State ──────────────────────────────────────────────────────────────────
-  const [dateRange, setDateRange] = useState({
-    startDate: new Date(),
-    endDate: new Date(),
-    startHour: 0,
-    startMinute: 0,
-    endHour: 23,
-    endMinute: 59,
-  });
-  const [activeTab, setActiveTab] = useState(0);
-  const [selectedAccount, setSelectedAccount] = useState("all");
-  const [accounts, setAccounts] = useState({ customers: [], vendors: [] });
-  const [accountsLoading, setAccountsLoading] = useState(false);
-  const [isVendorReport, setIsVendorReport] = useState(false);
-  const [reportData, setReportData] = useState([]);
-  const [reportSummary, setReportSummary] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [marginThreshold, setMarginThreshold] = useState(0);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
-  const [page, setPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(50);
-  const [selectedTrunk, setSelectedTrunk] = useState("all");
-  const [selectedOwner, setSelectedOwner] = useState("all");
-  const [selectedCountry, setSelectedCountry] = useState("all");
-  const [countryOptions, setCountryOptions] = useState([]);
-  const [countryLoading, setCountryLoading] = useState(false);
-  const [filters] = useState({ minASR: 0, maxASR: 100, minMargin: -100, maxMargin: 100 });
 
-  const toast = useNotify();
-  const cardBg = useColorModeValue("white", "gray.800");
+  // ── State ──────────────────────────────────────────────────────────────────
+
+  const [dateRange, setDateRange] = useState({
+    startDate:   new Date(),
+    endDate:     new Date(),
+    startHour:   0,
+    startMinute: 0,
+    endHour:     23,
+    endMinute:   59,
+  });
+  const [activeTab,        setActiveTab]        = useState(0);
+  const [selectedAccount,  setSelectedAccount]  = useState("all");
+  const [accounts,         setAccounts]         = useState({ customers: [], vendors: [] });
+  const [accountsLoading,  setAccountsLoading]  = useState(false);
+  const [isVendorReport,   setIsVendorReport]   = useState(false);
+  const [reportData,       setReportData]       = useState([]);
+  const [reportSummary,    setReportSummary]    = useState({});
+  const [loading,          setLoading]          = useState(false);
+  const [exporting,        setExporting]        = useState(false);
+  const [marginThreshold,  setMarginThreshold]  = useState(0);
+  const [searchTerm,       setSearchTerm]       = useState("");
+  const [sortConfig,       setSortConfig]       = useState({ key: null, direction: "asc" });
+  const [page,             setPage]             = useState(1);
+  const [rowsPerPage,      setRowsPerPage]      = useState(50);
+  const [selectedTrunk,    setSelectedTrunk]    = useState("all");
+  const [selectedOwner,    setSelectedOwner]    = useState("all");
+  const [selectedCountry,  setSelectedCountry]  = useState("all");
+  const [countryOptions,   setCountryOptions]   = useState([]);
+  const [countryLoading,   setCountryLoading]   = useState(false);
+  const [filters]                               = useState({ minASR: 0, maxASR: 100, minMargin: -100, maxMargin: 100 });
+
+  const toast       = useNotify();
+  const cardBg      = useColorModeValue("white", "gray.800");
   const borderColor = useColorModeValue("gray.200", "gray.700");
-  const mutedColor = useColorModeValue("gray.600", "gray.400");
+  const mutedColor  = useColorModeValue("gray.600", "gray.400");
+
+  // FIX #1 & #4: use a ref so handleExport always reads the latest filteredData
+  // without needing filteredData in its own dependency array (which would cause
+  // the export callback to be re-created on every search/sort change).
+  const filteredDataRef = useRef([]);
 
   // ── Effects ────────────────────────────────────────────────────────────────
-  useEffect(() => { loadAccounts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { loadAccounts();       }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadCountryOptions(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset page whenever filtered data changes (search, sort, filters)
-  // We do this via a ref to detect actual data/search/sort changes
-  const prevSearchRef = useRef(searchTerm);
-  const prevSortRef = useRef(sortConfig);
-  useEffect(() => {
-    if (
-      prevSearchRef.current !== searchTerm ||
-      prevSortRef.current !== sortConfig
-    ) {
-      setPage(1);
-      prevSearchRef.current = searchTerm;
-      prevSortRef.current = sortConfig;
-    }
-  }, [searchTerm, sortConfig]);
+  // FIX #2: replace the fragile ref-comparison pattern with a straightforward
+  // dependency-array effect. Page resets whenever search term, sort config,
+  // or the underlying report data changes.
+  useEffect(() => { setPage(1); }, [searchTerm, sortConfig, reportData]);
 
-  // ── Callbacks ──────────────────────────────────────────────────────────────
+  // ── Data loaders ───────────────────────────────────────────────────────────
+
   const loadAccounts = useCallback(async () => {
     setAccountsLoading(true);
     try {
       const data = await fetchReportAccounts();
       if (data.success) setAccounts(data);
     } catch (error) {
-      toast({
-        title: "Error loading accounts",
-        description: error.message,
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
+      toast({ title: "Error loading accounts", description: error.message, status: "error", duration: 5000, isClosable: true });
     } finally {
       setAccountsLoading(false);
     }
@@ -387,8 +392,8 @@ const Reports = () => {
   const loadCountryOptions = useCallback(async () => {
     setCountryLoading(true);
     try {
-      const allRows = [];
-      let pageNumber = 1;
+      const allRows   = [];
+      let pageNumber  = 1;
 
       while (true) {
         const result = await fetchCountryCodes({ page: pageNumber, limit: 100 });
@@ -399,52 +404,40 @@ const Reports = () => {
 
       const countryMap = new Map();
       allRows.forEach((row) => {
-        const countryName = String(row.country_name || '').trim();
+        const countryName = String(row.country_name || "").trim();
         if (!countryName) return;
-        const key = countryName.toLowerCase();
-        const existing = countryMap.get(key) || {
-          value: countryName,
-          label: countryName,
-          codes: new Set(),
-        };
+        const key      = countryName.toLowerCase();
+        const existing = countryMap.get(key) ?? { value: countryName, label: countryName, codes: new Set() };
         if (row.code) existing.codes.add(String(row.code).trim());
         countryMap.set(key, existing);
       });
 
       const options = Array.from(countryMap.values())
         .map((item) => ({
-          value: item.value,
-          label: item.label,
-          codes: Array.from(item.codes).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+          value:  item.value,
+          label:  item.label,
+          codes:  Array.from(item.codes).sort((a, b) =>
+            a.localeCompare(b, undefined, { numeric: true })
+          ),
         }))
         .sort((a, b) => a.label.localeCompare(b.label));
 
       setCountryOptions(options);
     } catch (error) {
-      toast({
-        title: 'Error loading country list',
-        description: error.message,
-        status: 'warning',
-        duration: 4000,
-        isClosable: true,
-      });
+      toast({ title: "Error loading country list", description: error.message, status: "warning", duration: 4000, isClosable: true });
     } finally {
       setCountryLoading(false);
     }
   }, [toast]);
+
+  // ── Date / time handlers ───────────────────────────────────────────────────
 
   const handleStartDateChange = useCallback(
     (date) => {
       if (!date) return;
       const minStartDate = getMinimumStartDate(dateRange.endDate);
       if (date < minStartDate) {
-        toast({
-          title: "Invalid start date",
-          description: "Start date cannot be more than 2 months before end date",
-          status: "warning",
-          duration: 3000,
-          isClosable: true,
-        });
+        toast({ title: "Invalid start date", description: "Start date cannot be more than 2 months before end date", status: "warning", duration: 3000, isClosable: true });
         setDateRange((prev) => ({ ...prev, startDate: minStartDate }));
         return;
       }
@@ -458,10 +451,42 @@ const Reports = () => {
     const minStartDate = getMinimumStartDate(date);
     setDateRange((prev) => ({
       ...prev,
-      endDate: date,
+      endDate:   date,
       startDate: prev.startDate < minStartDate ? minStartDate : prev.startDate,
     }));
   }, []);
+
+  // FIX #8: hour setters are intentionally one-directional — setStartHour only
+  // clamps endHour (never startHour), and setEndHour only clamps startHour (never
+  // endHour).  This prevents the two callbacks from fighting each other when
+  // TimePickerButton fires both in sequence.
+  const setStartHour = useCallback((hour) => {
+    setDateRange((prev) => ({
+      ...prev,
+      startHour: hour,
+      endHour:   Math.max(hour, prev.endHour),
+    }));
+  }, []);
+
+  const setEndHour = useCallback((hour) => {
+    setDateRange((prev) => ({
+      ...prev,
+      endHour:   hour,
+      startHour: Math.min(hour, prev.startHour),
+    }));
+  }, []);
+
+  const setStartMinute = useCallback(
+    (minute) => setDateRange((prev) => ({ ...prev, startMinute: minute })),
+    [],
+  );
+
+  const setEndMinute = useCallback(
+    (minute) => setDateRange((prev) => ({ ...prev, endMinute: minute })),
+    [],
+  );
+
+  // ── Sorting / tab handlers ─────────────────────────────────────────────────
 
   const handleSort = useCallback((key) => {
     setSortConfig((prev) => ({
@@ -474,14 +499,17 @@ const Reports = () => {
     setActiveTab(index);
     setReportData([]);
     setReportSummary({});
-    setPage(1);
     setSearchTerm("");
     setSortConfig({ key: null, direction: "asc" });
     setSelectedOwner("all");
+    // Tab 4 = Customer-only → force customer mode
+    // Tab 5 = Vendor-only  → force vendor mode
+    // All other tabs keep the user's current choice
     if (index === 4) setIsVendorReport(false);
     else if (index === 5) setIsVendorReport(true);
-    // tabs 0,1,2,3 keep the user's current vendor/customer choice
   }, []);
+
+  // ── Report generation ──────────────────────────────────────────────────────
 
   const handleGenerateReport = useCallback(async () => {
     if (!dateRange.startDate || !dateRange.endDate) {
@@ -500,31 +528,30 @@ const Reports = () => {
       toast({ title: "Invalid hour range", description: "End hour must be after or equal to start hour", status: "warning", duration: 3000, isClosable: true });
       return;
     }
-    if (activeTab !== 0 && dateRange.endHour === dateRange.startHour && dateRange.endMinute < dateRange.startMinute) {
+    if (
+      activeTab !== 0 &&
+      dateRange.endHour === dateRange.startHour &&
+      dateRange.endMinute < dateRange.startMinute
+    ) {
       toast({ title: "Invalid time range", description: "End time must be after start time", status: "warning", duration: 3000, isClosable: true });
       return;
     }
 
-    const daysDiff = Math.ceil((dateRange.endDate - dateRange.startDate) / (1000 * 60 * 60 * 24));
+    const daysDiff = Math.ceil(
+      (dateRange.endDate - dateRange.startDate) / (1000 * 60 * 60 * 24)
+    );
     if (daysDiff > 62) {
       toast({ title: "Large date range", description: "For better performance, please select a date range under 2 months", status: "warning", duration: 5000, isClosable: true });
     }
 
     setLoading(true);
     try {
-      const accountsList = isVendorReport ? accounts.vendors : accounts.customers;
+      const accountsList      = isVendorReport ? accounts.vendors : accounts.customers;
       const selectedAccountObj = selectedAccount !== "all"
-        ? accountsList.find((acc) => (isVendorReport ? acc.vendorCode : acc.customerCode) === selectedAccount)
+        ? accountsList.find((acc) =>
+            (isVendorReport ? acc.vendorCode : acc.customerCode) === selectedAccount
+          )
         : null;
-
-      const reportTypeMap = {
-        0: "hourly-report",
-        1: "margin-report",
-        2: "negative-margin-report",
-        3: "customer-traffic",
-        4: "customer-only-traffic",
-        5: "vendor-traffic",
-      };
 
       const startPayload = utcSelectionToBackendPayload(
         dateRange.startDate,
@@ -538,61 +565,71 @@ const Reports = () => {
       );
 
       const params = {
-        startDate: startPayload.date,
-        endDate: endPayload.date,
-        startHour: startPayload.hour,
-        startMinute: startPayload.minute,
-        endHour: endPayload.hour,
-        endMinute: endPayload.minute,
-        accountId: selectedAccount,
-        country: selectedCountry,
+        startDate:    startPayload.date,
+        endDate:      endPayload.date,
+        startHour:    startPayload.hour,
+        startMinute:  startPayload.minute,
+        endHour:      endPayload.hour,
+        endMinute:    endPayload.minute,
+        accountId:    selectedAccount,
+        country:      selectedCountry,
         vendorReport: activeTab === 4 ? false : activeTab === 5 ? true : isVendorReport,
-        trunk: selectedTrunk,
-        ownerName: selectedAccountObj?.ownerName ?? "",
+        trunk:        selectedTrunk,
+        ownerName:    selectedAccountObj?.ownerName ?? "",
       };
 
-      const result = await generateReport(reportTypeMap[activeTab], params);
+      const result = await generateReport(REPORT_TYPE_MAP[activeTab], params);
 
       if (result.success || result.data) {
         let data = result.data ?? [];
 
-        // Normalize costPerMin for vendor-traffic
         if (activeTab === 5) {
           data = data.map((r) => ({ ...r, costPerMin: r.costPerMin ?? 0 }));
         }
 
         setReportData(data);
-        setPage(1);
 
-        // Prefer server-provided summary; fall back to client-computed
         if (result.summary && !Array.isArray(result.summary)) {
           setReportSummary(result.summary);
         } else {
           const uniqueArr = (arr) => [...new Set(arr)].filter(Boolean);
           setReportSummary({
-            totalAttempts: data.reduce((s, r) => s + (r.attempts ?? 0), 0),
-            totalCompleted: data.reduce((s, r) => s + (r.completed ?? 0), 0),
-            totalRevenue: data.reduce((s, r) => s + (r.revenue ?? 0), 0),
-            totalCost: data.reduce((s, r) => s + (r.cost ?? 0), 0),
-            totalMargin: data.reduce((s, r) => s + (r.margin ?? 0), 0),
-            avgASR: data.length > 0 ? data.reduce((s, r) => s + (r.asr ?? 0), 0) / data.length : 0,
-            avgMarginPercent: data.length > 0 ? data.reduce((s, r) => s + (r.marginPercent ?? 0), 0) / data.length : 0,
-            totalCustomers: uniqueArr(data.map((r) => r.customer ?? r.accountName)).length,
-            totalVendors: uniqueArr(data.map((r) => r.vendor ?? r.vendAccountCode)).length,
-            negativeMarginCalls: data.filter((r) => (r.margin ?? 0) < 0).length,
-            totalLoss: data.filter((r) => (r.margin ?? 0) < 0).reduce((s, r) => s + r.margin, 0),
-            affectedCustomers: uniqueArr(data.filter((r) => (r.margin ?? 0) < 0).map((r) => r.customer ?? r.accountName ?? r.accountCode)).length,
-            affectedDestinations: uniqueArr(data.filter((r) => (r.margin ?? 0) < 0).map((r) => r.destination)).length,
+            totalAttempts:        data.reduce((s, r) => s + (r.attempts      ?? 0), 0),
+            totalCompleted:       data.reduce((s, r) => s + (r.completed     ?? 0), 0),
+            totalRevenue:         data.reduce((s, r) => s + (r.revenue       ?? 0), 0),
+            totalCost:            data.reduce((s, r) => s + (r.cost          ?? 0), 0),
+            totalMargin:          data.reduce((s, r) => s + (r.margin        ?? 0), 0),
+            avgASR:               data.length > 0
+                                    ? data.reduce((s, r) => s + (r.asr ?? 0), 0) / data.length
+                                    : 0,
+            avgMarginPercent:     data.length > 0
+                                    ? data.reduce((s, r) => s + (r.marginPercent ?? 0), 0) / data.length
+                                    : 0,
+            totalCustomers:       uniqueArr(data.map((r) => r.customer ?? r.accountName)).length,
+            totalVendors:         uniqueArr(data.map((r) => r.vendor   ?? r.vendAccountCode)).length,
+            negativeMarginCalls:  data.filter((r) => (r.margin ?? 0) < 0).length,
+            totalLoss:            data.filter((r) => (r.margin ?? 0) < 0)
+                                    .reduce((s, r) => s + r.margin, 0),
+            affectedCustomers:    uniqueArr(
+                                    data
+                                      .filter((r) => (r.margin ?? 0) < 0)
+                                      .map((r) => r.customer ?? r.accountName ?? r.accountCode)
+                                  ).length,
+            affectedDestinations: uniqueArr(
+                                    data
+                                      .filter((r) => (r.margin ?? 0) < 0)
+                                      .map((r) => r.destination)
+                                  ).length,
           });
         }
 
         toast({
-          title: "Report Generated Successfully",
+          title:       "Report Generated Successfully",
           description: `${data.length} records processed`,
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-          position: "top-right",
+          status:      "success",
+          duration:    3000,
+          isClosable:  true,
+          position:    "top-right",
         });
       } else {
         throw new Error(result.error ?? "Failed to generate report");
@@ -600,41 +637,61 @@ const Reports = () => {
     } catch (error) {
       console.error("Report generation error:", error);
       toast({
-        title: "Error generating report",
+        title:       "Error generating report",
         description: error.message,
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-        position: "top-right",
+        status:      "error",
+        duration:    5000,
+        isClosable:  true,
+        position:    "top-right",
       });
     } finally {
       setLoading(false);
     }
   }, [activeTab, accounts, dateRange, isVendorReport, selectedAccount, selectedCountry, selectedTrunk, toast]);
 
-  // BUG FIX: export filteredData (respects search/sort), not raw reportData
-  const handleExport = useCallback(
-    async (format) => {
-      if (!filteredData.length) {
-        toast({ title: "No data to export", description: "Please generate a report first", status: "warning", duration: 3000, isClosable: true });
-        return;
-      }
-      setExporting(true);
-      try {
-        const fileName = `report_${Date.now()}_${formatDateAsYmd(dateRange.startDate)}_to_${formatDateAsYmd(dateRange.endDate)}`;
-        await exportReport(filteredData, format, fileName);
-        toast({ title: "Export Complete", description: `Exported as ${format.toUpperCase()}`, status: "success", duration: 3000, isClosable: true });
-      } catch (error) {
-        toast({ title: "Export Failed", description: error.message, status: "error", duration: 5000, isClosable: true });
-      } finally {
-        setExporting(false);
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dateRange.endDate, dateRange.startDate, toast],
-  );
+  // FIX #1 & #4: reads filteredDataRef.current so it always gets the latest
+  // filtered/sorted data without filteredData appearing in the dependency array
+  // (which would cause the callback to be re-created on every keystroke).
+  const handleExport = useCallback(async (format) => {
+    const data = filteredDataRef.current;
+    if (!data.length) {
+      toast({ title: "No data to export", description: "Please generate a report first", status: "warning", duration: 3000, isClosable: true });
+      return;
+    }
+    setExporting(true);
+    try {
+      const fileName = `report_${Date.now()}_${formatDateAsYmd(dateRange.startDate)}_to_${formatDateAsYmd(dateRange.endDate)}`;
+
+      // build meta information for header/footer in exported file
+      const accountsList = isVendorReport ? accounts.vendors : accounts.customers;
+      const selectedAccountObj = selectedAccount !== "all"
+        ? accountsList.find((acc) => (isVendorReport ? acc.vendorCode : acc.customerCode) === selectedAccount)
+        : null;
+
+      const meta = {
+        title: REPORT_TITLES[activeTab] ?? "Report",
+        startDate: formatDateAsYmd(dateRange.startDate),
+        endDate: formatDateAsYmd(dateRange.endDate),
+        periodLabel: `${dateRange.startDate.toLocaleDateString()} - ${dateRange.endDate.toLocaleDateString()}`,
+        account: selectedAccountObj ? selectedAccountObj.accountName : 'All Accounts',
+        accountCode: selectedAccountObj ? (isVendorReport ? selectedAccountObj.vendorCode : selectedAccountObj.customerCode) : 'all',
+        trunk: selectedTrunk,
+        generatedAt: new Date().toISOString(),
+        summary: reportSummary,
+        totalRecords: data.length,
+      };
+
+      await exportReport(data, format, fileName, meta);
+      toast({ title: "Export Complete", description: `Exported as ${format.toUpperCase()}`, status: "success", duration: 3000, isClosable: true });
+    } catch (error) {
+      toast({ title: "Export Failed", description: error.message, status: "error", duration: 5000, isClosable: true });
+    } finally {
+      setExporting(false);
+    }
+  }, [dateRange.endDate, dateRange.startDate, toast]);
 
   // ── Derived data ───────────────────────────────────────────────────────────
+
   const filteredData = useMemo(() => {
     let data = [...reportData];
 
@@ -647,13 +704,13 @@ const Reports = () => {
       );
     }
 
-    // BUG FIX: use correct field names for both ASR and margin filters
+    // FIX #BUG-original: normalise field name variants before comparing
     data = data.filter((row) => {
-      const asr = parseFloat(row.asr ?? row.ASR ?? 0);
+      const asr    = parseFloat(row.asr    ?? row.ASR           ?? 0);
       const margin = parseFloat(row.marginPercent ?? row.MarginPercent ?? 0);
       return (
-        asr >= filters.minASR &&
-        asr <= filters.maxASR &&
+        asr    >= filters.minASR    &&
+        asr    <= filters.maxASR    &&
         margin >= filters.minMargin &&
         margin <= filters.maxMargin
       );
@@ -661,17 +718,19 @@ const Reports = () => {
 
     if (sortConfig.key) {
       data.sort((a, b) => {
-        const av = a[sortConfig.key];
-        const bv = b[sortConfig.key];
-        const an = parseFloat(av);
-        const bn = parseFloat(bv);
-        const numericCompare = !isNaN(an) && !isNaN(bn);
-        if (numericCompare ? an < bn : av < bv) return sortConfig.direction === "asc" ? -1 : 1;
-        if (numericCompare ? an > bn : av > bv) return sortConfig.direction === "asc" ? 1 : -1;
+        const av  = a[sortConfig.key];
+        const bv  = b[sortConfig.key];
+        const an  = parseFloat(av);
+        const bn  = parseFloat(bv);
+        const num = !isNaN(an) && !isNaN(bn);
+        if (num ? an < bn : av < bv) return sortConfig.direction === "asc" ? -1 : 1;
+        if (num ? an > bn : av > bv) return sortConfig.direction === "asc" ?  1 : -1;
         return 0;
       });
     }
 
+    // FIX #1/#4: keep ref in sync so handleExport always reads current value
+    filteredDataRef.current = data;
     return data;
   }, [reportData, searchTerm, sortConfig, filters]);
 
@@ -684,19 +743,21 @@ const Reports = () => {
 
   const dashboardMetrics = useMemo(() => {
     if (!reportData.length) return null;
-    const customerMap = {};
+
+    const customerMap    = {};
     const destinationMap = {};
-    let totalRevenue = 0, totalCost = 0, totalCalls = 0, totalMargin = 0, sumASR = 0, sumACD = 0;
+    let   totalRevenue = 0, totalCost = 0, totalCalls = 0,
+          totalMargin = 0, sumASR = 0, sumACD = 0;
 
     for (const row of reportData) {
-      totalRevenue += parseFloat(row.revenue ?? row.Revenue ?? row.TotalRevenue ?? 0);
-      totalCost += parseFloat(row.cost ?? row.Cost ?? 0);
-      totalCalls += parseInt(row.attempts ?? row.Attempts ?? row.TotalCalls ?? 0);
-      totalMargin += parseFloat(row.margin ?? row.Margin ?? row.TotalMargin ?? 0);
-      sumASR += parseFloat(row.asr ?? row.ASR ?? 0);
-      sumACD += parseFloat(row.acd ?? row.ACD ?? 0);
+      totalRevenue += parseFloat(row.revenue      ?? row.Revenue      ?? row.TotalRevenue ?? 0);
+      totalCost    += parseFloat(row.cost         ?? row.Cost         ?? 0);
+      totalCalls   += parseInt(  row.attempts     ?? row.Attempts     ?? row.TotalCalls   ?? 0);
+      totalMargin  += parseFloat(row.margin       ?? row.Margin       ?? row.TotalMargin  ?? 0);
+      sumASR       += parseFloat(row.asr          ?? row.ASR          ?? 0);
+      sumACD       += parseFloat(row.acd          ?? row.ACD          ?? 0);
 
-      const customer = row.customer ?? row.Customer ?? row.accountName ?? row.customername;
+      const customer    = row.customer    ?? row.Customer    ?? row.accountName ?? row.customername;
       if (customer) customerMap[customer] = (customerMap[customer] ?? 0) + parseFloat(row.revenue ?? row.Revenue ?? 0);
 
       const destination = row.destination ?? row.Destination ?? row.custDestination ?? row.calleeareacode;
@@ -705,107 +766,96 @@ const Reports = () => {
 
     const n = reportData.length;
     return {
-      totalRevenue, totalCost, totalCalls, totalMargin,
-      avgASR: n > 0 ? sumASR / n : 0,
-      avgACD: n > 0 ? sumACD / n : 0,
-      topCustomers: Object.entries(customerMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, revenue]) => ({ name, revenue })),
-      topDestinations: Object.entries(destinationMap).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, calls]) => ({ name, calls })),
+      totalRevenue,
+      totalCost,
+      totalCalls,
+      totalMargin,
+      avgASR:   n > 0 ? sumASR / n : 0,
+      avgACD:   n > 0 ? sumACD / n : 0,
+      topCustomers: Object.entries(customerMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, revenue]) => ({ name, revenue })),
+      topDestinations: Object.entries(destinationMap)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, calls]) => ({ name, calls })),
     };
   }, [reportData]);
 
-  // ── Summary config ─────────────────────────────────────────────────────────
+  // ── Summary card config ────────────────────────────────────────────────────
+
   const summaryConfig = useMemo(() => ({
     0: [
-      { label: "Total Attempts", value: reportSummary.totalAttempts?.toLocaleString() ?? "0", icon: FiBarChart2, color: "blue" },
-      { label: "Completed Calls", value: reportSummary.totalCompleted?.toLocaleString() ?? "0", icon: CheckCircleIcon, color: "green" },
-      { label: "Total Revenue", value: formatCurrency(reportSummary.totalRevenue ?? 0), icon: FiTrendingUp, color: "green" },
-      { label: "Avg ASR", value: `${reportSummary.avgASR?.toFixed(2) ?? "0.00"}%`, icon: StarIcon, color: "yellow" },
+      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0",                            icon: FiBarChart2,    color: "blue"   },
+      { label: "Completed Calls", value: reportSummary.totalCompleted?.toLocaleString() ?? "0",                            icon: CheckCircleIcon, color: "green"  },
+      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),                             icon: FiTrendingUp,   color: "green"  },
+      { label: "Avg ASR",         value: formatPercentage(reportSummary.avgASR          ?? 0, 2),                          icon: StarIcon,       color: "yellow" },
     ],
     1: [
-      { label: "Total Revenue", value: formatCurrency(reportSummary.totalRevenue ?? 0), icon: FiTrendingUp, color: "green" },
-      { label: "Total Cost", value: formatCurrency(reportSummary.totalCost ?? 0), icon: FiTrendingDown, color: "red" },
-      { label: "Total Margin", value: formatCurrency(reportSummary.totalMargin ?? 0), icon: FiBarChart2, color: "blue" },
-      { label: "Avg Margin %", value: `${reportSummary.avgMarginPercent?.toFixed(2) ?? "0.00"}%`, icon: StarIcon, color: "purple" },
+      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0), icon: FiTrendingUp,   color: "green"  },
+      { label: "Total Cost",      value: formatCurrency(reportSummary.totalCost         ?? 0), icon: FiTrendingDown, color: "red"    },
+      { label: "Total Margin",    value: formatCurrency(reportSummary.totalMargin       ?? 0), icon: FiBarChart2,    color: "blue"   },
+      { label: "Avg Margin %",    value: formatPercentage(reportSummary.avgMarginPercent ?? 0, 2), icon: StarIcon,   color: "purple" },
     ],
     2: [
-      { label: "Total Loss", value: formatCurrency(Math.abs(reportSummary.totalLoss ?? 0)), icon: WarningIcon, color: "red" },
-      { label: "Negative Calls", value: reportSummary.negativeMarginCalls?.toLocaleString() ?? "0", icon: CloseIcon, color: "orange" },
-      { label: "Affected Customers", value: reportSummary.affectedCustomers?.toLocaleString() ?? "0", icon: InfoIcon, color: "yellow" },
-      { label: "Destinations", value: reportSummary.affectedDestinations?.toLocaleString() ?? "0", icon: FiGrid, color: "cyan" },
+      { label: "Total Loss",          value: formatCurrency(Math.abs(reportSummary.totalLoss             ?? 0)), icon: WarningIcon,    color: "red"    },
+      { label: "Negative Calls",      value: reportSummary.negativeMarginCalls?.toLocaleString()          ?? "0",  icon: CloseIcon,      color: "orange" },
+      { label: "Affected Customers",  value: reportSummary.affectedCustomers?.toLocaleString()            ?? "0",  icon: InfoIcon,       color: "yellow" },
+      { label: "Destinations",        value: reportSummary.affectedDestinations?.toLocaleString()         ?? "0",  icon: FiGrid,         color: "cyan"   },
     ],
     3: [
-      { label: "Total Customers", value: reportSummary.totalCustomers?.toLocaleString() ?? "0", icon: FiList, color: "blue" },
-      { label: "Total Attempts", value: reportSummary.totalAttempts?.toLocaleString() ?? "0", icon: FiBarChart2, color: "green" },
-      { label: "Total Revenue", value: formatCurrency(reportSummary.totalRevenue ?? 0), icon: FiTrendingUp, color: "purple" },
-      { label: "Total Cost", value: formatCurrency(reportSummary.totalCost ?? 0), icon: FiTrendingDown, color: "red" },
+      { label: "Total Customers", value: reportSummary.totalCustomers?.toLocaleString() ?? "0", icon: FiList,        color: "blue"   },
+      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,   color: "green"  },
+      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,  color: "purple" },
+      { label: "Total Cost",      value: formatCurrency(reportSummary.totalCost         ?? 0),  icon: FiTrendingDown,color: "red"    },
     ],
     4: [
-      { label: "Total Customers", value: reportSummary.totalCustomers ?? 0, icon: FiGrid, color: "purple" },
-      { label: "Total Attempts", value: reportSummary.totalAttempts?.toLocaleString() ?? "0", icon: FiBarChart2, color: "blue" },
-      { label: "Total Revenue", value: formatCurrency(reportSummary.totalRevenue ?? 0), icon: FiTrendingUp, color: "green" },
-      { label: "Avg ASR", value: `${reportSummary.avgASR?.toFixed(2) ?? "0.00"}%`, icon: StarIcon, color: "yellow" },
+      { label: "Total Customers", value: String(reportSummary.totalCustomers            ?? 0),  icon: FiGrid,        color: "purple" },
+      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,   color: "blue"   },
+      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,  color: "green"  },
+      { label: "Avg ASR",         value: formatPercentage(reportSummary.avgASR          ?? 0, 2), icon: StarIcon,    color: "yellow" },
     ],
     5: [
-      { label: "Total Vendors", value: reportSummary.totalVendors ?? 0, icon: FiGrid, color: "purple" },
-      { label: "Total Attempts", value: reportSummary.totalAttempts?.toLocaleString() ?? "0", icon: FiBarChart2, color: "blue" },
-      { label: "Total Revenue", value: formatCurrency(reportSummary.totalRevenue ?? 0), icon: FiTrendingUp, color: "green" },
-      { label: "Total Cost", value: formatCurrency(reportSummary.totalCost ?? 0), icon: FiTrendingDown, color: "red" },
+      { label: "Total Vendors",   value: String(reportSummary.totalVendors              ?? 0),  icon: FiGrid,        color: "purple" },
+      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,   color: "blue"   },
+      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,  color: "green"  },
+      { label: "Total Cost",      value: formatCurrency(reportSummary.totalCost         ?? 0),  icon: FiTrendingDown,color: "red"    },
     ],
   }), [reportSummary]);
 
-  // ── Account list for current mode ─────────────────────────────────────────
+  // ── Account lists ──────────────────────────────────────────────────────────
+
   const currentAccounts = isVendorReport ? accounts.vendors : accounts.customers;
 
   const ownerOptions = useMemo(() => {
-    const uniqueOwners = [...new Set(
-      currentAccounts
-        .map((account) => String(account.ownerName || "").trim())
-        .filter(Boolean),
-    )].sort((a, b) => a.localeCompare(b));
+    const uniqueOwners = [
+      ...new Set(
+        currentAccounts
+          .map((a) => String(a.ownerName || "").trim())
+          .filter(Boolean),
+      ),
+    ].sort((a, b) => a.localeCompare(b));
 
     return [
       { value: "all", label: "All Owners" },
-      ...uniqueOwners.map((owner) => ({ value: owner, label: owner })),
+      ...uniqueOwners.map((o) => ({ value: o, label: o })),
     ];
   }, [currentAccounts]);
 
-  const ownerFilteredAccounts = useMemo(() => {
-    return currentAccounts
-      .filter((account) => {
-        if (selectedOwner === "all") return true;
-        return String(account.ownerName || "").trim() === selectedOwner;
-      })
+  const ownerFilteredAccounts = useMemo(() =>
+    currentAccounts
+      .filter((a) => selectedOwner === "all" || String(a.ownerName || "").trim() === selectedOwner)
       .sort((a, b) => {
-        const ownerA = String(a.ownerName || "").trim();
-        const ownerB = String(b.ownerName || "").trim();
-        const ownerCompare = ownerA.localeCompare(ownerB);
-        if (ownerCompare !== 0) return ownerCompare;
-
-        return String(a.accountName || "").localeCompare(String(b.accountName || ""));
-      });
-  }, [currentAccounts, selectedOwner]);
-
-  // ── Time picker helpers ────────────────────────────────────────────────────
-  const setStartHour = useCallback((hour) => {
-    setDateRange((prev) => ({
-      ...prev,
-      startHour: hour,
-      endHour: Math.max(hour, prev.endHour),
-    }));
-  }, []);
-
-  const setEndHour = useCallback((hour) => {
-    setDateRange((prev) => ({
-      ...prev,
-      endHour: hour,
-      startHour: Math.min(hour, prev.startHour),
-    }));
-  }, []);
-
-  const setStartMinute = useCallback((minute) => setDateRange((prev) => ({ ...prev, startMinute: minute })), []);
-  const setEndMinute = useCallback((minute) => setDateRange((prev) => ({ ...prev, endMinute: minute })), []);
+        const ownerCompare = String(a.ownerName || "").localeCompare(String(b.ownerName || ""));
+        return ownerCompare !== 0
+          ? ownerCompare
+          : String(a.accountName || "").localeCompare(String(b.accountName || ""));
+      }),
+  [currentAccounts, selectedOwner]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <Box>
       <PageNavBar
@@ -813,13 +863,20 @@ const Reports = () => {
         description="Generate detailed reports and insights from CDR data"
         rightContent={
           <>
-            <Button size="sm" leftIcon={<FiRefreshCw />} variant="ghost" onClick={loadAccounts} isLoading={accountsLoading}>
+            <Button
+              size="sm"
+              leftIcon={<FiRefreshCw />}
+              variant="ghost"
+              onClick={loadAccounts}
+              isLoading={accountsLoading}
+            >
               Refresh
             </Button>
+
             <Menu>
               <MenuButton
-                size="sm"
                 as={Button}
+                size="sm"
                 rightIcon={<ChevronDownIcon />}
                 colorScheme="green"
                 isLoading={exporting}
@@ -839,14 +896,18 @@ const Reports = () => {
       />
 
       <Box mt={6} px={2}>
-        {/* ── Report type + date controls ──────────────────────────────────── */}
-        <Flex direction={{ base: "column", lg: "row" }} gap={4} align={{ base: "stretch", lg: "flex-end" }}>
+        {/* ── Report type selector + date controls ─────────────────────── */}
+        <Flex
+          direction={{ base: "column", lg: "row" }}
+          gap={4}
+          align={{ base: "stretch", lg: "flex-end" }}
+        >
           <FormControl maxW={{ base: "100%", md: "320px" }}>
             <FormLabel fontSize="sm" mb={2}>Select Report Type</FormLabel>
             <Select
               size="sm"
               value={activeTab.toString()}
-              onChange={(e) => handleTabChange(parseInt(e.target.value))}
+              onChange={(e) => handleTabChange(parseInt(e.target.value, 10))}
             >
               {REPORT_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -856,7 +917,7 @@ const Reports = () => {
 
           {activeTab !== 6 && (
             <Wrap spacing={4} justify="flex-start" align="flex-end">
-              {/* Start Date */}
+              {/* Start date */}
               <WrapItem>
                 <Box>
                   <FormLabel fontSize="sm" display="flex" alignItems="center" gap={2} mb={2}>
@@ -876,7 +937,7 @@ const Reports = () => {
                 </Box>
               </WrapItem>
 
-              {/* End Date */}
+              {/* End date */}
               <WrapItem>
                 <Box>
                   <FormLabel fontSize="sm" display="flex" alignItems="center" gap={2} mb={2}>
@@ -895,48 +956,26 @@ const Reports = () => {
                 </Box>
               </WrapItem>
 
-              {/* Hourly report uses hour-only filters; other reports keep minute precision */}
+              {/* Time pickers — hour-only for Hourly report, full time for rest */}
               {activeTab === 0 ? (
                 <>
-                  <HourPickerButton
-                    size="xs"
-                    label="From (UTC)"
-                    hour={dateRange.startHour}
-                    onHourChange={setStartHour}
-                  />
-                  <HourPickerButton
-                    size="xs"
-                    label="To (UTC)"
-                    hour={dateRange.endHour}
-                    onHourChange={setEndHour}
-                  />
+                  <HourPickerButton label="From (UTC)" hour={dateRange.startHour} onHourChange={setStartHour} />
+                  <HourPickerButton label="To (UTC)"   hour={dateRange.endHour}   onHourChange={setEndHour} />
                 </>
               ) : (
                 <>
-                  <TimePickerButton
-                    label="From Time (UTC)"
-                    hour={dateRange.startHour}
-                    minute={dateRange.startMinute}
-                    onHourChange={setStartHour}
-                    onMinuteChange={setStartMinute}
-                  />
-                  <TimePickerButton
-                    label="To Time (UTC)"
-                    hour={dateRange.endHour}
-                    minute={dateRange.endMinute}
-                    onHourChange={setEndHour}
-                    onMinuteChange={setEndMinute}
-                  />
+                  <TimePickerButton label="From Time (UTC)" hour={dateRange.startHour} minute={dateRange.startMinute} onHourChange={setStartHour} onMinuteChange={setStartMinute} />
+                  <TimePickerButton label="To Time (UTC)"   hour={dateRange.endHour}   minute={dateRange.endMinute}   onHourChange={setEndHour}   onMinuteChange={setEndMinute} />
                 </>
               )}
-              
             </Wrap>
           )}
         </Flex>
 
         {activeTab !== 6 ? (
           <>
-            {/* ── Report controls (account selector, generate button) ───── */}
+            {/* ── Filters + generate button ─────────────────────────────── */}
+            {/* FIX #14: pass only startDate/endDate — not the whole dateRange object */}
             <ReportControls
               activeTab={activeTab}
               isVendorReport={isVendorReport}
@@ -957,7 +996,8 @@ const Reports = () => {
               marginThreshold={marginThreshold}
               setMarginThreshold={setMarginThreshold}
               loading={loading}
-              dateRange={dateRange}
+              startDate={dateRange.startDate}
+              endDate={dateRange.endDate}
               onGenerate={handleGenerateReport}
               cardBg={cardBg}
             />
@@ -972,7 +1012,7 @@ const Reports = () => {
               />
             )}
 
-            {/* ── Summary cards ─────────────────────────────────────────── */}
+            {/* ── Summary stat cards ────────────────────────────────────── */}
             {reportSummary && Object.keys(reportSummary).length > 0 && summaryConfig[activeTab] && (
               <ReportSummaryCards
                 stats={summaryConfig[activeTab]}
@@ -982,14 +1022,19 @@ const Reports = () => {
               />
             )}
 
-            {/* ── Data table card ───────────────────────────────────────── */}
+            {/* ── Data table ────────────────────────────────────────────── */}
             <Card bg={cardBg} border="1px" borderColor={borderColor}>
               <CardHeader>
-                <Flex justify="space-between" align={{ base: "stretch", md: "center" }} gap={4} direction={{ base: "column", md: "row" }}>
+                <Flex
+                  justify="space-between"
+                  align={{ base: "stretch", md: "center" }}
+                  gap={4}
+                  direction={{ base: "column", md: "row" }}
+                >
                   <VStack align="start" spacing={1}>
-                    {/* BUG FIX: use REPORT_TITLES map instead of broken array index */}
+                    {/* FIX #11: REPORT_TITLES now has key 6; this never falls back */}
                     <Heading size="md">{REPORT_TITLES[activeTab] ?? "Report"}</Heading>
-                    <Text>{selectedAccount}</Text>                    <Text fontSize="sm" color={mutedColor}>
+                    <Text fontSize="sm" color={mutedColor}>
                       Generated on {new Date().toLocaleDateString()} | Data range:{" "}
                       {dateRange.startDate.toLocaleDateString()} to {dateRange.endDate.toLocaleDateString()}
                     </Text>
@@ -1002,14 +1047,15 @@ const Reports = () => {
                       Trunk: {selectedTrunk === "all" ? "All Trunks" : selectedTrunk}
                     </Badge>
                   </VStack>
+
                   <HStack spacing={3} align="center" justify={{ base: "flex-start", md: "flex-end" }}>
-                    <InputGroup size={"sm"} w={{ base: "full", sm: "280px" }}>
+                    <InputGroup size="sm" w={{ base: "full", sm: "280px" }}>
                       <InputLeftElement pointerEvents="none">
                         <SearchIcon color="gray.500" />
                       </InputLeftElement>
                       <Input
                         pl={9}
-                        placeholder="Search in report..."
+                        placeholder="Search in report…"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
@@ -1020,6 +1066,7 @@ const Reports = () => {
                   </HStack>
                 </Flex>
               </CardHeader>
+
               <CardBody overflowX="auto">
                 {loading ? (
                   <LoadingState />
@@ -1044,7 +1091,6 @@ const Reports = () => {
                 )}
               </CardBody>
             </Card>
-
           </>
         ) : (
           <MissingGateways />
@@ -1055,19 +1101,24 @@ const Reports = () => {
 };
 
 // ─── ReportControls ───────────────────────────────────────────────────────────
+// FIX #14: receives startDate/endDate directly instead of the full dateRange
+// object, so hour/minute changes don't trigger needless re-renders of this subtree.
 
 const ReportControls = React.memo(({
   activeTab, isVendorReport, setIsVendorReport,
   selectedAccount, setSelectedAccount,
   selectedOwner, setSelectedOwner, ownerOptions,
   selectedCountry, setSelectedCountry, countryOptions, countryLoading,
-  selectedTrunk, setSelectedTrunk, accounts, accountsLoading,
-  marginThreshold, setMarginThreshold, loading, dateRange, onGenerate, cardBg,
+  selectedTrunk, setSelectedTrunk,
+  accounts, accountsLoading,
+  marginThreshold, setMarginThreshold,
+  loading, startDate, endDate, onGenerate, cardBg,
 }) => (
-  <Box mb={4} p={4} bg={cardBg} shadow="sm" borderRadius="md" >
+  <Box mb={4} p={4} bg={cardBg} shadow="sm" borderRadius="md">
     <VStack spacing={6} align="stretch">
       <Flex direction={{ base: "column", lg: "row" }} gap={6} align={{ base: "stretch", lg: "flex-end" }}>
-        {/* Report side radio (Hourly, Margin, Customer-Vendor) */}
+
+        {/* Report side (Customer / Vendor) — only for tabs that support the toggle */}
         {[0, 1, 3].includes(activeTab) && (
           <FormControl>
             <FormLabel display="flex" alignItems="center" gap={2}>
@@ -1075,7 +1126,11 @@ const ReportControls = React.memo(({
             </FormLabel>
             <RadioGroup
               value={isVendorReport ? "vendor" : "customer"}
-              onChange={(val) => { setIsVendorReport(val === "vendor"); setSelectedOwner("all"); setSelectedAccount("all"); }}
+              onChange={(val) => {
+                setIsVendorReport(val === "vendor");
+                setSelectedOwner("all");
+                setSelectedAccount("all");
+              }}
             >
               <HStack spacing={6}>
                 <Radio value="customer">Customer</Radio>
@@ -1085,7 +1140,7 @@ const ReportControls = React.memo(({
           </FormControl>
         )}
 
-        {/* Account selector */}
+        {/* Account Owner filter */}
         <FormControl maxW={{ base: "100%", lg: "220px" }}>
           <FormLabel>Account Owner</FormLabel>
           <Select
@@ -1097,15 +1152,14 @@ const ReportControls = React.memo(({
             }}
             isDisabled={accountsLoading}
           >
-            {ownerOptions.map((ownerOption) => (
-              <option key={ownerOption.value} value={ownerOption.value}>
-                {ownerOption.label}
-              </option>
+            {ownerOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </Select>
         </FormControl>
 
         {/* Account selector */}
+        {/* FIX #5: use customerCode/vendorCode as key — id/_id can be undefined */}
         <FormControl>
           <FormLabel display="flex" alignItems="center" gap={2}>
             <FiUser />{isVendorReport ? "Vendor Account" : "Customer Account"}
@@ -1115,20 +1169,21 @@ const ReportControls = React.memo(({
             value={selectedAccount}
             onChange={(e) => setSelectedAccount(e.target.value)}
             isDisabled={accountsLoading}
-            placeholder={accountsLoading ? "Loading accounts..." : undefined}
+            placeholder={accountsLoading ? "Loading accounts…" : undefined}
           >
             <option value="all">All Accounts</option>
-            {accounts.map((account) => (
-              <option
-                key={account.id ?? account._id}
-                value={isVendorReport ? account.vendorCode : account.customerCode}
-              >
-                {account.accountName} ({isVendorReport ? account.vendorCode : account.customerCode})
-              </option>
-            ))}
+            {accounts.map((account) => {
+              const code = isVendorReport ? account.vendorCode : account.customerCode;
+              return (
+                <option key={code} value={code}>
+                  {account.accountName} ({code})
+                </option>
+              );
+            })}
           </Select>
         </FormControl>
 
+        {/* Trunk */}
         <FormControl maxW={{ base: "100%", lg: "180px" }}>
           <FormLabel>Trunk</FormLabel>
           <Select
@@ -1137,24 +1192,23 @@ const ReportControls = React.memo(({
             onChange={(e) => setSelectedTrunk(e.target.value)}
             isDisabled={loading}
           >
-            {TRUNK_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
+            {TRUNK_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </Select>
         </FormControl>
 
+        {/* Country search */}
         <CountrySearchSelect
           label="Country"
           value={selectedCountry}
           options={countryOptions}
           onChange={setSelectedCountry}
-          placeholder={countryLoading ? 'Loading countries...' : 'All Countries'}
+          placeholder={countryLoading ? "Loading countries…" : "All Countries"}
           loading={countryLoading || loading}
         />
 
-        {/* Negative margin threshold */}
+        {/* Negative margin threshold (tab 2 only) */}
         {activeTab === 2 && (
           <FormControl>
             <FormLabel fontWeight="medium" display="flex" alignItems="center" gap={2}>
@@ -1185,7 +1239,7 @@ const ReportControls = React.memo(({
           leftIcon={<CalendarIcon />}
           colorScheme="green"
           onClick={onGenerate}
-          isDisabled={loading || accountsLoading || !dateRange.startDate || !dateRange.endDate}
+          isDisabled={loading || accountsLoading || !startDate || !endDate}
           isLoading={loading}
           loadingText="Generating"
         >
@@ -1199,45 +1253,51 @@ ReportControls.displayName = "ReportControls";
 
 // ─── DashboardMetrics ─────────────────────────────────────────────────────────
 
-const DashboardMetrics = React.memo(({ metrics, cardBg, borderColor, mutedColor }) => (
-  <Box p={4} bg={cardBg} border="1px" borderColor={borderColor} borderRadius="md" shadow="lg" mb={2}>
-    <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
-      <Box>
-        <Text fontSize="sm" color={mutedColor}>Profit Margin</Text>
-        <Heading size="md" color={metrics.totalMargin >= 0 ? "green.500" : "red.500"}>
-          {formatCurrency(metrics.totalMargin)}
-        </Heading>
-        <Text fontSize="xs">
-          {metrics.totalRevenue > 0 ? ((metrics.totalMargin / metrics.totalRevenue) * 100).toFixed(6) : 0}% margin
-        </Text>
-      </Box>
-      <Box>
-        <Text fontSize="sm" color={mutedColor}>Call Success Rate</Text>
-        <Heading size="md">{formatPercentage(metrics.avgASR)}</Heading>
-        <Progress value={metrics.avgASR} colorScheme="green" size="sm" mt={1} />
-      </Box>
-      <Box>
-        <Text fontSize="sm" color={mutedColor}>Avg Call Duration</Text>
-        <Heading size="md">{formatDuration(metrics.avgACD)}</Heading>
-        <Text fontSize="xs">per call</Text>
-      </Box>
-      <Box>
-        <Text fontSize="sm" color={mutedColor}>Total Calls</Text>
-        <Heading size="md">{formatNumber(metrics.totalCalls)}</Heading>
-        <Text fontSize="xs">in selected period</Text>
-      </Box>
-    </SimpleGrid>
-  </Box>
-));
+const DashboardMetrics = React.memo(({ metrics, cardBg, borderColor, mutedColor }) => {
+  // FIX #12: guard against division by zero producing Infinity/NaN
+  const marginPct = metrics.totalRevenue > 0
+    ? ((metrics.totalMargin / metrics.totalRevenue) * 100).toFixed(6)
+    : "0.000000";
+
+  return (
+    <Box p={4} bg={cardBg} border="1px" borderColor={borderColor} borderRadius="md" shadow="lg" mb={2}>
+      <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
+        <Box>
+          <Text fontSize="sm" color={mutedColor}>Profit Margin</Text>
+          <Heading size="md" color={metrics.totalMargin >= 0 ? "green.500" : "red.500"}>
+            {formatCurrency(metrics.totalMargin)}
+          </Heading>
+          <Text fontSize="xs">{marginPct}% margin</Text>
+        </Box>
+        <Box>
+          <Text fontSize="sm" color={mutedColor}>Call Success Rate</Text>
+          <Heading size="md">{formatPercentage(metrics.avgASR)}</Heading>
+          <Progress value={metrics.avgASR} colorScheme="green" size="sm" mt={1} />
+        </Box>
+        <Box>
+          <Text fontSize="sm" color={mutedColor}>Avg Call Duration</Text>
+          <Heading size="md">{formatDuration(metrics.avgACD)}</Heading>
+          <Text fontSize="xs">per call</Text>
+        </Box>
+        <Box>
+          <Text fontSize="sm" color={mutedColor}>Total Calls</Text>
+          <Heading size="md">{formatNumber(metrics.totalCalls)}</Heading>
+          <Text fontSize="xs">in selected period</Text>
+        </Box>
+      </SimpleGrid>
+    </Box>
+  );
+});
 DashboardMetrics.displayName = "DashboardMetrics";
 
 // ─── ReportSummaryCards ────────────────────────────────────────────────────────
 
 const ReportSummaryCards = React.memo(({ stats, cardBg, borderColor, mutedColor }) => (
   <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4} mb={4}>
-    {stats.map((stat, index) => (
+    {/* FIX #15: use stat.label as key — stable and semantically meaningful */}
+    {stats.map((stat) => (
       <Card
-        key={index}
+        key={stat.label}
         bg={cardBg}
         border="1px"
         borderColor={borderColor}
@@ -1247,7 +1307,7 @@ const ReportSummaryCards = React.memo(({ stats, cardBg, borderColor, mutedColor 
         <CardBody>
           <HStack justify="space-between" mb={2}>
             <Box p={2} bg={`${stat.color}.100`} borderRadius="md">
-              <Icon bg={"transparent"} as={stat.icon} color={`${stat.color}.500`} boxSize={5} />
+              <Icon as={stat.icon} color={`${stat.color}.500`} boxSize={5} />
             </Box>
             <Stat>
               <StatLabel color={mutedColor} fontSize="sm">{stat.label}</StatLabel>
@@ -1270,8 +1330,7 @@ const TimePickerButton = React.memo(({ label, hour, minute, onHourChange, onMinu
         <FiClock />{label}
       </FormLabel>
       <InputGroup w="170px">
-        <InputLeftElement pointerEvents="none" color="gray.500">
-        </InputLeftElement>
+        <InputLeftElement pointerEvents="none" color="gray.500" />
         <Input
           type="time"
           value={`${pad2(hour)}:${pad2(minute)}`}
@@ -1283,9 +1342,13 @@ const TimePickerButton = React.memo(({ label, hour, minute, onHourChange, onMinu
           _hover={{ borderColor: "blue.400" }}
           _focus={{ borderColor: "blue.500", boxShadow: "0 0 0 1px var(--chakra-colors-blue-500)" }}
           onChange={(e) => {
-            const [nextHour, nextMinute] = (e.target.value || "").split(":").map((value) => Number(value));
-            if (!Number.isInteger(nextHour) || !Number.isInteger(nextMinute)) return;
+            const [nextHour, nextMinute] = (e.target.value || "")
+              .split(":")
+              .map((v) => Number(v));
+            if (!Number.isInteger(nextHour)   || !Number.isInteger(nextMinute))  return;
             if (nextHour < 0 || nextHour > 23 || nextMinute < 0 || nextMinute > 59) return;
+            // FIX #8: call both change handlers with the same values; the parent's
+            // hour setters (setStartHour / setEndHour) handle clamping independently.
             onHourChange(nextHour);
             onMinuteChange(nextMinute);
           }}
@@ -1319,48 +1382,51 @@ const HourPickerButton = React.memo(({ label, hour, onHourChange }) => (
 ));
 HourPickerButton.displayName = "HourPickerButton";
 
-const CountrySearchSelect = React.memo(({ label, value, options, onChange, placeholder = 'All Countries', loading = false }) => {
+// ─── CountrySearchSelect ──────────────────────────────────────────────────────
+
+const CountrySearchSelect = React.memo(({
+  label, value, options, onChange,
+  placeholder = "All Countries", loading = false,
+}) => {
   const wrapperRef = useRef(null);
-  const [query, setQuery] = useState('');
+  const [query,  setQuery]  = useState("");
   const [isOpen, setIsOpen] = useState(false);
 
-  const selectedOption = useMemo(() => (
-    options.find((option) => option.value === value) || null
-  ), [options, value]);
+  const selectedOption = useMemo(
+    () => options.find((o) => o.value === value) ?? null,
+    [options, value],
+  );
 
+  // FIX #7: also run when `value` changes so an external reset (e.g. tab switch)
+  // clears the query text back to empty / the new selection's label.
   useEffect(() => {
     if (!isOpen) {
-      setQuery(value === 'all' ? '' : selectedOption?.label || '');
+      setQuery(value === "all" ? "" : selectedOption?.label ?? "");
     }
   }, [isOpen, selectedOption, value]);
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+    const handleClickOutside = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
         setIsOpen(false);
       }
     };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const filteredOptions = useMemo(() => {
-    const normalizedTerm = query.trim().toLowerCase();
-    const baseOptions = [{ value: 'all', label: 'All Countries', codes: [] }, ...options];
-
-    if (!normalizedTerm) {
-      return baseOptions;
-    }
-
-    return baseOptions.filter((option) => {
-      const haystack = `${option.label} ${(option.codes || []).join(' ')}`.toLowerCase();
-      return haystack.includes(normalizedTerm);
+    const term        = query.trim().toLowerCase();
+    const baseOptions = [{ value: "all", label: "All Countries", codes: [] }, ...options];
+    if (!term) return baseOptions;
+    return baseOptions.filter((o) => {
+      const haystack = `${o.label} ${(o.codes || []).join(" ")}`.toLowerCase();
+      return haystack.includes(term);
     });
   }, [options, query]);
 
   return (
-    <FormControl maxW={{ base: '100%', lg: '260px' }}>
+    <FormControl maxW={{ base: "100%", lg: "260px" }}>
       <FormLabel>{label}</FormLabel>
       <Box ref={wrapperRef} position="relative">
         <Input
@@ -1369,16 +1435,15 @@ const CountrySearchSelect = React.memo(({ label, value, options, onChange, place
           placeholder={placeholder}
           onFocus={() => setIsOpen(true)}
           onChange={(e) => {
-            const nextValue = e.target.value;
-            setQuery(nextValue);
+            const next = e.target.value;
+            setQuery(next);
             setIsOpen(true);
-            if (!nextValue.trim()) {
-              onChange('all');
-            }
+            if (!next.trim()) onChange("all");
           }}
           onClick={() => setIsOpen(true)}
           disabled={loading}
         />
+
         {isOpen && (
           <Box
             position="absolute"
@@ -1394,34 +1459,39 @@ const CountrySearchSelect = React.memo(({ label, value, options, onChange, place
             maxH="260px"
             overflowY="auto"
           >
-            {filteredOptions.length > 0 ? filteredOptions.map((option) => (
-              <Button
-                key={option.value}
-                variant="ghost"
-                w="full"
-                justifyContent="flex-start"
-                borderRadius={0}
-                px={3}
-                py={2}
-                h="auto"
-                onClick={() => {
-                  onChange(option.value);
-                  setQuery(option.value === 'all' ? '' : option.label);
-                  setIsOpen(false);
-                }}
-              >
-                <VStack spacing={0} align="start" w="full">
-                  <Text fontSize="sm" fontWeight={option.value === value ? '700' : '500'}>
-                    {option.label}
-                  </Text>
-                  {option.codes?.length > 0 && option.value !== 'all' ? (
-                    <Text fontSize="xs" color="gray.500">
-                      {option.codes.join(', ')}
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option) => (
+                <Button
+                  key={option.value}
+                  variant="ghost"
+                  w="full"
+                  justifyContent="flex-start"
+                  borderRadius={0}
+                  px={3}
+                  py={2}
+                  h="auto"
+                  onClick={() => {
+                    onChange(option.value);
+                    setQuery(option.value === "all" ? "" : option.label);
+                    setIsOpen(false);
+                  }}
+                >
+                  <VStack spacing={0} align="start" w="full">
+                    <Text
+                      fontSize="sm"
+                      fontWeight={option.value === value ? "700" : "500"}
+                    >
+                      {option.label}
                     </Text>
-                  ) : null}
-                </VStack>
-              </Button>
-            )) : (
+                    {option.codes?.length > 0 && option.value !== "all" && (
+                      <Text fontSize="xs" color="gray.500">
+                        {option.codes.join(", ")}
+                      </Text>
+                    )}
+                  </VStack>
+                </Button>
+              ))
+            ) : (
               <Box px={3} py={2}>
                 <Text fontSize="sm" color="gray.500">No matching countries</Text>
               </Box>
@@ -1432,7 +1502,7 @@ const CountrySearchSelect = React.memo(({ label, value, options, onChange, place
     </FormControl>
   );
 });
-CountrySearchSelect.displayName = 'CountrySearchSelect';
+CountrySearchSelect.displayName = "CountrySearchSelect";
 
 // ─── ReportTable ──────────────────────────────────────────────────────────────
 
@@ -1443,34 +1513,41 @@ const ReportTable = React.memo(({
 }) => {
   const tableBody = useMemo(() => {
     switch (activeTab) {
-      case 0: return <HourlyTableBody rows={paginatedData} />;
-      case 1: return <MarginTableBody rows={paginatedData} />;
-      case 2: return <NegativeMarginTableBody rows={paginatedData} />;
-      case 3: return <CustomerVendorTableBody rows={paginatedData} isVendorReport={isVendorReport} />;
-      case 4: return <CustomerOnlyTableBody rows={paginatedData} />;
-      case 5: return <VendorOnlyTableBody rows={paginatedData} />;
+      case 0: return <HourlyTableBody            rows={paginatedData} />;
+      case 1: return <MarginTableBody            rows={paginatedData} />;
+      case 2: return <NegativeMarginTableBody    rows={paginatedData} />;
+      case 3: return <CustomerVendorTableBody    rows={paginatedData} isVendorReport={isVendorReport} />;
+      case 4: return <CustomerOnlyTableBody      rows={paginatedData} />;
+      case 5: return <VendorOnlyTableBody        rows={paginatedData} />;
       default: return null;
     }
   }, [activeTab, paginatedData, isVendorReport]);
 
   const tableHead = useMemo(() => {
     switch (activeTab) {
-      case 0: return <HourlyTableHead sortConfig={sortConfig} onSort={onSort} />;
-      case 1: return <MarginTableHead sortConfig={sortConfig} onSort={onSort} />;
-      case 2: return <NegativeMarginTableHead sortConfig={sortConfig} onSort={onSort} />;
-      case 3: return <CustomerVendorTableHead sortConfig={sortConfig} onSort={onSort} isVendorReport={isVendorReport} />;
-      case 4: return <CustomerOnlyTableHead sortConfig={sortConfig} onSort={onSort} />;
-      case 5: return <VendorOnlyTableHead sortConfig={sortConfig} onSort={onSort} />;
+      case 0: return <HourlyTableHead            sortConfig={sortConfig} onSort={onSort} />;
+      case 1: return <MarginTableHead            sortConfig={sortConfig} onSort={onSort} />;
+      case 2: return <NegativeMarginTableHead    sortConfig={sortConfig} onSort={onSort} />;
+      case 3: return <CustomerVendorTableHead    sortConfig={sortConfig} onSort={onSort} isVendorReport={isVendorReport} />;
+      case 4: return <CustomerOnlyTableHead      sortConfig={sortConfig} onSort={onSort} />;
+      case 5: return <VendorOnlyTableHead        sortConfig={sortConfig} onSort={onSort} />;
       default: return null;
     }
   }, [activeTab, sortConfig, onSort, isVendorReport]);
 
-  const headBg = activeTab === 2 ? "red.50" : "gray.200";
-  const tableBorderColor = activeTab === 2 ? "red.200" : borderColor;
+  const headBg          = activeTab === 2 ? "red.50"    : "gray.200";
+  const tableBorderColor = activeTab === 2 ? "red.200"  : borderColor;
 
   return (
     <>
-      <Box maxH="580px" overflowY="auto" overflowX="hidden" border="1px solid" borderColor={tableBorderColor} borderRadius="md">
+      <Box
+        maxH="580px"
+        overflowY="auto"
+        overflowX="hidden"
+        border="1px solid"
+        borderColor={tableBorderColor}
+        borderRadius="md"
+      >
         <Table variant="simple" size="sm" sx={{ tableLayout: "fixed", width: "100%" }}>
           <Thead h="30px" position="sticky" top={0} zIndex={10} bg={headBg}>
             {tableHead}
@@ -1519,7 +1596,7 @@ const ReportTable = React.memo(({
               <Button
                 key={pageNum}
                 size="sm"
-                variant={page === pageNum ? "solid" : "outline"}
+                variant={page === pageNum ? "solid"   : "outline"}
                 colorScheme={page === pageNum ? "blue" : "gray"}
                 onClick={() => setPage(pageNum)}
               >
@@ -1540,14 +1617,6 @@ const ReportTable = React.memo(({
   );
 });
 ReportTable.displayName = "ReportTable";
-
-// Smarter page number builder (1 … 4 5 6 … 10)
-function buildPageNumbers(current, total) {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  if (current <= 4) return [1, 2, 3, 4, 5, "…", total];
-  if (current >= total - 3) return [1, "…", total - 4, total - 3, total - 2, total - 1, total];
-  return [1, "…", current - 1, current, current + 1, "…", total];
-}
 
 // ─── Table Heads ──────────────────────────────────────────────────────────────
 
@@ -1575,76 +1644,77 @@ const NegativeMarginTableHead = ({ sortConfig, onSort }) => (
   </Tr>
 );
 
+// FIX #19: sortKey was "venDestination" (missing 'd') — now "vendDestination"
+// to match the field name used in CustomerVendorTableBody
 const CustomerVendorTableHead = ({ sortConfig, onSort, isVendorReport }) => (
   <Tr>
-    {/* <SortableTh label="Account" sortKey="custAccountCode" sortConfig={sortConfig} onSort={onSort} /> */}
-    <SortableTh label="Account Owner" sortKey="accountOwner" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Customer" sortKey="customer" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Destination" sortKey="venDestination" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Vendor" sortKey="vendor" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Attempts" sortKey="attempts" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Comp" sortKey="completed" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ASR%" sortKey="asr" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ACD" sortKey="acd" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Revenue" sortKey="revenue" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Rev/min" sortKey="revenuePerMin" sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Account Owner" sortKey="accountOwner"    sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Customer"      sortKey="customer"        sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Destination"   sortKey="vendDestination" sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Vendor"        sortKey="vendor"          sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Attempts"      sortKey="attempts"        sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Comp"          sortKey="completed"       sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="ASR%"          sortKey="asr"             sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="ACD"           sortKey="acd"             sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Revenue"       sortKey="revenue"         sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Rev/min"       sortKey="revenuePerMin"   sortConfig={sortConfig} onSort={onSort} isNumeric />
     {isVendorReport && (
       <>
-        <SortableTh label="Cost" sortKey="cost" sortConfig={sortConfig} onSort={onSort} isNumeric />
-        <SortableTh label="Cost/min" sortKey="costPerMin" sortConfig={sortConfig} onSort={onSort} isNumeric />
+        <SortableTh label="Cost"      sortKey="cost"            sortConfig={sortConfig} onSort={onSort} isNumeric />
+        <SortableTh label="Cost/min"  sortKey="costPerMin"      sortConfig={sortConfig} onSort={onSort} isNumeric />
       </>
     )}
-    <SortableTh label="Margin" sortKey="margin" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Margin %" sortKey="marginPercent" sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Margin"        sortKey="margin"          sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Margin %"      sortKey="marginPercent"   sortConfig={sortConfig} onSort={onSort} isNumeric />
   </Tr>
 );
 
 const CustomerOnlyTableHead = ({ sortConfig, onSort }) => (
   <Tr>
-    <SortableTh label="Customer" sortKey="customer" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Account Owner" sortKey="accountOwner" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Destination" sortKey="vendDestination" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Attempts" sortKey="attempts" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Comp" sortKey="completed" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ASR%" sortKey="asr" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ACD" sortKey="acd" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Revenue" sortKey="revenue" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Rev/min" sortKey="revenuePerMin" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Margin" sortKey="margin" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Margin %" sortKey="marginPercent" sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Customer"       sortKey="customer"       sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Account Owner"  sortKey="accountOwner"  sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Destination"    sortKey="vendDestination" sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Attempts"       sortKey="attempts"       sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Comp"           sortKey="completed"      sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="ASR%"           sortKey="asr"            sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="ACD"            sortKey="acd"            sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Revenue"        sortKey="revenue"        sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Rev/min"        sortKey="revenuePerMin"  sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Margin"         sortKey="margin"         sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Margin %"       sortKey="marginPercent"  sortConfig={sortConfig} onSort={onSort} isNumeric />
   </Tr>
 );
 
 const VendorOnlyTableHead = ({ sortConfig, onSort }) => (
   <Tr>
-    {/* <SortableTh label="Account" sortKey="vendAccountCode" sortConfig={sortConfig} onSort={onSort} /> */}
-    <SortableTh label="Account Owner" sortKey="accountOwner" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Vendor" sortKey="vendor" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Destination Country" sortKey="vendDestination" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Attempts" sortKey="attempts" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Comp" sortKey="completed" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ASR%" sortKey="asr" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ACD(Sec)" sortKey="acd" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Cost" sortKey="cost" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Cost/min" sortKey="costPerMin" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Margin" sortKey="margin" sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Margin %" sortKey="marginPercent" sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Account Owner"      sortKey="accountOwner"   sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Vendor"             sortKey="vendor"         sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Destination Country"sortKey="vendDestination" sortConfig={sortConfig} onSort={onSort} />
+    <SortableTh label="Attempts"           sortKey="attempts"       sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Comp"               sortKey="completed"      sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="ASR%"               sortKey="asr"            sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="ACD (Sec)"          sortKey="acd"            sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Cost"               sortKey="cost"           sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Cost/min"           sortKey="costPerMin"     sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Margin"             sortKey="margin"         sortConfig={sortConfig} onSort={onSort} isNumeric />
+    <SortableTh label="Margin %"           sortKey="marginPercent"  sortConfig={sortConfig} onSort={onSort} isNumeric />
   </Tr>
 );
 
 // ─── Table Bodies ─────────────────────────────────────────────────────────────
+// FIX #10: replaced key={i} (index) with stable composite keys derived from row data.
+// FIX #17 & #22: all margin/ASR percentage cells now use formatPercentage().
 
 const HourlyTableBody = React.memo(({ rows }) => (
   <>
-    {rows.map((row, i) => (
-      <Tr key={i}>
+    {rows.map((row) => (
+      <Tr key={`hourly-${row.hour}`}>
         <Td>{row.hour}</Td>
-        {/* <Td>{row.accountOwner ?? "-"}</Td> */}
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric>{formatNumber(row.completed)}</Td>
         <Td isNumeric>
           <Badge colorScheme={row.asr > 50 ? "green" : row.asr > 20 ? "yellow" : "red"}>
-            {row.asr}%
+            {formatPercentage(row.asr)}
           </Badge>
         </Td>
         <Td isNumeric>{row.acd}</Td>
@@ -1664,10 +1734,10 @@ HourlyTableBody.displayName = "HourlyTableBody";
 
 const MarginTableBody = React.memo(({ rows }) => (
   <>
-    {rows.map((row, i) => (
-      <Tr key={i}>
+    {rows.map((row) => (
+      <Tr key={`margin-${row.accountName}-${row.destination}`}>
         <Td>{row.accountName}</Td>
-        <Td>{row.accountOwner ?? "-"}</Td>
+        <Td>{row.accountOwner ?? "—"}</Td>
         <Td>{row.destination}</Td>
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric>{formatCurrency(row.revenue)}</Td>
@@ -1678,7 +1748,9 @@ const MarginTableBody = React.memo(({ rows }) => (
           </Text>
         </Td>
         <Td isNumeric>
-          <Badge colorScheme={row.marginPercent >= 0 ? "green" : "red"}>{row.marginPercent}%</Badge>
+          <Badge colorScheme={row.marginPercent >= 0 ? "green" : "red"}>
+            {formatPercentage(row.marginPercent)}
+          </Badge>
         </Td>
         <Td isNumeric>{formatNumber(row.duration)}</Td>
       </Tr>
@@ -1689,17 +1761,19 @@ MarginTableBody.displayName = "MarginTableBody";
 
 const NegativeMarginTableBody = React.memo(({ rows }) => (
   <>
-    {rows.map((row, i) => (
-      <Tr key={i} bg="red.50">
+    {rows.map((row) => (
+      <Tr key={`negmargin-${row.accountCode}-${row.destination}`} bg="red.50">
         <Td>{row.accountCode}</Td>
         <Td>{row.accountName}</Td>
-        <Td>{row.accountOwner ?? "-"}</Td>
+        <Td>{row.accountOwner ?? "—"}</Td>
         <Td>{row.destination}</Td>
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric>{formatCurrency(row.revenue)}</Td>
         <Td isNumeric>{formatCurrency(row.cost)}</Td>
         <Td isNumeric color="red.600" fontWeight="bold">{formatCurrency(row.margin)}</Td>
-        <Td isNumeric><Badge colorScheme="red">{row.marginPercent}%</Badge></Td>
+        <Td isNumeric>
+          <Badge colorScheme="red">{formatPercentage(row.marginPercent)}</Badge>
+        </Td>
       </Tr>
     ))}
   </>
@@ -1708,27 +1782,33 @@ NegativeMarginTableBody.displayName = "NegativeMarginTableBody";
 
 const CustomerVendorTableBody = React.memo(({ rows, isVendorReport }) => (
   <>
-    {rows.map((row, i) => (
-      <Tr key={i}>
-        {/* <Td fontSize="xs">{isVendorReport ? row.vendAccountCode ?? row.vendor : row.custAccountCode ?? row.customer}</Td> */}
-        <Td fontSize="xs">{row.accountOwner ?? "-"}</Td>
+    {rows.map((row) => (
+      <Tr key={`cv-${row.customer}-${row.vendor}-${row.vendDestination}`}>
+        <Td fontSize="xs">{row.accountOwner ?? "—"}</Td>
         <Td fontSize="xs">{row.customer}</Td>
         <Td>{row.vendDestination}</Td>
         <Td fontSize="xs">{row.vendor}</Td>
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
-        <Td isNumeric><Badge colorScheme={row.asr > 40 ? "green" : "orange"}>{row.asr}%</Badge></Td>
+        <Td isNumeric>
+          <Badge colorScheme={row.asr > 40 ? "green" : "orange"}>
+            {formatPercentage(row.asr)}
+          </Badge>
+        </Td>
         <Td isNumeric>{row.acd}</Td>
         <Td isNumeric>{formatCurrency(row.revenue)}</Td>
-        <Td isNumeric>{formatCurrency(row.revenuePerMin)}</Td>
+        {/* FIX #9: rate columns use 6 decimal places */}
+        <Td isNumeric>{formatCurrencyRate(row.revenuePerMin)}</Td>
         {isVendorReport && (
           <>
             <Td isNumeric>{formatCurrency(row.cost)}</Td>
-            <Td isNumeric>{formatCurrency(row.costPerMin)}</Td>
+            <Td isNumeric>{formatCurrencyRate(row.costPerMin)}</Td>
           </>
         )}
-        <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>{formatCurrency(row.margin)}</Td>
-        <Td isNumeric>{row.marginPercent}%</Td>
+        <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>
+          {formatCurrency(row.margin)}
+        </Td>
+        <Td isNumeric>{formatPercentage(row.marginPercent)}</Td>
       </Tr>
     ))}
   </>
@@ -1737,19 +1817,25 @@ CustomerVendorTableBody.displayName = "CustomerVendorTableBody";
 
 const CustomerOnlyTableBody = React.memo(({ rows }) => (
   <>
-    {rows.map((row, i) => (
-      <Tr key={i}>
+    {rows.map((row) => (
+      <Tr key={`custonly-${row.customer}-${row.vendDestination}`}>
         <Td fontSize="xs">{row.customer}</Td>
-        <Td fontSize="xs">{row.accountOwner ?? "-"}</Td>
+        <Td fontSize="xs">{row.accountOwner ?? "—"}</Td>
         <Td>{row.vendDestination}</Td>
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
-        <Td isNumeric><Badge colorScheme={row.asr > 40 ? "green" : "orange"}>{row.asr}%</Badge></Td>
+        <Td isNumeric>
+          <Badge colorScheme={row.asr > 40 ? "green" : "orange"}>
+            {formatPercentage(row.asr)}
+          </Badge>
+        </Td>
         <Td isNumeric>{row.acd}</Td>
         <Td isNumeric>{formatCurrency(row.revenue)}</Td>
-        <Td isNumeric>{formatCurrency(row.revenuePerMin)}</Td>
-        <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>{formatCurrency(row.margin)}</Td>
-        <Td isNumeric>{row.marginPercent}%</Td>
+        <Td isNumeric>{formatCurrencyRate(row.revenuePerMin)}</Td>
+        <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>
+          {formatCurrency(row.margin)}
+        </Td>
+        <Td isNumeric>{formatPercentage(row.marginPercent)}</Td>
       </Tr>
     ))}
   </>
@@ -1758,20 +1844,25 @@ CustomerOnlyTableBody.displayName = "CustomerOnlyTableBody";
 
 const VendorOnlyTableBody = React.memo(({ rows }) => (
   <>
-    {rows.map((row, i) => (
-      <Tr key={i}>
-        {/* <Td fontSize="xs">{row.vendAccountCode ?? row.vendor}</Td> */}
-        <Td fontSize="xs">{row.accountOwner ?? "-"}</Td>
+    {rows.map((row) => (
+      <Tr key={`vendonly-${row.vendor}-${row.vendDestination}`}>
+        <Td fontSize="xs">{row.accountOwner ?? "—"}</Td>
         <Td fontSize="xs">{row.vendor}</Td>
         <Td>{row.vendDestination}</Td>
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
-        <Td isNumeric><Badge colorScheme={row.asr > 40 ? "green" : "orange"}>{row.asr}%</Badge></Td>
+        <Td isNumeric>
+          <Badge colorScheme={row.asr > 40 ? "green" : "orange"}>
+            {formatPercentage(row.asr)}
+          </Badge>
+        </Td>
         <Td isNumeric>{row.acd}</Td>
         <Td isNumeric>{formatCurrency(row.cost)}</Td>
-        <Td isNumeric>{formatCurrency(row.costPerMin)}</Td>
-        <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>{formatCurrency(row.margin)}</Td>
-        <Td isNumeric>{row.marginPercent}%</Td>
+        <Td isNumeric>{formatCurrencyRate(row.costPerMin)}</Td>
+        <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>
+          {formatCurrency(row.margin)}
+        </Td>
+        <Td isNumeric>{formatPercentage(row.marginPercent)}</Td>
       </Tr>
     ))}
   </>

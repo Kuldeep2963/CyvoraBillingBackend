@@ -78,6 +78,10 @@ import {
 } from "../utils/api";
 import { format, differenceInDays, subDays } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
+import {
+  currentBillingPeriodWindow,
+  getAutoLastBillingDate,
+} from "../utils/billingDateUtils";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -384,6 +388,46 @@ const Invoices = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  useEffect(() => {
+    if (!generateForm.customerId || customers.length === 0) return;
+
+    const selectedAccount = customers.find(
+      (c) =>
+        c.gatewayId === generateForm.customerId ||
+        c.customerCode === generateForm.customerId ||
+        c.accountId === generateForm.customerId,
+    );
+
+    if (!selectedAccount) return;
+
+    const billingCycle = selectedAccount.billingCycle || "monthly";
+    const lastBillingDate =
+      selectedAccount.customerLastBillingDate ||
+      selectedAccount.lastbillingdate ||
+      selectedAccount.vendorLastBillingDate ||
+      selectedAccount.vendorLastbillingdate ||
+      "";
+
+    const periodWindow = lastBillingDate
+      ? currentBillingPeriodWindow(lastBillingDate, billingCycle)
+      : (() => {
+          const fallbackLastBillingDate = getAutoLastBillingDate(
+            billingCycle,
+            selectedAccount.billingStartDate || selectedAccount.createdAt || new Date(),
+          );
+          return currentBillingPeriodWindow(fallbackLastBillingDate, billingCycle);
+        })();
+
+    setGenerateForm((prev) => {
+      if (prev.customerId !== generateForm.customerId) return prev;
+      return {
+        ...prev,
+        periodStart: periodWindow.periodStart || prev.periodStart,
+        periodEnd: periodWindow.periodEnd || prev.periodEnd,
+      };
+    });
+  }, [customers, generateForm.customerId, setGenerateForm]);
+
   // BUG FIX: accepts data param — no longer reads stale `invoices` from closure
   const calculateDashboardStats = (data) => {
     const now           = new Date();
@@ -681,7 +725,7 @@ const Invoices = () => {
         setSelectedInvoiceIds([]);
         toast({
           title:       "Delete complete",
-          description: `Deleted ${succeeded} invoice${succeeded !== 1 ? "s" : ""}${failed > 0 ? `. Failed: ${failed}.` : ""}`,
+          description: `Deleted ${succeeded} invoice${succeeded !== 1 ? "s" : ""}${failed > 0 ? `. Failed: ${failed} paid or sent invoices.` : ""}`,
           status:      succeeded > 0 ? "success" : "error",
           duration:    3000,
           isClosable:  true,

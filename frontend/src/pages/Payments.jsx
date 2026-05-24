@@ -10,7 +10,7 @@ import {
   InputLeftElement,
 } from "@chakra-ui/react";
 import useNotify from "../utils/notify";
-import { MemoizedInput as Input } from "../components/memoizedinput/memoizedinput";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import {
   FiDollarSign,
@@ -18,6 +18,7 @@ import {
   FiDownload,
   FiArrowDown,
   FiArrowUp,
+  FiX,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
 import RecordPaymentModal from "../components/modals/RecordPaymentModal";
@@ -35,6 +36,8 @@ const Payments = () => {
   const [customers, setCustomers] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [paymentDirectionFilter, setPaymentDirectionFilter] = useState("");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [pagination, setPagination] = useState({
@@ -70,6 +73,14 @@ const Payments = () => {
     };
   };
 
+  const handleClearFilters = () => {
+    setSearchTerm("");
+    setDebouncedSearch("");
+    setPaymentDirectionFilter("");
+    setPaymentMethodFilter("");
+    setPage(1);
+  };
+
   useEffect(() => {
     loadCustomers();
   }, []);
@@ -78,13 +89,13 @@ const Payments = () => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm.trim());
       setPage(1);
-    }, 350);
+    }, 700);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
   useEffect(() => {
     loadPayments();
-  }, [debouncedSearch, page, pageSize]);
+  }, [debouncedSearch, paymentDirectionFilter, paymentMethodFilter, page, pageSize]);
 
   const loadCustomers = async () => {
     try {
@@ -102,6 +113,8 @@ const Payments = () => {
         page,
         limit: pageSize,
         search: debouncedSearch,
+        paymentDirection: paymentDirectionFilter,
+        paymentMethod: paymentMethodFilter,
       });
 
       const paymentsData = paymentsRes.success ? paymentsRes.data : [];
@@ -235,7 +248,7 @@ const Payments = () => {
       render: (_, row) => {
         const flow = getPaymentFlowMeta(row);
         return (
-          <Badge colorScheme={flow.colorScheme} variant="subtle" textTransform="capitalize" display="inline-flex" alignItems="center" gap={1}>
+          <Badge px={2} borderRadius={"full"} py={0.5} colorScheme={flow.colorScheme} variant="subtle" textTransform="capitalize" display="inline-flex" alignItems="center" gap={1}>
             <Box as={flow.icon} />
             {flow.label}
           </Badge>
@@ -244,7 +257,7 @@ const Payments = () => {
     },
     {
       header: "Account Name",
-      maxWidth: "200px",
+      maxWidth: "180px",
       key: "customerName",
       render: (value, row) => (
         <VStack align="start" spacing={0}>
@@ -324,6 +337,9 @@ const Payments = () => {
           {allocations && allocations.length > 0 ? (
             allocations.map((alloc, idx) => (
               <Badge
+                px={2}
+                py={0.5}
+                borderRadius="full"
                 key={idx}
                 colorScheme="blue"
                 variant="subtle"
@@ -340,17 +356,7 @@ const Payments = () => {
         </VStack>
       ),
     },
-    // {
-    //   header: "Status",
-    //   key: "status",
-    //   type: "badge",
-    //   colorMap: {
-    //     completed: "green",
-    //     pending: "yellow",
-    //     failed: "red",
-    //     refunded: "blue",
-    //   },
-    // },
+   
   ];
 
   const handleViewDetails = (payment) => {
@@ -392,7 +398,7 @@ const Payments = () => {
         
 
         {/* Filter Section */}
-        <Flex gap={4} alignItems={"center"}>
+        <Flex gap={4} alignItems={"center"} flexWrap="wrap">
           <InputGroup  maxW={{ md: "300px" }}  size={"sm"}>
             <InputLeftElement pointerEvents="none">
               <FiSearch color="gray.400" />
@@ -404,6 +410,50 @@ const Payments = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </InputGroup>
+          <Select
+            size="sm"
+            
+            maxW={{ md: "250px" }}
+            placeholder="Both Direction"
+            value={paymentDirectionFilter}
+            onChange={(e) => {
+              setPaymentDirectionFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="inbound">Inbound</option>
+            <option value="outbound">Outbound</option>
+          </Select>
+          <Select
+            size="sm"
+            maxW={{ md: "300px" }}
+            placeholder=" All Payment method"
+            value={paymentMethodFilter}
+            onChange={(e) => {
+              setPaymentMethodFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="bank_transfer">Bank Transfer</option>
+            <option value="usdt">USDT</option>
+            <option value="credit_card">Credit Card</option>
+            <option value="debit_card">Debit Card</option>
+            <option value="paypal">PayPal</option>
+            <option value="stripe">Stripe</option>
+            <option value="cash">Cash</option>
+            <option value="cheque">Cheque</option>
+            <option value="other">Other</option>
+          </Select>
+          <Button
+            leftIcon={<FiX/>}
+            colorScheme="red"
+            size="sm"
+            variant="outline"
+            onClick={handleClearFilters}
+            isDisabled={!searchTerm && !paymentDirectionFilter && !paymentMethodFilter}
+          >
+            Clear Filters
+          </Button>
         </Flex>
 
         {/* Data Table */}

@@ -64,7 +64,7 @@ const GenerateInvoiceModal = ({
       const window = currentBillingPeriodWindow(customerLastBillingDate, billingCycle);
       return {
         periodStart: window.periodStart || "",
-        periodEnd: customerNextBillingDate || window.periodEnd || "",
+        periodEnd: window.periodEnd || "",
       };
     }
 
@@ -76,7 +76,7 @@ const GenerateInvoiceModal = ({
       const window = currentBillingPeriodWindow(fallbackLastBillingDate, billingCycle);
       return {
         periodStart: window.periodStart || "",
-        periodEnd: customerNextBillingDate,
+        periodEnd: window.periodEnd || customerNextBillingDate,
       };
     }
 

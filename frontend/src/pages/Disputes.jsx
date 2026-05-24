@@ -31,6 +31,7 @@ import PageNavBar from "../components/PageNavBar";
 import DataTable from "../components/DataTable";
 import { MemoizedInput as Input } from "../components/memoizedinput/memoizedinput";
 import { fetchVendorInvoices } from "../utils/api";
+import { FiX } from "react-icons/fi";
 
 const formatAmount = (value) =>
   parseFloat(value || 0).toLocaleString("en-US", {
@@ -72,6 +73,11 @@ export default function Disputes() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [selectedRow, setSelectedRow] = useState(null);
+
+  const handleClearFilters = () => {
+    setSearchTerm("");
+    setPage(1);
+  };
 
   const loadDisputes = async () => {
     setIsLoading(true);
@@ -213,6 +219,9 @@ export default function Disputes() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </InputGroup>
+        <Button size="sm" colorScheme="red" leftIcon={<FiX/>} variant="outline" onClick={handleClearFilters} isDisabled={!searchTerm}>
+          Clear Filters
+        </Button>
 
       </Flex>
 

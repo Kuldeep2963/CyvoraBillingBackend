@@ -127,11 +127,17 @@ const SidebarContent = () => {
     };
 
     window.addEventListener("settings-updated", onSettingsUpdated);
-    window.addEventListener("notifications-refresh-requested", onNotificationsRefreshRequested);
+    window.addEventListener(
+      "notifications-refresh-requested",
+      onNotificationsRefreshRequested,
+    );
 
     return () => {
       window.removeEventListener("settings-updated", onSettingsUpdated);
-      window.removeEventListener("notifications-refresh-requested", onNotificationsRefreshRequested);
+      window.removeEventListener(
+        "notifications-refresh-requested",
+        onNotificationsRefreshRequested,
+      );
     };
   }, [loadNotifications]);
 
@@ -160,7 +166,7 @@ const SidebarContent = () => {
           icon: FiFileText,
           roles: ["admin", "sales-manager", "rates-dept", "view only"],
         },
-        
+
         {
           path: "/vendorinvoice",
           label: "Vendor Invoices",
@@ -388,16 +394,30 @@ const SidebarContent = () => {
       />
 
       {/* Header */}
-      <Flex direction="column" align="center" mb={6} pt={4}>
+      <Flex
+        direction="row"
+        align="center"
+        justify="center"
+        gap={1}
+        mb={3}
+        pt={2}
+      >
         <Image
-            src="/Cyvora.png"
+          src="/Cyvora.png"
           alt="Cyvora logo"
           boxSize="70px"
           objectFit="contain"
         />
-        <Text fontSize="xs" color="gray.500" textAlign="center">
-         Billing System
-        </Text>
+
+        <VStack spacing={0} align="flex-start">
+          <Text fontSize="lg" fontWeight="bold" lineHeight="short">
+            CyvoraTech
+          </Text>
+
+          <Text fontSize="xs" color="gray.500" lineHeight="short">
+            Reports & Billing Platform
+          </Text>
+        </VStack>
       </Flex>
 
       {/* Navigation */}
@@ -541,7 +561,7 @@ const SidebarContent = () => {
                   </Flex>
 
                   <Box
-                   minH={"300px"}
+                    minH={"300px"}
                     maxH="300px"
                     overflowY="auto"
                     ssx={{
@@ -692,8 +712,7 @@ const SidebarContent = () => {
 
 const Layout = ({ children }) => {
   return (
-    <Box minH="100%" bg="white" maxW="100%" overflowX="clip"
-    >
+    <Box minH="100%" bg="white" maxW="100%" overflowX="clip">
       <SidebarContent />
 
       {/* Main Content */}

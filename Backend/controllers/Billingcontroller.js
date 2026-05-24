@@ -89,36 +89,29 @@ const recalculateCustomerBillingDatesAfterDelete = async (account, deletedInvoic
     customerLookupConditions.push({ customerGatewayId: account.accountId });
   }
 
-  const deletedInvoiceBillingEnd = deletedInvoice?.billingPeriodEnd != null
-    ? Number(deletedInvoice.billingPeriodEnd)
-    : null;
+  // Always anchor to the latest remaining invoice after deletion.
+  // This prevents deleting an older invoice from rewinding billing dates
+  // when newer invoices still exist.
+  const latestRemainingInvoice = await Invoice.findOne({
+    where: customerLookupConditions.length > 0 ? { [Op.or]: customerLookupConditions } : { customerCode: account.customerCode },
+    order: [["billingPeriodEnd", "DESC"], ["createdAt", "DESC"]],
+    transaction,
+  });
 
-  const previousRemainingInvoice = deletedInvoiceBillingEnd != null
-    ? await Invoice.findOne({
-        where: {
-          ...(customerLookupConditions.length > 0
-            ? { [Op.or]: customerLookupConditions }
-            : { customerCode: account.customerCode }),
-          billingPeriodEnd: { [Op.lt]: deletedInvoiceBillingEnd },
-        },
-        order: [["billingPeriodEnd", "DESC"], ["createdAt", "DESC"]],
-        transaction,
-      })
-    : await Invoice.findOne({
-        where: customerLookupConditions.length > 0 ? { [Op.or]: customerLookupConditions } : { customerCode: account.customerCode },
-        order: [["billingPeriodEnd", "DESC"], ["createdAt", "DESC"]],
-        transaction,
-      });
-
-  const previousRemainingInvoiceEnd = previousRemainingInvoice?.billingPeriodEnd
-    ? addDaysAsDateOnly(previousRemainingInvoice.billingPeriodEnd, 0)
+  const latestRemainingInvoiceStart = latestRemainingInvoice?.billingPeriodStart
+    ? addDaysAsDateOnly(latestRemainingInvoice.billingPeriodStart, 0)
     : null;
   const deletedInvoiceEnd = addDaysAsDateOnly(deletedInvoice?.billingPeriodEnd, 0);
-  let lastBillingDate = previousRemainingInvoiceEnd
+  let lastBillingDate = latestRemainingInvoiceStart
     || (deletedInvoiceEnd
       ? calculatePrevBillingDate(deletedInvoiceEnd, account.billingCycle || 'monthly')
       : null)
     || getInitialLastBillingDate(account.billingCycle || 'monthly', account.billingStartDate || account.createdAt || new Date());
+
+  // If any invoice remains, the last billing date should be that invoice's period end.
+    if (latestRemainingInvoiceStart) {
+      lastBillingDate = latestRemainingInvoiceStart;
+    }
 
   // Safety: deleting an invoice must never move billing cursors forward.
   const currentLast = normalizeDateOnly(account.customerLastBillingDate);
@@ -131,8 +124,8 @@ const recalculateCustomerBillingDatesAfterDelete = async (account, deletedInvoic
   if (!lastBillingDate) return;
 
   const nextBillingDate = calculateNextBillingDate(lastBillingDate, account.billingCycle || 'monthly');
-  const updates = previousRemainingInvoiceEnd && !wasClampedToCurrentLast
-    ? BillingAutomationService.buildStreamUpdates(account, "customer", previousRemainingInvoiceEnd)
+    const updates = latestRemainingInvoiceStart && !wasClampedToCurrentLast
+        ? BillingAutomationService.buildStreamUpdates(account, "customer", latestRemainingInvoice?.billingPeriodEnd)
     : {
         customerLastBillingDate: lastBillingDate,
         customerNextBillingDate: nextBillingDate,
@@ -567,8 +560,25 @@ exports.generateInvoice = async (req, res) => {
       });
     }
 
+    // Defensive correction: some clients historically sent billingPeriodEnd as the
+    // account.nextBillingDate (period end), whereas server semantics now treat
+    // nextBillingDate as the trigger (periodEnd + 1). If the supplied
+    // billingPeriodEnd equals the account's stored nextBillingDate, convert it
+    // to the true period end (previous day) to avoid missing the final day's CDRs.
+    let adjustedBillingPeriodEnd = billingPeriodEnd;
+    try {
+      const accNext = account.customerNextBillingDate || account.nextbillingdate || account.vendorNextBillingDate || account.vendorNextbillingdate;
+      if (accNext && adjustedBillingPeriodEnd === accNext) {
+        console.warn(`[Billing] Adjusting billingPeriodEnd from account.nextBillingDate to previous day for account ${account.id}`);
+        adjustedBillingPeriodEnd = addDays(adjustedBillingPeriodEnd, -1);
+      }
+    } catch (err) {
+      // If addDays fails for any reason, continue with the original value
+      console.warn('[Billing] Failed to apply defensive billingPeriodEnd adjustment:', err && err.message);
+    }
+
     const normalizedBillingPeriodStart = formatTime(billingPeriodStart);
-    const normalizedBillingPeriodEnd = formatTime(billingPeriodEnd, 23, true);
+    const normalizedBillingPeriodEnd = formatTime(adjustedBillingPeriodEnd, 23, true);
 
     const duplicateInvoice = await Invoice.findOne({
       where: {
@@ -802,7 +812,7 @@ exports.generateInvoice = async (req, res) => {
       );
     }
 
-    await syncInvoiceBillingDates(account, "customer", billingPeriodEnd, transaction);
+    await syncInvoiceBillingDates(account, "customer", adjustedBillingPeriodEnd, transaction);
 
     await transaction.commit();
 
@@ -2166,6 +2176,7 @@ exports.getAllPayments = async (req, res) => {
       customerId,
       partyType,
       paymentDirection,
+      paymentMethod,
       search,
       startDate,
       endDate,
@@ -2232,6 +2243,10 @@ exports.getAllPayments = async (req, res) => {
 
     if (paymentDirection) {
       where.paymentDirection = String(paymentDirection).trim().toLowerCase();
+    }
+
+    if (paymentMethod) {
+      where.paymentMethod = String(paymentMethod).trim().toLowerCase();
     }
 
     if (startDate && endDate) {

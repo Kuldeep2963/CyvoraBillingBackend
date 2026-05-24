@@ -525,7 +525,7 @@ export const generateReport = async (type, params) => {
   }
 };
 
-export const exportReport = async (data, format, fileName) => {
+export const exportReport = async (data, format, fileName, meta = {}) => {
   try {
     const response = await fetch(`${API_BASE_URL}/reports/export-report`, {
       method: 'POST',
@@ -533,7 +533,7 @@ export const exportReport = async (data, format, fileName) => {
         'Content-Type': 'application/json',
         ...getAuthHeaders()
       },
-      body: JSON.stringify({ data, format, fileName })
+      body: JSON.stringify({ data, format, fileName, meta })
     });
     
     if (response.status === 401) {
@@ -1090,6 +1090,23 @@ export const deleteUser = async (id) => {
     return await handleResponse(response);
   } catch (error) {
     console.error('Error deleting user:', error);
+    throw error;
+  }
+};
+
+export const updateUser = async (id, userData) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/users/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(userData),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error updating user:', error);
     throw error;
   }
 };

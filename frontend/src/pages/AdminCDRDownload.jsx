@@ -37,6 +37,7 @@ import {
   FiUsers,
   FiDatabase,
   FiAlertCircle,
+  FiX,
 } from "react-icons/fi";
 import PageNavBar from "../components/PageNavBar";
 import { downloadCDRCSV, fetchReportAccounts } from "../utils/api";
@@ -229,6 +230,13 @@ const AdminCDRDownload = () => {
     } finally {
       setDownloading(false);
     }
+  };
+
+  const handleClearFilters = () => {
+    setStartTime(toDateTimeUtcInput(oneDayBack));
+    setEndTime(toDateTimeUtcInput(now));
+    setSelectedAccountId("all");
+    setCdrSide("all");
   };
 
   // ── Derived display values ────────────────────────────────────────────────
@@ -530,7 +538,22 @@ const AdminCDRDownload = () => {
                 </Grid>
 
                 {/* Action */}
-                <Flex justify="flex-end">
+                <Flex justify="flex-end" gap={3} align="center">
+                  <Button
+                    colorScheme="red"
+                    size="sm"
+                    variant="outline"
+                    leftIcon={<FiX />}
+                    onClick={handleClearFilters}
+                    isDisabled={
+                      selectedAccountId === "all" &&
+                      cdrSide === "all" &&
+                      startTime === toDateTimeUtcInput(oneDayBack) &&
+                      endTime === toDateTimeUtcInput(now)
+                    }
+                  >
+                    Clear Filters
+                  </Button>
                   <Button
                     leftIcon={<FiDownload />}
                     colorScheme="blue"

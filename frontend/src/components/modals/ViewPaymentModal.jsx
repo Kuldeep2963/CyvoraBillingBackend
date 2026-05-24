@@ -24,7 +24,7 @@ import {
   Td,
   Icon,
 } from "@chakra-ui/react";
-import { FiDollarSign, FiCalendar, FiUser, FiCreditCard, FiHash, FiInfo, FiArrowDown, FiArrowUp } from "react-icons/fi";
+import { FiDollarSign, FiCalendar, FiUser, FiCreditCard, FiHash, FiInfo, FiArrowDown, FiArrowUp, FiX } from "react-icons/fi";
 import { format } from "date-fns";
 
 const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
@@ -54,7 +54,7 @@ const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
         </ModalHeader>
         <ModalCloseButton  color={"white"}/>
         
-        <ModalBody py={6}>
+        <ModalBody py={6} maxH={"500px"} overflowY={"auto"}>
           <VStack spacing={6} align="stretch">
             <SimpleGrid columns={2} spacing={8}>
               <VStack align="start" spacing={4}>
@@ -180,7 +180,7 @@ const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
         </ModalBody>
 
         <ModalFooter borderTopWidth="1px">
-          <Button colorScheme="blue" onClick={onClose}>Close</Button>
+          <Button leftIcon={<FiX />} colorScheme="blue" onClick={onClose}>Close</Button>
         </ModalFooter>
       </ModalContent>
     </Modal>

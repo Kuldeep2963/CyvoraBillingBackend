@@ -134,9 +134,9 @@ const ViewInvoiceModal = ({
         <ModalCloseButton color={"white"} />
 
         <ModalBody overflowY="auto" mb={4}>
-          <VStack spacing={6} align="stretch">
+          <VStack spacing={3} align="stretch">
             {/* Top Section: Customer Info & Summary */}
-            <Grid templateColumns={{ base: "1fr", lg: "2fr 1fr" }} gap={8}>
+            <Grid templateColumns={{ base: "1fr", lg: "2fr 1fr" }} gap={3}>
               {/* Customer Info */}
               <Card variant="outline">
                 <CardBody>
@@ -145,7 +145,7 @@ const ViewInvoiceModal = ({
                       <Text fontSize="sm" color="gray.600" mb={1}>
                         Bill To
                       </Text>
-                      <Text fontSize="lg" fontWeight="bold">
+                      <Text fontSize="md" fontWeight="bold">
                         {selectedInvoice.customerName}
                       </Text>
                       <Text color="gray.600">
@@ -227,7 +227,7 @@ const ViewInvoiceModal = ({
                         ${parseFloat(selectedInvoice.subtotal || 0).toFixed(2)}
                       </Text>
                     </Flex>
-                    <Flex justify="space-between" fontSize="sm">
+                    {/* <Flex justify="space-between" fontSize="sm">
                       <Text color="gray.600">
                         Tax (
                         {parseFloat(selectedInvoice.taxRate || 0).toFixed(0)}%)
@@ -235,8 +235,8 @@ const ViewInvoiceModal = ({
                       <Text color="orange.600">
                         ${parseFloat(selectedInvoice.taxAmount || 0).toFixed(2)}
                       </Text>
-                    </Flex>
-                    <Flex justify="space-between" fontSize="sm">
+                    </Flex> */}
+                    {/* <Flex justify="space-between" fontSize="sm">
                       <Text color="gray.600">Discount</Text>
                       <Text color="green.600">
                         $
@@ -244,7 +244,7 @@ const ViewInvoiceModal = ({
                           selectedInvoice.discountAmount || 0,
                         ).toFixed(2)}
                       </Text>
-                    </Flex>
+                    </Flex> */}
                     <Divider borderColor="blue.200" />
                     <Flex justify="space-between">
                       <Text fontWeight="bold">Total</Text>

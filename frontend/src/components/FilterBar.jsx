@@ -8,7 +8,7 @@ import {
   Box,
   useColorModeValue,
 } from '@chakra-ui/react';
-import { FiSearch, FiRefreshCw, FiCalendar } from 'react-icons/fi';
+import { FiSearch, FiRefreshCw, FiCalendar, FiX } from 'react-icons/fi';
 import { MemoizedInput as Input, MemoizedSelect as Select } from './memoizedinput/memoizedinput';
 
 const FilterBar = ({
@@ -17,6 +17,7 @@ const FilterBar = ({
   filters = [],
   onExport,
   onRefresh,
+  onClearFilters,
   dateRange,
   onDateRangeChange,
 }) => {
@@ -33,6 +34,15 @@ const FilterBar = ({
     const newFilters = { ...selectedFilters, [key]: value };
     setSelectedFilters(newFilters);
     onFilterChange?.(newFilters);
+  };
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setSelectedFilters({});
+    onSearch?.('');
+    onFilterChange?.({});
+    onDateRangeChange?.('all');
+    onClearFilters?.();
   };
 
   const bg = useColorModeValue('white', 'gray.700');
@@ -92,6 +102,16 @@ const FilterBar = ({
             </Select>
           </HStack>
         )}
+
+        <Button
+          variant="outline"
+          size="sm"
+          leftIcon={<FiX />}
+          onClick={handleClearFilters}
+          isDisabled={!searchTerm && Object.keys(selectedFilters).length === 0 && !dateRange}
+        >
+          Clear Filters
+        </Button>
 
         {/* Action Buttons */}
         <HStack ml="auto" spacing={2}>

@@ -18,10 +18,10 @@ import {
   Text,
   VStack,
 } from "@chakra-ui/react";
-import useNotify from "../../utils/notify";
+import useNotify from "../../../utils/notify";
 import { FiDownload, FiUpload } from "react-icons/fi";
 import Papa from "papaparse";
-import { bulkCreateCustomers } from "../../utils/api";
+import { bulkCreateCustomers } from "../../../utils/api";
 
 const sampleHeaders = [
   "accountId",

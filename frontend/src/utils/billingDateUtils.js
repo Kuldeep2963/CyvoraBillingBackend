@@ -199,21 +199,38 @@ export const nextBiweeklyEndStr = (lastBillingDate) => {
 
   // If lastBillingDate is the 15th → next period ends on EOM of same month
   if (day === 15) {
-    return endOfMonthStr(lastBillingDate);
+    // return trigger = day after EOM
+    const eom = endOfMonthStr(lastBillingDate);
+    const d = parseLocalDate(eom);
+    d.setDate(d.getDate() + 1);
+    return toLocalDateString(d);
   }
 
   // If lastBillingDate is EOM → next period ends on 15th of next month
   const eom = lastDayOfMonth(year, month + 1).getDate();
   if (day === eom) {
-    // Move to next month's 15th
+    // Move to next month's 15th → trigger is 16th of next month
     const nextMonth = new Date(year, month + 1, 15);
+    nextMonth.setDate(nextMonth.getDate() + 1);
     return toLocalDateString(nextMonth);
   }
 
   // Fallback: treat as end of current biweekly period of the FOLLOWING period
   // This handles mid-period lastBillingDate values (shouldn't occur in normal flow).
   const nextPeriodStart = new Date(year, month, day + 1);
-  return endOfCurrentBiweeklyStr(nextPeriodStart);
+  // return trigger (day after the computed biweekly period end)
+  const pe = endOfCurrentBiweeklyStr(nextPeriodStart);
+  const pd = parseLocalDate(pe);
+  pd.setDate(pd.getDate() + 1);
+  return toLocalDateString(pd);
+};
+
+// Helper: shift a YYYY-MM-DD string by a number of days
+const shiftDateStr = (dateStr, days) => {
+  const d = parseLocalDate(dateStr);
+  if (!d) return "";
+  d.setDate(d.getDate() + Number(days));
+  return toLocalDateString(d);
 };
 
 // ─── Core: Auto-set last billing date by cycle ───────────────────────────────
@@ -237,16 +254,17 @@ export const getAutoLastBillingDate = (billingCycle, referenceDate) => {
       return toLocalDateString(yesterday);
 
     case "weekly":
-      // End of the previous Monday-Sunday billing week
-      return endOfPrevWeekStr(today);
+      // Start (inclusive) of the CURRENT Mon–Sun week (Monday)
+      return startOfWeekStr(today);
 
     case "biweekly":
-      // End of the previous calendar month (same as monthly)
-      return endOfPrevMonthStr(today);
+      // Start of the current biweekly period: 1st (if day<=15) or 16th (if day>=16)
+      if (today.getDate() <= 15) return toLocalDateString(new Date(today.getFullYear(), today.getMonth(), 1));
+      return toLocalDateString(new Date(today.getFullYear(), today.getMonth(), 16));
 
     case "monthly":
-      // End of the previous calendar month
-      return endOfPrevMonthStr(today);
+      // Start (1st) of the current month
+      return toLocalDateString(new Date(today.getFullYear(), today.getMonth(), 1));
 
     case "quarterly": {
       const q = getQuarter(today);
@@ -282,17 +300,19 @@ export const calculateNextBillingDate = (lastBillingDateStr, billingCycle) => {
 
   switch (billingCycle) {
     case "daily": {
-      // Next period = tomorrow
+      // lastDate is period START for daily -> period end == start, trigger == start + 1
       const next = new Date(lastDate);
       next.setDate(next.getDate() + 1);
       return toLocalDateString(next);
     }
 
     case "weekly": {
-      // lastBillingDate is the Sunday that ends the current weekly period.
-      // nextBillingDate is the next Sunday boundary.
+      // lastDate is Monday (start) -> end is Sunday -> trigger = next Monday
       const next = new Date(lastDate);
-      next.setDate(next.getDate() + 7);
+      // move to end of week
+      const day = next.getDay();
+      const daysUntilSunday = day === 0 ? 0 : 7 - day;
+      next.setDate(next.getDate() + daysUntilSunday + 1);
       return toLocalDateString(next);
     }
 
@@ -301,11 +321,10 @@ export const calculateNextBillingDate = (lastBillingDateStr, billingCycle) => {
     }
 
     case "monthly": {
-      // Advance by one calendar month and take that month's last day.
-      // e.g. lastBillingDate = Jan 31 → nextBillingDate = Feb 28/29
-      //      lastBillingDate = Feb 28 → nextBillingDate = Mar 31
-      const nextMonth = new Date(lastDate.getFullYear(), lastDate.getMonth() + 2, 0);
-      return toLocalDateString(nextMonth);
+      // lastDate is 1st of a month -> period end = EOM of that month; trigger = day after EOM
+      const periodEnd = new Date(lastDate.getFullYear(), lastDate.getMonth() + 1, 0);
+      periodEnd.setDate(periodEnd.getDate() + 1);
+      return toLocalDateString(periodEnd);
     }
 
     case "quarterly": {
@@ -313,11 +332,14 @@ export const calculateNextBillingDate = (lastBillingDateStr, billingCycle) => {
       const year = lastDate.getFullYear();
       const nextQ = q === 4 ? 1 : q + 1;
       const nextQYear = q === 4 ? year + 1 : year;
-      return toLocalDateString(endOfQuarter(nextQYear, nextQ));
+      const qe = endOfQuarter(nextQYear, nextQ);
+      qe.setDate(qe.getDate() + 1);
+      return toLocalDateString(qe);
     }
 
     case "annually": {
-      return `${lastDate.getFullYear() + 1}-12-31`;
+      // lastDate is Jan 1 of a year -> period end = Dec 31 of that year -> trigger = Jan 1 of following year
+      return `${lastDate.getFullYear() + 1}-01-01`;
     }
 
     default:
@@ -340,69 +362,49 @@ export const calculatePrevBillingDate = (currentLastBillingDateStr, billingCycle
 
   const date = parseLocalDate(currentLastBillingDateStr);
   if (!date) return "";
-
-  switch (billingCycle) {
-    case "daily": {
-      const prev = new Date(date);
-      prev.setDate(prev.getDate() - 1);
-      return toLocalDateString(prev);
-    }
-
-    case "weekly": {
-      // Roll back to the previous Monday boundary.
-      const prev = new Date(date);
-      prev.setDate(prev.getDate() - 7);
-      return toLocalDateString(prev);
-    }
-
-    case "biweekly": {
-      const day = date.getDate();
-      const year = date.getFullYear();
-      const month = date.getMonth(); // 0-based
-
-      // If currentLastBillingDate is the 15th → previous period ended on last day of prev month
-      if (day === 15) {
-        return endOfPrevMonthStr(date);
+  // Treat input as a period END date, return the PREVIOUS period's START
+  const getPeriodStartFromPeriodEnd = (endDate, cycle) => {
+    const d = new Date(endDate);
+    switch (cycle) {
+      case 'daily':
+        return toLocalDateString(d);
+      case 'weekly':
+        // start = Monday of that week
+        return startOfWeekStr(d);
+      case 'biweekly': {
+        const day = d.getDate();
+        const eom = lastDayOfMonth(d.getFullYear(), d.getMonth() + 1).getDate();
+        if (day === 15) return toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 1));
+        if (day === eom) return toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 16));
+        if (day <= 15) return toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 1));
+        return toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 16));
       }
-
-      // If currentLastBillingDate is EOM → previous period ended on the 15th of this month
-      const eom = lastDayOfMonth(year, month + 1).getDate();
-      if (day === eom) {
-        return `${year}-${String(month + 1).padStart(2, "0")}-15`;
+      case 'monthly':
+        return toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 1));
+      case 'quarterly': {
+        const q = getQuarter(d);
+        const year = d.getFullYear();
+        const start = startOfQuarter(year, q);
+        return toLocalDateString(start);
       }
-
-      // Fallback: one biweekly period back — go to previous period start - 1
-      // This handles edge cases where dates were set manually
-      if (day > 15) {
-        return `${year}-${String(month + 1).padStart(2, "0")}-15`;
-      }
-      return endOfPrevMonthStr(date);
+      case 'annually':
+        return `${d.getFullYear()}-01-01`;
+      default:
+        return toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 1));
     }
+  };
 
-    case "monthly": {
-      // Roll back to EOM of the month BEFORE the month that the current lastBillingDate falls in.
-      // e.g. Mar 31 → Jan 31, Feb 28/29 → Jan 31
-      // The "current" lastBillingDate is the end of a month, so the prior period ended
-      // at end of the month before it.
-      const prevMonthEnd = lastDayOfMonth(date.getFullYear(), date.getMonth());
-      return toLocalDateString(prevMonthEnd);
-    }
+  const thisPeriodStart = getPeriodStartFromPeriodEnd(date, billingCycle);
+  if (!thisPeriodStart) return "";
 
-    case "quarterly": {
-      const q = getQuarter(date);
-      const year = date.getFullYear();
-      const prevQ = q === 1 ? 4 : q - 1;
-      const prevQYear = q === 1 ? year - 1 : year;
-      return toLocalDateString(endOfQuarter(prevQYear, prevQ));
-    }
+  const thisPeriodStartDate = parseLocalDate(thisPeriodStart);
+  if (!thisPeriodStartDate) return "";
 
-    case "annually": {
-      return `${date.getFullYear() - 1}-12-31`;
-    }
-
-    default:
-      return "";
-  }
+  // previous period end is the day before this period start
+  const prevPeriodEnd = new Date(thisPeriodStartDate);
+  prevPeriodEnd.setDate(prevPeriodEnd.getDate() - 1);
+  const prevPeriodStart = getPeriodStartFromPeriodEnd(prevPeriodEnd, billingCycle);
+  return prevPeriodStart || "";
 };
 
 // ─── Core: Derive billing period start from lastBillingDate ──────────────────
@@ -420,62 +422,8 @@ export const currentPeriodStart = (lastBillingDateStr, billingCycle) => {
 
   const lastDate = parseLocalDate(lastBillingDateStr);
   if (!lastDate) return "";
-
-  switch (billingCycle) {
-    case "daily": {
-      // Period starts the day after lastBillingDate
-      const next = new Date(lastDate);
-      next.setDate(next.getDate() + 1);
-      return toLocalDateString(next);
-    }
-
-    case "weekly": {
-      const next = new Date(lastDate);
-      next.setDate(next.getDate() + 1);
-      return toLocalDateString(next);
-    }
-
-    case "biweekly": {
-      const day = lastDate.getDate();
-      const year = lastDate.getFullYear();
-      const month = lastDate.getMonth();
-
-      // If lastBillingDate was the 15th → current period starts the 16th
-      if (day === 15) {
-        return `${year}-${String(month + 1).padStart(2, "0")}-16`;
-      }
-      // If lastBillingDate was EOM → current period starts the 1st of next month
-      const eom = lastDayOfMonth(year, month + 1).getDate();
-      if (day === eom) {
-        const first = new Date(year, month + 1, 1);
-        return toLocalDateString(first);
-      }
-      // Fallback
-      const next = new Date(lastDate);
-      next.setDate(next.getDate() + 1);
-      return toLocalDateString(next);
-    }
-
-    case "monthly": {
-      // Period starts on the 1st of the month after lastBillingDate
-      const first = new Date(lastDate.getFullYear(), lastDate.getMonth() + 1, 1);
-      return toLocalDateString(first);
-    }
-
-    case "quarterly": {
-      const q = getQuarter(lastDate);
-      const nextQ = q === 4 ? 1 : q + 1;
-      const nextQYear = q === 4 ? lastDate.getFullYear() + 1 : lastDate.getFullYear();
-      return toLocalDateString(startOfQuarter(nextQYear, nextQ));
-    }
-
-    case "annually": {
-      return `${lastDate.getFullYear() + 1}-01-01`;
-    }
-
-    default:
-      return "";
-  }
+  // Under new semantics, lastBillingDateStr is the inclusive period START
+  return lastBillingDateStr;
 };
 
 export const currentBillingPeriodWindow = (lastBillingDateStr, billingCycle) => {
@@ -485,17 +433,10 @@ export const currentBillingPeriodWindow = (lastBillingDateStr, billingCycle) => 
     return { periodStart: "", periodEnd: "", nextBillingDate: "" };
   }
 
-  if (billingCycle === "weekly") {
-    return {
-      periodStart,
-      periodEnd: nextBillingDate,
-      nextBillingDate,
-    };
-  }
-
+  const periodEnd = shiftDateStr(nextBillingDate, -1);
   return {
     periodStart,
-    periodEnd: nextBillingDate,
+    periodEnd,
     nextBillingDate,
   };
 };
@@ -516,14 +457,37 @@ export const currentBillingPeriodWindow = (lastBillingDateStr, billingCycle) => 
 export const onInvoiceCreated = (invoicePeriodEndStr, billingCycle) => {
   const periodEnd = parseLocalDate(invoicePeriodEndStr);
   if (!periodEnd) return { lastBillingDate: "", nextBillingDate: "" };
+  // Compute the invoice's period START (inclusive) from the period END
+  const getPeriodStartFromEnd = (endDate, cycle) => {
+    const d = new Date(endDate);
+    switch (cycle) {
+      case 'daily':
+        return toLocalDateString(d);
+      case 'weekly':
+        return startOfWeekStr(d);
+      case 'biweekly': {
+        const day = d.getDate();
+        const eom = lastDayOfMonth(d.getFullYear(), d.getMonth() + 1).getDate();
+        if (day === 15) return toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 1));
+        if (day === eom) return toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 16));
+        return day <= 15 ? toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 1)) : toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 16));
+      }
+      case 'monthly':
+        return toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 1));
+      case 'quarterly': {
+        const q = getQuarter(d);
+        const year = d.getFullYear();
+        const start = startOfQuarter(year, q);
+        return toLocalDateString(start);
+      }
+      case 'annually':
+        return `${d.getFullYear()}-01-01`;
+      default:
+        return toLocalDateString(new Date(d.getFullYear(), d.getMonth(), 1));
+    }
+  };
 
-  if (billingCycle === "weekly") {
-    const lastBillingDate = invoicePeriodEndStr;
-    const nextBillingDate = calculateNextBillingDate(lastBillingDate, billingCycle);
-    return { lastBillingDate, nextBillingDate };
-  }
-
-  const lastBillingDate = invoicePeriodEndStr;
+  const lastBillingDate = getPeriodStartFromEnd(periodEnd, billingCycle);
   const nextBillingDate = calculateNextBillingDate(lastBillingDate, billingCycle);
   return { lastBillingDate, nextBillingDate };
 };
@@ -603,12 +567,12 @@ export const getBillingCycleLabel = (billingCycle) => {
  */
 export const getLastBillingDateHelperText = (billingCycle) => {
   const texts = {
-    daily:     "Auto-set to yesterday (end of last daily period).",
-    weekly:    "Auto-set to the most recent Sunday (end of the Mon-Sun week).",
-    biweekly:  "Auto-set to last day of previous month (end of last biweekly period).",
-    monthly:   "Auto-set to last day of previous month.",
-    quarterly: "Auto-set to last day of previous calendar quarter.",
-    annually:  "Auto-set to December 31 of last year.",
+    daily:     "Auto-set to yesterday (period start for daily).",
+    weekly:    "Auto-set to the current week's Monday (period start for weekly).",
+    biweekly:  "Auto-set to 1st or 16th of the month (period start for biweekly).",
+    monthly:   "Auto-set to the 1st day of the current month (period start).",
+    quarterly: "Auto-set to the start of the current calendar quarter (period start).",
+    annually:  "Auto-set to January 1 of the current year (period start).",
   };
   return texts[billingCycle] ?? "";
 };

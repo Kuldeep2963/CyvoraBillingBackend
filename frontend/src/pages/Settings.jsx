@@ -853,6 +853,20 @@ const CountryCodesTab = ({ loadNotifications }) => {
                 value={countryCodeSearch}
                 onChange={(e) => setCountryCodeSearch(e.target.value)}
               />
+              <Button
+                size="sm"
+                variant="outline"
+                mb={3}
+                ml={2}
+                onClick={() => {
+                  setCountryCodeSearch('');
+                  setDebouncedCountryCodeSearch('');
+                  setCountryCodesPage(1);
+                }}
+                isDisabled={!countryCodeSearch}
+              >
+                Clear Filters
+              </Button>
               <Text fontSize="11px" color="gray.400" mb={3}>
                 {countryCodes.length} of {countryCodesTotal} records
               </Text>
