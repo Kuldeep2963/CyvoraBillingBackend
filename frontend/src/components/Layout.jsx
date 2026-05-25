@@ -322,7 +322,7 @@ const SidebarContent = () => {
                   color={
                     location.pathname === subItem.path ? "blue.600" : "gray.500"
                   }
-                  fontsize="sm"
+                  fontSize="sm"
                   fontWeight={
                     location.pathname === subItem.path ? "600" : "500"
                   }

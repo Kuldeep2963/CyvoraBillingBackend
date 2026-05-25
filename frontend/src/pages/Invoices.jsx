@@ -27,6 +27,7 @@ import {
   Checkbox,
   SimpleGrid,
   Progress,
+  useToast,
 } from "@chakra-ui/react";
 import useNotify from "../utils/notify";
 import { SearchIcon, CloseIcon } from "@chakra-ui/icons";
@@ -298,6 +299,7 @@ const Invoices = () => {
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
   const [paymentForm, setPaymentForm]               = useState(DEFAULT_PAYMENT_FORM);
+  const [bulkOperationInProgress, setBulkOperationInProgress] = useState(false);
   const [dashboardStats, setDashboardStats]         = useState({
     totalRevenue: 0, pendingRevenue: 0, collectedRevenue: 0,
     overdueAmount: 0, totalCalls: 0, averageInvoice: 0,
@@ -317,6 +319,7 @@ const Invoices = () => {
   });
 
   const toast  = useNotify();
+  const chakraToast = useToast();
   const bgColor     = useColorModeValue("white", "gray.800");
 
   // ── Debounce search ────────────────────────────────────────────────────────
@@ -632,25 +635,72 @@ const Invoices = () => {
   }, [isRecordingPayment, paymentForm, toast, loadData]);
 
   const handleAutoGenerateInvoices = useCallback(async () => {
+    setBulkOperationInProgress(true);
+    const toastId = chakraToast({
+      position: "top-right",
+      duration: null,
+      isClosable: false,
+      render: ({ onClose }) => (
+        <Box bg="blue.50" borderWidth="1px" borderColor="blue.200" borderRadius="md" p={4}>
+          <Text fontSize="sm" fontWeight="500" color="blue.700" mb={2}>
+            Auto-generating invoices...
+          </Text>
+          <Progress value={25} size="sm" colorScheme="blue" borderRadius="full" isIndeterminate />
+        </Box>
+      ),
+    });
+
     try {
-      toast({ title: "Auto-generate initiated", description: "Auto-generating invoices for all due customers", status: "info", duration: 3000, isClosable: true });
       const response = await runBillingAutomation();
+      
       if (response.success) {
         const { processed, succeeded, failed, skipped } = response.results;
-        toast({
-          title: "Automation completed",
-          description: `Processed: ${processed}, Succeeded: ${succeeded}, Failed: ${failed}, Skipped: ${skipped}`,
-          status: "success",
+        chakraToast.update(toastId, {
+          render: ({ onClose }) => (
+            <Box bg="green.50" borderWidth="1px" borderColor="green.200" borderRadius="md" p={4}>
+              <Text fontSize="sm" fontWeight="600" color="green.800" mb={1}>
+                ✓ Automation Completed
+              </Text>
+              <Text fontSize="xs" color="green.700">
+                Processed: {processed} | Succeeded: {succeeded} | Failed: {failed} | Skipped: {skipped}
+              </Text>
+              <Progress value={100} size="sm" colorScheme="green" borderRadius="full" mt={2} />
+            </Box>
+          ),
           duration: 5000,
           isClosable: true,
         });
         loadData();
+      } else {
+        chakraToast.update(toastId, {
+          render: ({ onClose }) => (
+            <Box bg="red.50" borderWidth="1px" borderColor="red.200" borderRadius="md" p={4}>
+              <Text fontSize="sm" fontWeight="600" color="red.800">
+                ✗ Automation Failed
+              </Text>
+            </Box>
+          ),
+          duration: 4000,
+          isClosable: true,
+        });
       }
     } catch (error) {
       console.error("Error running automation:", error);
-      toast({ title: "Automation failed", description: error.message, status: "error", duration: 5000, isClosable: true });
+      chakraToast.update(toastId, {
+        render: ({ onClose }) => (
+          <Box bg="red.50" borderWidth="1px" borderColor="red.200" borderRadius="md" p={4}>
+            <Text fontSize="sm" fontWeight="600" color="red.800">
+              ✗ Automation Failed: {error.message}
+            </Text>
+          </Box>
+        ),
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setBulkOperationInProgress(false);
     }
-  }, [toast, loadData]);
+  }, [chakraToast, loadData]);
 
   // ── Bulk operations (concurrent, not sequential) ──────────────────────────
   // BUG FIX: replaced for-await loops with runWithConcurrency; uses ConfirmDialog
@@ -660,16 +710,22 @@ const Invoices = () => {
     const results = await runWithConcurrency(tasks);
     const succeeded = results.filter((r) => r.status === "fulfilled").length;
     const failed    = results.length - succeeded;
-    toast.close(toastId);
-    loadData();
-    toast({
-      title:       "Bulk email complete",
-      description: `Sent ${succeeded} invoice${succeeded !== 1 ? "s" : ""}.${failed > 0 ? ` Failed: ${failed}.` : ""}`,
-      status:      succeeded > 0 ? "success" : "error",
-      duration:    5000,
-      isClosable:  true,
+    chakraToast.update(toastId, {
+      render: ({ onClose }) => (
+        <Box bg={succeeded > 0 ? "green.50" : "red.50"} borderWidth="1px" borderColor={succeeded > 0 ? "green.200" : "red.200"} borderRadius="md" p={4}>
+          <Text fontSize="sm" fontWeight="600" color={succeeded > 0 ? "green.800" : "red.800"} mb={1}>
+            ✓ Emails Sent
+          </Text>
+          <Text fontSize="xs" color={succeeded > 0 ? "green.700" : "red.700"}>
+            Sent {succeeded} invoice{succeeded !== 1 ? "s" : ""}{failed > 0 ? ` | Failed: ${failed}` : ""}
+          </Text>
+        </Box>
+      ),
+      duration: 5000,
+      isClosable: true,
     });
-  }, [toast, loadData]);
+    loadData();
+  }, [chakraToast, loadData]);
 
   const handleSendSelectedInvoices = useCallback(() => {
     if (selectedInvoiceIds.length === 0) {
@@ -698,13 +754,24 @@ const Invoices = () => {
       confirmText: `Send ${sendableInvoices.length} Invoices`,
       type:        "info",
       onConfirm:   async () => {
-        const toastId = "selected-email-toast";
-        toast({ id: toastId, title: "Sending selected invoices", description: `Processing ${sendableInvoices.length} invoices...`, status: "info", duration: null, isClosable: false });
+        const toastId = chakraToast({
+          position: "top-right",
+          duration: null,
+          isClosable: false,
+          render: ({ onClose }) => (
+            <Box bg="blue.50" borderWidth="1px" borderColor="blue.200" borderRadius="md" p={4}>
+              <Text fontSize="sm" fontWeight="600" color="blue.800" mb={2}>
+                Sending {sendableInvoices.length} invoice{sendableInvoices.length !== 1 ? "s" : ""}...
+              </Text>
+              <Progress value={20} size="sm" colorScheme="blue" borderRadius="full" isIndeterminate />
+            </Box>
+          ),
+        });
         await executeBulkSend(sendableInvoices.map((inv) => inv.id), toastId);
         setSelectedInvoiceIds([]);
       },
     });
-  }, [selectedInvoiceIds, invoices, openConfirm, toast, executeBulkSend]);
+  }, [selectedInvoiceIds, invoices, openConfirm, toast, chakraToast, executeBulkSend]);
 
   // BUG FIX: uses ConfirmDialog; bulk delete is handled server-side in billing order
   const handleDeleteSelected = useCallback(() => {
@@ -718,21 +785,62 @@ const Invoices = () => {
       confirmText: `Delete ${selectedInvoiceIds.length} Invoices`,
       type:        "danger",
       onConfirm:   async () => {
-        const result = await apiDeleteInvoices(selectedInvoiceIds);
-        const succeeded = Number(result?.summary?.succeeded || 0);
-        const failed = Number(result?.summary?.failed || 0);
-        loadData();
-        setSelectedInvoiceIds([]);
-        toast({
-          title:       "Delete complete",
-          description: `Deleted ${succeeded} invoice${succeeded !== 1 ? "s" : ""}${failed > 0 ? `. Failed: ${failed} paid or sent invoices.` : ""}`,
-          status:      succeeded > 0 ? "success" : "error",
-          duration:    3000,
-          isClosable:  true,
+        setBulkOperationInProgress(true);
+        const toastId = chakraToast({
+          position: "top-right",
+          duration: null,
+          isClosable: false,
+          render: ({ onClose }) => (
+            <Box bg="red.50" borderWidth="1px" borderColor="red.200" borderRadius="md" p={4}>
+              <Text fontSize="sm" fontWeight="600" color="red.800" mb={2}>
+                Deleting {selectedInvoiceIds.length} invoice{selectedInvoiceIds.length !== 1 ? "s" : ""}...
+              </Text>
+              <Progress value={30} size="sm" colorScheme="red" borderRadius="full" isIndeterminate />
+            </Box>
+          ),
         });
+
+        try {
+          const result = await apiDeleteInvoices(selectedInvoiceIds);
+          const succeeded = Number(result?.summary?.succeeded || 0);
+          const failed = Number(result?.summary?.failed || 0);
+          
+          chakraToast.update(toastId, {
+            render: ({ onClose }) => (
+              <Box bg={succeeded > 0 ? "green.50" : "red.50"} borderWidth="1px" borderColor={succeeded > 0 ? "green.200" : "red.200"} borderRadius="md" p={4}>
+                <Text fontSize="sm" fontWeight="600" color={succeeded > 0 ? "green.800" : "red.800"} mb={1}>
+                  ✓ Delete Complete
+                </Text>
+                <Text fontSize="xs" color={succeeded > 0 ? "green.700" : "red.700"}>
+                  Deleted {succeeded} invoice{succeeded !== 1 ? "s" : ""}{failed > 0 ? ` | Failed: ${failed} paid/sent invoices` : ""}
+                </Text>
+                <Progress value={100} size="sm" colorScheme={succeeded > 0 ? "green" : "red"} borderRadius="full" mt={2} />
+              </Box>
+            ),
+            duration: 4000,
+            isClosable: true,
+          });
+          
+          loadData();
+          setSelectedInvoiceIds([]);
+        } catch (error) {
+          chakraToast.update(toastId, {
+            render: ({ onClose }) => (
+              <Box bg="red.50" borderWidth="1px" borderColor="red.200" borderRadius="md" p={4}>
+                <Text fontSize="sm" fontWeight="600" color="red.800">
+                  ✗ Delete Failed: {error.message}
+                </Text>
+              </Box>
+            ),
+            duration: 4000,
+            isClosable: true,
+          });
+        } finally {
+          setBulkOperationInProgress(false);
+        }
       },
     });
-  }, [selectedInvoiceIds, openConfirm, toast, loadData]);
+  }, [selectedInvoiceIds, openConfirm, toast, loadData, chakraToast]);
 
   const handleDownloadSelected = useCallback(() => {
     toast({ title: "Download initiated", description: "Preparing selected invoices for download", status: "info", duration: 3000, isClosable: true });
@@ -906,13 +1014,22 @@ const Invoices = () => {
               aria-label="View invoice"
               onClick={() => handleViewInvoice(row)}
             />
+            {row.status !== "paid" && (
+            <IconButton
+              bg="transparent"
+              color = "green"
+              icon={<FiDollarSign />}
+              size="sm"
+              aria-label="Record payment"
+              onClick={() => onRecordPaymentClick(row)}
+            />)}
             <Menu>
               <MenuButton
                 as={IconButton}
                 icon={<FiMoreVertical />}
                 size="sm"
                 variant="ghost"
-                color="gray.400"
+                color="gray.600"
                 _hover={{ color: "gray.700", bg: "gray.100" }}
                 borderRadius="6px"
                 aria-label="Invoice actions"
