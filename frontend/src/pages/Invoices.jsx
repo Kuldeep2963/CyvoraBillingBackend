@@ -1128,7 +1128,7 @@ const Invoices = () => {
 
       {/* ── Filters ─────────────────────────────────────────────────────────── */}
       <Flex px={3} borderRadius="12px" alignItems="center" gap={8} mb={3} wrap="wrap">
-        <HStack spacing={2}>
+        <HStack spacing={4}>
           <Text color="gray.600">Status:</Text>
           <Select
             maxW="220px"
@@ -1143,6 +1143,11 @@ const Invoices = () => {
             <option value="paid">Paid</option>
             <option value="overdue">Overdue</option>
           </Select>
+          {selectedInvoiceIds.length > 0 && (
+            <Badge colorScheme="blue" variant="subtle" px={2} py={1} borderRadius="full">
+              {selectedInvoiceIds.length} Invoices selected
+            </Badge>
+          )}
         </HStack>
 
         <InputGroup maxW="360px" w="100%" ml={{ base: 0, md: "auto" }} size="sm">

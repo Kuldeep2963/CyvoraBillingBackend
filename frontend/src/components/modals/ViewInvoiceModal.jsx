@@ -356,7 +356,7 @@ const ViewInvoiceModal = ({
                             Duration(Min)
                           </Th>
                           <Th color={"black"} isNumeric>
-                            Rate
+                            Rate / Min
                           </Th>
                           <Th color={"black"} isNumeric>
                             Amount
