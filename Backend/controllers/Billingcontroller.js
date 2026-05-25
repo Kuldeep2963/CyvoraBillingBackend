@@ -567,10 +567,11 @@ exports.generateInvoice = async (req, res) => {
     // to the true period end (previous day) to avoid missing the final day's CDRs.
     let adjustedBillingPeriodEnd = billingPeriodEnd;
     try {
-      const accNext = account.customerNextBillingDate || account.nextbillingdate || account.vendorNextBillingDate || account.vendorNextbillingdate;
-      if (accNext && adjustedBillingPeriodEnd === accNext) {
+      const accNext = normalizeDateOnly(account.customerNextBillingDate || account.nextbillingdate || account.vendorNextBillingDate || account.vendorNextbillingdate);
+      const suppliedEnd = normalizeDateOnly(adjustedBillingPeriodEnd);
+      if (accNext && suppliedEnd && suppliedEnd === accNext) {
         console.warn(`[Billing] Adjusting billingPeriodEnd from account.nextBillingDate to previous day for account ${account.id}`);
-        adjustedBillingPeriodEnd = addDays(adjustedBillingPeriodEnd, -1);
+        adjustedBillingPeriodEnd = addDays(suppliedEnd, -1);
       }
     } catch (err) {
       // If addDays fails for any reason, continue with the original value

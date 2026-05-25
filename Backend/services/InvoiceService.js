@@ -15,6 +15,7 @@ const CountryCode = require('../models/CountryCode');
 const billingConfig = require('../config/Billingconfig');
 const H = require('../utils/reportHelper');
 const { parsePhoneNumberFromString } = require('libphonenumber-js');
+const { buildBillingUpdates } = require('../utils/CalendarBillingCalculator');
 
 /* ===================== HELPER: FORMAT TIME ===================== */
 const formatTime = (date, hour = 0, isEnd = false) => {
@@ -231,17 +232,25 @@ class InvoiceService {
    */
   async findCustomer(customerId, isVendor = false) {
     const isNumeric = /^\d+$/.test(customerId);
-    const accountWhere = {
-      [Op.or]: [
-        { gatewayId: customerId },
-        { [isVendor ? 'vendorCode' : 'customerCode']: customerId }
-      ]
-    };
-    if (isNumeric) accountWhere[Op.or].push({ accountId: customerId });
 
-    const customer = await Account.findOne({
-      where: accountWhere
+    const codeField = isVendor ? 'vendorCode' : 'customerCode';
+
+    let customer = await Account.findOne({
+      where: {
+        [codeField]: customerId,
+      },
     });
+
+    if (!customer && customerId) {
+      customer = await Account.findOne({
+        where: {
+          [Op.or]: [
+            { gatewayId: customerId },
+            ...(isNumeric ? [{ accountId: customerId }] : []),
+          ],
+        },
+      });
+    }
 
     if (!customer) {
       throw new Error(`${isVendor ? 'Vendor' : 'Customer'} not found: ${customerId}`);
@@ -479,6 +488,11 @@ class InvoiceService {
           ...item
         }, { transaction });
       }
+
+      await account.update(
+        buildBillingUpdates(account, invoiceType, normalizedBillingPeriodEnd),
+        { transaction }
+      );
 
       await transaction.commit();
 

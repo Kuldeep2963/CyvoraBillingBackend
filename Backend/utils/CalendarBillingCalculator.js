@@ -389,38 +389,8 @@ const buildBillingUpdates = (account, invoiceType = 'customer', invoicePeriodEnd
   if (!endDate) return {};
 
   const cycle = account.billingCycle || 'monthly';
-  // Invoice period START becomes the account's lastBillingDate (inclusive start)
-  const invoicePeriodStart = (() => {
-    const endMoment = parseMomentDate(endDate);
-    if (!endMoment) return null;
-
-    switch (cycle) {
-      case 'daily':
-        return endMoment.clone().format(DATE_FORMAT);
-      case 'weekly':
-        return endMoment.clone().startOf('isoWeek').format(DATE_FORMAT);
-      case 'biweekly': {
-        const day = endMoment.date();
-        const eom = endMoment.clone().endOf('month').date();
-        if (day === 15) return endMoment.clone().startOf('month').format(DATE_FORMAT);
-        if (day === eom) return endMoment.clone().date(16).format(DATE_FORMAT);
-        return (day <= 15) ? endMoment.clone().startOf('month').format(DATE_FORMAT) : endMoment.clone().date(16).format(DATE_FORMAT);
-      }
-      case 'monthly':
-        return endMoment.clone().startOf('month').format(DATE_FORMAT);
-      case 'quarterly': {
-        const quarter = getQuarter(endMoment);
-        const year = endMoment.year();
-        return getQuarterStart(year, quarter).format(DATE_FORMAT);
-      }
-      case 'annually':
-        return endMoment.clone().month(0).date(1).format(DATE_FORMAT);
-      default:
-        return endMoment.clone().startOf('month').format(DATE_FORMAT);
-    }
-  })();
-
-  const lastBillingDate = invoicePeriodStart;
+  // Advance to the next unbilled period start.
+  const lastBillingDate = addDays(endDate, 1);
   const nextBillingDate = calculateNextBillingDate(lastBillingDate, cycle);
 
   const isVendor = invoiceType === 'vendor';
