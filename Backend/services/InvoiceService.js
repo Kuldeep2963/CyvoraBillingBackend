@@ -431,7 +431,7 @@ class InvoiceService {
           prefix: item.prefix,
           quantity: item.completedCalls,
           duration: item.duration,
-          unitPrice: item.completedCalls > 0 ? (amount / item.completedCalls) : 0,
+          unitPrice: item.duration > 0 ? (amount / (item.duration / 60)) : 0,
           amount: parseFloat(amount.toFixed(4)),
           totalCalls: item.completedCalls,
           completedCalls: item.completedCalls,
