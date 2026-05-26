@@ -191,23 +191,25 @@ const adjustAccountForInvoice = async (
   if (!account || normalizedAmount <= 0) return;
 
   if (account.billingType === 'postpaid') {
-    const currentLimit = Number(account.creditLimit || 0);
-    const nextLimit =
-      direction === 'consume'
-        ? currentLimit - normalizedAmount
-        : currentLimit + normalizedAmount;
+    if (direction === "consume") {
+      // Postpaid credit limit is consumed only when the invoice is paid from
+      // account funds, not when the invoice is generated.
+      return;
+    }
 
-    const cappedLimit =
-      direction === 'restore' && Number(account.originalCreditLimit || 0) > 0
-        ? Math.min(nextLimit, Number(account.originalCreditLimit || 0))
-        : nextLimit;
+    if (direction === "restore") {
+      const currentLimit = Number(account.creditLimit || 0);
+      const originalLimit = Number(account.originalCreditLimit || 0);
+      const nextLimit = currentLimit + normalizedAmount;
+      const cappedLimit = originalLimit > 0 ? Math.min(nextLimit, originalLimit) : nextLimit;
 
-    await account.update(
-      {
-        creditLimit: parseFloat(cappedLimit.toFixed(2))
-      },
-      { transaction }
-    );
+      await account.update(
+        {
+          creditLimit: parseFloat(cappedLimit.toFixed(2))
+        },
+        { transaction }
+      );
+    }
     return;
   }
 

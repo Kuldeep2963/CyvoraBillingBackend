@@ -2,22 +2,70 @@ const nodemailer = require('nodemailer');
 const ejs = require('ejs');
 const fs = require('fs');
 const path = require('path');
+const { getGlobalSettings } = require('./system-settings');
 require('dotenv').config();
+
+const SMTP_PROFILE_PREFIXES = {
+  billing: 'billingSmtp',
+  reports: 'reportsSmtp',
+  rates: 'ratesSmtp',
+  management: 'managementSmtp',
+};
 
 class EmailService {
   constructor() {
-    this.transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST,
-      port: parseInt(process.env.EMAIL_PORT),
-      secure: process.env.EMAIL_PORT === '465',
+    this.defaultProfile = 'management';
+  }
+
+  getProfilePrefix(profileName = this.defaultProfile) {
+    return SMTP_PROFILE_PREFIXES[profileName] || SMTP_PROFILE_PREFIXES[this.defaultProfile];
+  }
+
+  async resolveSmtpConfig(profileName = this.defaultProfile) {
+    const settings = await getGlobalSettings();
+    const prefix = this.getProfilePrefix(profileName);
+
+    const host = String(settings[`${prefix}Host`] || process.env.EMAIL_HOST || '').trim();
+    const portValue = String(settings[`${prefix}Port`] || process.env.EMAIL_PORT || '').trim();
+    const user = String(settings[`${prefix}Email`] || process.env.EMAIL_USER || '').trim();
+    const pass = String(settings[`${prefix}Password`] || process.env.EMAIL_PASS || '').trim();
+
+    if (!host || !portValue || !user || !pass) {
+      throw new Error(`Email profile "${profileName}" is not configured. Set host, port, email, and password in Settings.`);
+    }
+
+    const port = Number.parseInt(portValue, 10);
+    if (!Number.isFinite(port)) {
+      throw new Error(`Email profile "${profileName}" has an invalid SMTP port.`);
+    }
+
+    return {
+      host,
+      port,
+      secure: port === 465,
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
+        user,
+        pass,
       },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
+      fromAddress: String(process.env.EMAIL_FROM || user).trim(),
+      smtpUser: user,
+    };
+  }
+
+  async createTransporter(profileName = this.defaultProfile) {
+    const config = await this.resolveSmtpConfig(profileName);
+    return {
+      transporter: nodemailer.createTransport({
+        host: config.host,
+        port: config.port,
+        secure: config.secure,
+        auth: config.auth,
+        tls: {
+          rejectUnauthorized: false,
+        },
+      }),
+      ...config,
+    };
   }
 
   isSafeSingleRecipient(email) {
@@ -134,20 +182,14 @@ class EmailService {
     };
   }
 
-  async sendEmail(to, subject, templateName, data, attachments = []) {
+  async sendEmail(to, subject, templateName, data, attachments = [], profileName = this.defaultProfile) {
     try {
       const recipients = this.normalizeRecipients(to);
       if (recipients.length === 0) {
         throw new Error('Invalid recipient email format');
       }
 
-      const smtpUser = String(process.env.EMAIL_USER || '').trim();
-      const configuredFrom = String(process.env.EMAIL_FROM || '').trim();
-      const fromAddress = configuredFrom || smtpUser;
-
-      if (!fromAddress) {
-        throw new Error('Email sender is not configured. Set EMAIL_FROM or EMAIL_USER.');
-      }
+      const { transporter, fromAddress, smtpUser } = await this.createTransporter(profileName);
 
       const { logoSrc, attachment: logoAttachment } = this.getLogoAsset();
 
@@ -173,11 +215,11 @@ class EmailService {
           },
         };
 
-        if (configuredFrom && smtpUser && configuredFrom.toLowerCase() !== smtpUser.toLowerCase()) {
-          mailOptions.replyTo = configuredFrom;
+        if (fromAddress && smtpUser && fromAddress.toLowerCase() !== smtpUser.toLowerCase()) {
+          mailOptions.replyTo = fromAddress;
         }
 
-        const info = await this.transporter.sendMail(mailOptions);
+        const info = await transporter.sendMail(mailOptions);
         deliveryResults.push(info);
         console.log(
           'Email send result -> to: %s | accepted: %s | rejected: %s | id: %s',
@@ -205,7 +247,8 @@ class EmailService {
         filename: `Invoice_${invoice.invoiceNumber}.pdf`,
         content: pdfBuffer,
         contentType: 'application/pdf'
-      }]
+      }],
+      'billing'
     );
   }
 
@@ -219,7 +262,9 @@ class EmailService {
       recipients,
       `New Invoice: ${invoice.invoiceNumber}`,
       'invoice-notification',
-      { invoice, customer }
+      { invoice, customer },
+      [],
+      'billing'
     );
   }
 
@@ -233,7 +278,9 @@ class EmailService {
       recipients,
       `Payment Confirmation: ${payment.paymentNumber}`,
       'payment-confirmation',
-      { payment, invoice, customer }
+      { payment, invoice, customer },
+      [],
+      'billing'
     );
   }
 
@@ -247,7 +294,9 @@ class EmailService {
       recipients,
       `New Dispute Raised: ${customer.accountName}`,
       'dispute-raised',
-      { disputeData, customer }
+      { disputeData, customer },
+      [],
+      'billing'
     );
   }
 
@@ -261,7 +310,9 @@ class EmailService {
       recipients,
       `Dispute ${status.charAt(0).toUpperCase() + status.slice(1)}`,
       'dispute-status-update',
-      { dispute, status, customer }
+      { dispute, status, customer },
+      [],
+      'billing'
     );
   }
 
@@ -285,7 +336,9 @@ class EmailService {
         role: user.role,
         phone: user.phone,
         portalUrl
-      }
+      },
+      [],
+      'management'
     );
   }
 
@@ -306,7 +359,9 @@ class EmailService {
         startDate,
         endDate,
         soaData
-      }
+      },
+      [],
+      'reports'
     );
   }
 }

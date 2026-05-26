@@ -1097,7 +1097,7 @@ export const deleteUser = async (id) => {
 export const updateUser = async (id, userData) => {
   try {
     const response = await fetch(`${API_BASE_URL}/users/${id}`, {
-      method: 'PUT',
+      method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
         ...getAuthHeaders()

@@ -83,6 +83,62 @@ router.post('/', async (req, res) => {
 });
 
 // Delete user
+router.patch('/:id', async (req, res) => {
+  try {
+    const user = await User.findByPk(parseInt(req.params.id, 10));
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { email, role, first_name, last_name, phone } = req.body;
+    const updates = {};
+
+    if (typeof email === 'string') {
+      const normalizedEmail = email.trim().toLowerCase();
+      if (!normalizedEmail) {
+        return res.status(400).json({ error: 'Email cannot be empty' });
+      }
+
+      const existingUser = await User.findOne({
+        where: { email: normalizedEmail },
+      });
+      if (existingUser && existingUser.id !== user.id) {
+        return res.status(400).json({ error: 'User already exists' });
+      }
+      updates.email = normalizedEmail;
+    }
+
+    if (typeof role === 'string' && role.trim()) {
+      updates.role = role.trim().toLowerCase();
+    }
+
+    if (typeof first_name === 'string') updates.first_name = first_name.trim();
+    if (typeof last_name === 'string') updates.last_name = last_name.trim();
+    if (typeof phone === 'string') updates.phone = phone.trim();
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields provided for update' });
+    }
+
+    await user.update(updates);
+
+    res.json({
+      message: 'User updated successfully',
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        phone: user.phone,
+      },
+    });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   try {
     const user = await User.findByPk(parseInt(req.params.id));

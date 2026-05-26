@@ -42,7 +42,7 @@ import { useState, useEffect, useCallback } from "react";
 import { createUser, fetchUsers, deleteUser, updateUser } from "../utils/api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import PageNavBar from "../components/PageNavBar";
-import { FiMail } from "react-icons/fi";
+import { FiEdit,FiTrash2, FiMail } from "react-icons/fi";
 import { FiRotateCcw, FiUser, FiPlus, FiSearch, FiRefreshCw, FiMoreVertical, FiUsers, FiAlertTriangle } from "react-icons/fi";
 import { Icon } from "lucide-react";
 
@@ -59,7 +59,7 @@ const ROLES = ["Admin", "Sales-Manager", "Rates-Dept", "NOC-Dept", "View Only"];
 // ── Role color map ────────────────────────────────────────────
 const roleColor = (role) => {
   const map = {
-    admin:          "red",
+    admin:          "green",
     "sales-manager":"blue",
     "rates-dept":   "purple",
     "noc-dept":     "teal",
@@ -194,7 +194,7 @@ const UsersTab = ({ onAddNew, refreshSignal, onEdit }) => {
                 <Tr>
                   {[ "ID", "Name", "Email", "Phone", "Role", "Actions"].map(h => (
                     <Th key={h} fontSize="11px" color="gray.700" fontWeight="700" letterSpacing="0.06em"
-                      textTransform="uppercase" borderColor={border} py={3}>{h}</Th>
+                      textTransform="uppercase" borderColor={border} py={3} textAlign="center">{h}</Th>
                   ))}
                 </Tr>
               </Thead>
@@ -232,41 +232,41 @@ const UsersTab = ({ onAddNew, refreshSignal, onEdit }) => {
                 ) : (
                   filtered.map((u) => (
                     <Tr key={u.id} _hover={{ bg: hoverBg }} transition="background 0.15s">
-                      <Td borderColor={border} py={3}>
-                        <Text fontSize="15px" color="gray.600">{u.id}</Text>
+                      <Td borderColor={border} py={3} textAlign="center">
+                        <Text fontSize="15px" color="gray.600" textAlign="center">{u.id}</Text>
                       </Td>
                       {/* User avatar + name */}
-                      <Td borderColor={border} py={3}>
-                        <HStack spacing={3}>
-                          <Avatar size="sm" name={`${u.first_name} ${u.last_name}`} bg={`${roleColor(u.role)}.500`} color="white" />
-                          <Text fontSize="13px" fontWeight="500" color="gray.700" textTransform="capitalize">
+                      <Td borderColor={border} py={3} textAlign="center">
+                        <HStack spacing={3} justify="center">
+                          {/* <Avatar size="xs" name={`${u.first_name} ${u.last_name}`} bg={`${roleColor(u.role)}.500`} color="white" /> */}
+                          <Text fontSize="13px" fontWeight="500" color="gray.700" textTransform="capitalize" textAlign="center">
                             {u.first_name} {u.last_name}
                           </Text>
                         </HStack>
                       </Td>
-                      <Td borderColor={border} py={3}>
+                      <Td borderColor={border} py={3} textAlign="center">
                        
-                        <Text fontSize="13px" color="gray.500">{u.email}</Text>
+                        <Text fontSize="13px" color="gray.500" textAlign="center">{u.email}</Text>
                       </Td>
-                       <Td borderColor={border} py={3}>
+                       <Td borderColor={border} py={3} textAlign="center">
                        
-                        <Text fontSize="13px" color="gray.500">{u.phone}</Text>
+                        <Text fontSize="13px" color="gray.500" textAlign="center">{u.phone}</Text>
                       </Td>
                       
-                      <Td borderColor={border} py={3}>
+                      <Td borderColor={border} py={3} textAlign="center">
                         <Badge colorScheme={roleColor(u.role)} variant="subtle" fontSize="xs"
                           px={2} py={0.5} borderRadius="full" textTransform="capitalize">
                           {u.role}
                         </Badge>
                       </Td>
                       
-                      <Td borderColor={border} py={3}>
+                      <Td borderColor={border} py={3} textAlign="center">
                         <Menu>
                           <MenuButton as={IconButton} icon={<FiMoreVertical />} variant="ghost" size="xs"
                             color="gray.600" _hover={{ color: "gray.700", bg: "gray.100" }} borderRadius="6px" />
                           <MenuList fontSize="sm" minW="130px" shadow="lg" borderColor={border}>
-                            <MenuItem fontSize="13px" onClick={() => onEdit?.(u)}>Edit</MenuItem>
-                            <MenuItem fontSize="13px" color="red.500" onClick={() => setDeleteUserId(u.id)}>Delete</MenuItem>
+                            <MenuItem icon={<FiEdit/>} fontSize="13px" onClick={() => onEdit?.(u)}>Edit</MenuItem>
+                            <MenuItem icon={<FiTrash2 />} fontSize="13px" color="red.500" onClick={() => setDeleteUserId(u.id)}>Delete</MenuItem>
                           </MenuList>
                         </Menu>
                       </Td>

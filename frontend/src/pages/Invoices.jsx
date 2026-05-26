@@ -28,6 +28,7 @@ import {
   SimpleGrid,
   Progress,
   useToast,
+  Spinner,
 } from "@chakra-ui/react";
 import useNotify from "../utils/notify";
 import { SearchIcon, CloseIcon } from "@chakra-ui/icons";
@@ -1171,6 +1172,7 @@ const Invoices = () => {
       {/* ── Table ───────────────────────────────────────────────────────────── */}
       {isLoading ? (
         <Box textAlign="center" py={10}>
+          <Spinner size="xl" color="blue.500" />
           <Text>Loading invoices...</Text>
         </Box>
       ) : (

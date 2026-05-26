@@ -87,6 +87,7 @@ import {
   FiTrendingDown,
   FiTrendingUp,
   FiUser,
+  FiX,
 } from "react-icons/fi";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -364,6 +365,28 @@ const Reports = () => {
   // without needing filteredData in its own dependency array (which would cause
   // the export callback to be re-created on every search/sort change).
   const filteredDataRef = useRef([]);
+
+  const hasActiveFilters =
+    searchTerm !== "" ||
+    selectedAccount !== "all" ||
+    selectedOwner !== "all" ||
+    selectedCountry !== "all" ||
+    selectedTrunk !== "all" ||
+    isVendorReport ||
+    marginThreshold !== 0 ||
+    sortConfig.key !== null;
+
+  const handleClearFilters = useCallback(() => {
+    setSearchTerm("");
+    setSelectedAccount("all");
+    setSelectedOwner("all");
+    setSelectedCountry("all");
+    setSelectedTrunk("all");
+    setIsVendorReport(false);
+    setMarginThreshold(0);
+    setSortConfig({ key: null, direction: "asc" });
+    setPage(1);
+  }, []);
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
@@ -995,6 +1018,8 @@ const Reports = () => {
               accountsLoading={accountsLoading}
               marginThreshold={marginThreshold}
               setMarginThreshold={setMarginThreshold}
+              hasActiveFilters={hasActiveFilters}
+              onClearFilters={handleClearFilters}
               loading={loading}
               startDate={dateRange.startDate}
               endDate={dateRange.endDate}
@@ -1112,7 +1137,7 @@ const ReportControls = React.memo(({
   selectedTrunk, setSelectedTrunk,
   accounts, accountsLoading,
   marginThreshold, setMarginThreshold,
-  loading, startDate, endDate, onGenerate, cardBg,
+  loading, startDate, endDate, onGenerate, onClearFilters, hasActiveFilters, cardBg,
 }) => (
   <Box mb={4} p={4} bg={cardBg} shadow="sm" borderRadius="md">
     <VStack spacing={6} align="stretch">
@@ -1244,6 +1269,19 @@ const ReportControls = React.memo(({
           loadingText="Generating"
         >
           Generate Report
+        </Button>
+
+        <Button
+          alignSelf={{ base: "stretch", lg: "flex-end" }}
+          minW={{ base: "100%", lg: "180px" }}
+          size="sm"
+          leftIcon={<FiX />}
+          colorScheme="red"
+          variant="outline"
+          onClick={onClearFilters}
+          isDisabled={!hasActiveFilters}
+        >
+          Clear Filters
         </Button>
       </Flex>
     </VStack>
