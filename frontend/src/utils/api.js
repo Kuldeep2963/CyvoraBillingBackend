@@ -399,6 +399,21 @@ export const createCustomer = async (customerData) => {
   }
 };
 
+export const sendTestEmail = async ({ profile = 'management', to } = {}) => {
+  try {
+    return await fetchWithTokenRefresh(`${API_BASE_URL}/settings/test-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ profile, to }),
+    });
+  } catch (error) {
+    console.error('Error sending test email:', error);
+    throw error;
+  }
+};
+
 export const bulkCreateCustomers = async ({ accounts, continueOnError = true }) => {
   try {
     return await fetchWithTokenRefresh(`${API_BASE_URL}/customers/bulk`, {

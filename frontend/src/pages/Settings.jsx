@@ -27,6 +27,7 @@ import {
   Switch,
   Text,
   VStack,
+  Checkbox,
 } from "@chakra-ui/react";
 import useNotify from "../utils/notify";
 import {
@@ -59,6 +60,7 @@ import {
   fetchCountryCodes,
   uploadCountryCodes,
   updateGlobalSettings,
+  sendTestEmail,
 } from "../utils/api";
 import { formatNotificationTime } from "../utils/notificationTime";
 import PageNavBar from "../components/PageNavBar";
@@ -86,18 +88,26 @@ const DEFAULT_SETTINGS = {
   billingSmtpPassword: "",
   billingSmtpHost: "",
   billingSmtpPort: "",
+  billingSmtpSecure: false,
+  billingSmtpCertificateCheck: false,
   reportsSmtpEmail: "",
   reportsSmtpPassword: "",
   reportsSmtpHost: "",
   reportsSmtpPort: "",
+  reportsSmtpSecure: false,
+  reportsSmtpCertificateCheck: false,
   ratesSmtpEmail: "",
   ratesSmtpPassword: "",
   ratesSmtpHost: "",
   ratesSmtpPort: "",
+  ratesSmtpSecure: false,
+  ratesSmtpCertificateCheck: false,
   managementSmtpEmail: "",
   managementSmtpPassword: "",
   managementSmtpHost: "",
   managementSmtpPort: "",
+  managementSmtpSecure: false,
+  managementSmtpCertificateCheck: false,
 };
 
 const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS);
@@ -207,7 +217,8 @@ const EMAIL_PROFILE_CARDS = [
   {
     key: "billing",
     title: "Billing Mail",
-    description: "Used for invoice delivery, disputes and payment confirmations.",
+    description:
+      "Used for invoice delivery, disputes and payment confirmations.",
   },
   {
     key: "reports",
@@ -235,6 +246,8 @@ const getProfileSnapshot = (settings, profileKey) => {
     password: settings[`${baseKey}Password`] || "",
     host: settings[`${baseKey}Host`] || "",
     port: settings[`${baseKey}Port`] || "",
+    secure: Boolean(settings[`${baseKey}Secure`]),
+    certificateCheck: Boolean(settings[`${baseKey}CertificateCheck`]),
   };
 };
 
@@ -244,6 +257,11 @@ const applyProfileSnapshot = (updateSetting, profileKey, snapshot) => {
   updateSetting(`${baseKey}Password`, snapshot.password);
   updateSetting(`${baseKey}Host`, snapshot.host);
   updateSetting(`${baseKey}Port`, snapshot.port);
+  updateSetting(`${baseKey}Secure`, Boolean(snapshot.secure));
+  updateSetting(
+    `${baseKey}CertificateCheck`,
+    Boolean(snapshot.certificateCheck),
+  );
 };
 
 const EmailProfileCard = ({
@@ -258,9 +276,10 @@ const EmailProfileCard = ({
   const baseKey = `${profileKey}Smtp`;
   const [isEditing, setIsEditing] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const displaySnapshot = syncAllProfiles && linkedSnapshot
-    ? linkedSnapshot
-    : getProfileSnapshot(settings, profileKey);
+  const displaySnapshot =
+    syncAllProfiles && linkedSnapshot
+      ? linkedSnapshot
+      : getProfileSnapshot(settings, profileKey);
   const [draft, setDraft] = useState(() => displaySnapshot);
 
   useEffect(() => {
@@ -271,7 +290,9 @@ const EmailProfileCard = ({
 
   const handleDone = () => {
     if (syncAllProfiles) {
-      EMAIL_PROFILE_KEYS.forEach((key) => applyProfileSnapshot(updateSetting, key, draft));
+      EMAIL_PROFILE_KEYS.forEach((key) =>
+        applyProfileSnapshot(updateSetting, key, draft),
+      );
     } else {
       applyProfileSnapshot(updateSetting, profileKey, draft);
     }
@@ -297,14 +318,24 @@ const EmailProfileCard = ({
               {description}
             </Text>
           </Box>
-          <Badge colorScheme="gray" borderRadius={"full"} variant="subtle" px={2}>
+          <Badge
+            colorScheme="gray"
+            borderRadius={"full"}
+            variant="subtle"
+            px={2}
+          >
             SMTP
           </Badge>
         </HStack>
 
         <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={4}>
           <FormControl>
-            <FormLabel {...FORM_LABEL_PROPS} display="flex" alignItems="center" gap={2}>
+            <FormLabel
+              {...FORM_LABEL_PROPS}
+              display="flex"
+              alignItems="center"
+              gap={2}
+            >
               <FiMail size={12} /> Email
             </FormLabel>
             <Input
@@ -312,58 +343,81 @@ const EmailProfileCard = ({
               type="email"
               isDisabled={!isEditing}
               value={isEditing ? draft.email : displaySnapshot.email}
-              onChange={(e) => setDraft((prev) => ({ ...prev, email: e.target.value }))}
+              onChange={(e) =>
+                setDraft((prev) => ({ ...prev, email: e.target.value }))
+              }
               placeholder="smtp@example.com"
             />
           </FormControl>
 
           <FormControl>
-            <FormLabel {...FORM_LABEL_PROPS} display="flex" alignItems="center" gap={2}>
+            <FormLabel
+              {...FORM_LABEL_PROPS}
+              display="flex"
+              alignItems="center"
+              gap={2}
+            >
               <FiKey size={12} /> Password
             </FormLabel>
             <InputGroup>
-            <Input
-              {...INPUT_PROPS}
-              type={showPassword ? "text" : "password"}
-              isDisabled={!isEditing}
-              value={isEditing ? draft.password : displaySnapshot.password}
-              onChange={(e) => setDraft((prev) => ({ ...prev, password: e.target.value }))}
-              placeholder="SMTP password"
-            />
-            <InputRightElement height="34px" width="2.5rem">
-              <IconButton
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                icon={showPassword ? <FiEyeOff /> : <FiEye />}
-                size="xs"
-                variant="ghost"
+              <Input
+                {...INPUT_PROPS}
+                type={showPassword ? "text" : "password"}
                 isDisabled={!isEditing}
-                onClick={() => setShowPassword((prev) => !prev)}
+                value={isEditing ? draft.password : displaySnapshot.password}
+                onChange={(e) =>
+                  setDraft((prev) => ({ ...prev, password: e.target.value }))
+                }
+                placeholder="SMTP password"
               />
-            </InputRightElement>
+              <InputRightElement height="34px" width="2.5rem">
+                <IconButton
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  icon={showPassword ? <FiEyeOff /> : <FiEye />}
+                  size="xs"
+                  variant="ghost"
+                  isDisabled={!isEditing}
+                  onClick={() => setShowPassword((prev) => !prev)}
+                />
+              </InputRightElement>
             </InputGroup>
           </FormControl>
 
           <FormControl>
-            <FormLabel {...FORM_LABEL_PROPS} display="flex" alignItems="center" gap={2}>
+            <FormLabel
+              {...FORM_LABEL_PROPS}
+              display="flex"
+              alignItems="center"
+              gap={2}
+            >
               <FiServer size={12} /> Host
             </FormLabel>
             <Input
               {...INPUT_PROPS}
               isDisabled={!isEditing}
               value={isEditing ? draft.host : displaySnapshot.host}
-              onChange={(e) => setDraft((prev) => ({ ...prev, host: e.target.value }))}
+              onChange={(e) =>
+                setDraft((prev) => ({ ...prev, host: e.target.value }))
+              }
               placeholder="smtp.mailhost.com"
             />
           </FormControl>
 
           <FormControl>
-            <FormLabel {...FORM_LABEL_PROPS} display="flex" alignItems="center" gap={2}>
+            <FormLabel
+              {...FORM_LABEL_PROPS}
+              display="flex"
+              alignItems="center"
+              gap={2}
+            >
               <FiRefreshCw size={12} /> Port
             </FormLabel>
             <NumberInput
               isDisabled={!isEditing}
               value={isEditing ? draft.port : displaySnapshot.port}
-              onChange={(value) => setDraft((prev) => ({ ...prev, port: value }))}
+              onChange={(value) =>
+                setDraft((prev) => ({ ...prev, port: value }))
+              }
               min={1}
               max={65535}
               keepWithinRange
@@ -371,6 +425,71 @@ const EmailProfileCard = ({
             >
               <NumberInputField {...INPUT_PROPS} px={3} />
             </NumberInput>
+          </FormControl>
+          <FormControl>
+            <HStack align="start" spacing={8} pt={1}>
+              <Checkbox
+                size="md"
+                isDisabled={!isEditing}
+                isChecked={
+                  isEditing
+                    ? Boolean(draft.secure)
+                    : Boolean(displaySnapshot.secure)
+                }
+                onChange={(e) =>
+                  setDraft((prev) => ({ ...prev, secure: e.target.checked }))
+                }
+                sx={{
+                  "& .chakra-checkbox__control": {
+                    borderRadius: "8px",
+                  },
+                  "& .chakra-checkbox__control[data-checked]": {
+                    bg: "green.600",
+                    borderColor: "green.600",
+                    _hover: { bg: "green.700", borderColor: "green.700" },
+                  },
+                  "& .chakra-checkbox__label": {
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    color: "green.600",
+                  },
+                }}
+              >
+                Secure?
+              </Checkbox>
+              <Checkbox
+                size="md"
+                isDisabled={!isEditing}
+                isChecked={
+                  isEditing
+                    ? Boolean(draft.certificateCheck)
+                    : Boolean(displaySnapshot.certificateCheck)
+                }
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    certificateCheck: e.target.checked,
+                  }))
+                }
+                sx={{
+                  "& .chakra-checkbox__control": {
+                    borderRadius: "8px",
+                  },
+                  "& .chakra-checkbox__control[data-checked]": {
+                    bg: "red.600",
+                    borderColor: "red.600",
+                    _hover: { bg: "red.700", borderColor: "red.700" },
+                  },
+                  "& .chakra-checkbox__label": {
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    color: "red.600",
+                  },
+                }}
+              >
+                Check certificate
+              </Checkbox>
+            </HStack>
           </FormControl>
         </Grid>
 
@@ -517,7 +636,7 @@ const GeneralTab = ({ settings, updateSetting }) => {
                 </Button>
               </Box>
             </FormControl>
-          {/* <FormControl>
+            {/* <FormControl>
             <FormLabel {...FORM_LABEL_PROPS}>Notification Email</FormLabel>
             <Input
               {...INPUT_PROPS}
@@ -526,34 +645,34 @@ const GeneralTab = ({ settings, updateSetting }) => {
               onChange={(e) => updateSetting('notificationEmail', e.target.value)}
             />
           </FormControl> */}
-          <FormControl>
-            <FormLabel {...FORM_LABEL_PROPS}>Currency</FormLabel>
-            <Select
-              isDisabled={true}
-              {...INPUT_PROPS}
-              value={settings.currency || "USD"}
-              onChange={(e) => updateSetting("currency", e.target.value)}
-            >
-              <option value="USD">USD — US Dollar</option>
-              <option value="EUR">EUR — Euro</option>
-              <option value="GBP">GBP — British Pound</option>
-              <option value="INR">INR — Indian Rupee</option>
-            </Select>
-          </FormControl>
-          <FormControl>
-            <FormLabel {...FORM_LABEL_PROPS}>Timezone</FormLabel>
-            <Select
-              isDisabled={true}
-              {...INPUT_PROPS}
-              value={settings.timezone || "UTC"}
-              onChange={(e) => updateSetting("timezone", e.target.value)}
-            >
-              <option value="UTC">UTC</option>
-              <option value="EST">EST — Eastern</option>
-              <option value="PST">PST — Pacific</option>
-              <option value="IST">IST — India</option>
-            </Select>
-          </FormControl>
+            <FormControl>
+              <FormLabel {...FORM_LABEL_PROPS}>Currency</FormLabel>
+              <Select
+                isDisabled={true}
+                {...INPUT_PROPS}
+                value={settings.currency || "USD"}
+                onChange={(e) => updateSetting("currency", e.target.value)}
+              >
+                <option value="USD">USD — US Dollar</option>
+                <option value="EUR">EUR — Euro</option>
+                <option value="GBP">GBP — British Pound</option>
+                <option value="INR">INR — Indian Rupee</option>
+              </Select>
+            </FormControl>
+            <FormControl>
+              <FormLabel {...FORM_LABEL_PROPS}>Timezone</FormLabel>
+              <Select
+                isDisabled={true}
+                {...INPUT_PROPS}
+                value={settings.timezone || "UTC"}
+                onChange={(e) => updateSetting("timezone", e.target.value)}
+              >
+                <option value="UTC">UTC</option>
+                <option value="EST">EST — Eastern</option>
+                <option value="PST">PST — Pacific</option>
+                <option value="IST">IST — India</option>
+              </Select>
+            </FormControl>
           </Grid>
         </CardBody>
       </Card>
@@ -1286,7 +1405,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
                 leftIcon={<FiSave size={12} />}
                 onClick={handleAddCountryCode}
                 isLoading={addingCountryCode}
-                isDisabled={addingCountryCode}
+                isDisabled={addingCountryCode || !singleCountryCode.trim() || !singleCountryName.trim()}
                 bg="blue.600"
                 color="white"
                 borderRadius="8px"
@@ -1738,12 +1857,18 @@ const NotificationsTab = ({ settings, updateSetting }) => {
 const EmailSettingsTab = ({ settings, updateSetting }) => {
   const syncEmailProfiles = Boolean(settings.syncEmailProfiles);
   const billingSnapshot = getProfileSnapshot(settings, "billing");
+  const notify = useNotify();
+  const [testTo, setTestTo] = useState(settings.notificationEmail || "");
+  const [testProfile, setTestProfile] = useState('management');
+  const [sendingTest, setSendingTest] = useState(false);
 
   const handleToggleSync = (enabled) => {
     updateSetting("syncEmailProfiles", enabled);
     if (enabled) {
       const sourceSnapshot = getProfileSnapshot(settings, "billing");
-      EMAIL_PROFILE_KEYS.forEach((key) => applyProfileSnapshot(updateSetting, key, sourceSnapshot));
+      EMAIL_PROFILE_KEYS.forEach((key) =>
+        applyProfileSnapshot(updateSetting, key, sourceSnapshot),
+      );
     }
   };
 
@@ -1751,17 +1876,28 @@ const EmailSettingsTab = ({ settings, updateSetting }) => {
     <VStack spacing={5} align="stretch">
       <Card {...CARD_PROPS}>
         <CardBody px={5} py={4}>
-          <HStack justify="space-between" align="center" flexWrap="wrap" gap={3}>
+          <HStack
+            justify="space-between"
+            align="center"
+            flexWrap="wrap"
+            gap={3}
+          >
             <Box>
               <Text fontSize="13px" fontWeight="500" color="gray.700" mb="2px">
                 Use same SMTP settings for all profiles
               </Text>
               <Text fontSize="11px" color="gray.400">
-                When enabled, saving any email card copies that SMTP configuration to billing, reports, rates, and management.
+                When enabled, saving any email card copies that SMTP
+                configuration to billing, reports, rates, and management.
               </Text>
             </Box>
             <HStack spacing={3}>
-              <Badge colorScheme={syncEmailProfiles ? "green" : "gray"} variant="subtle" borderRadius="full" px={2}>
+              <Badge
+                colorScheme={syncEmailProfiles ? "green" : "gray"}
+                variant="subtle"
+                borderRadius="full"
+                px={2}
+              >
                 {syncEmailProfiles ? "Linked" : "Independent"}
               </Badge>
               <Switch
@@ -1775,6 +1911,66 @@ const EmailSettingsTab = ({ settings, updateSetting }) => {
               />
             </HStack>
           </HStack>
+        </CardBody>
+      </Card>
+      <Card {...CARD_PROPS}>
+        <CardBody px={5} py={4}>
+          <SectionHeader>Test SMTP Configuration</SectionHeader>
+          <Grid
+            templateColumns={{ base: "1fr", md: "220px minmax(0, 1fr) auto" }}
+            gap={3}
+            alignItems="center"
+          >
+            <Select
+              {...INPUT_PROPS}
+              w="full"
+              minW={0}
+              value={testProfile}
+              onChange={(e) => setTestProfile(e.target.value)}
+            >
+              {EMAIL_PROFILE_CARDS.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.title}
+                </option>
+              ))}
+            </Select>
+            <Input
+              {...INPUT_PROPS}
+              w="full"
+              minW={0}
+              placeholder="recipient@example.com"
+              value={testTo}
+              onChange={(e) => setTestTo(e.target.value)}
+            />
+            <Button
+              size="sm"
+              leftIcon={<FiMail size={12} />}
+              onClick={async () => {
+                if (!testTo) {
+                  notify({ title: 'Recipient required', status: 'warning' });
+                  return;
+                }
+                setSendingTest(true);
+                try {
+                  await sendTestEmail({ profile: testProfile, to: testTo });
+                  notify({ title: 'Test email sent', status: 'success', duration: 3000 });
+                } catch (error) {
+                  notify({ title: 'Failed to send test email', description: error.message, status: 'error', duration: 5000 });
+                } finally {
+                  setSendingTest(false);
+                }
+              }}
+              isLoading={sendingTest}
+              bg="blue.600"
+              color="white"
+              borderRadius="8px"
+              fontWeight="500"
+              whiteSpace="nowrap"
+              w={{ base: "full", md: "auto" }}
+            >
+              Send test email
+            </Button>
+          </Grid>
         </CardBody>
       </Card>
       <Grid templateColumns={{ base: "1fr", xl: "repeat(2, 1fr)" }} gap={4}>
