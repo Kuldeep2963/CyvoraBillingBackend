@@ -5,6 +5,7 @@ const Papa = require('papaparse');
 const { Op } = require('sequelize');
 const { getGlobalSettings, updateGlobalSettings } = require('../services/system-settings');
 const { createNotification } = require('../services/notification-service');
+const EmailService = require('../services/EmailService');
 const CDRRetentionService = require('../services/cdr-retention-service');
 const CountryCode = require('../models/CountryCode');
 const sequelize = require('../models/db');
@@ -305,6 +306,70 @@ router.post('/country-codes', async (req, res) => {
       },
       updated: Boolean(existing),
     });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+// Send a test email using a selected SMTP profile
+router.post('/test-email', async (req, res) => {
+  try {
+    const role = req.user?.role?.toLowerCase();
+    if (role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can send test emails' });
+    }
+
+    const profile = String(req.body?.profile || 'management').trim();
+    const to = String(req.body?.to || '').trim();
+    const format = String(req.body?.format || 'template').trim().toLowerCase();
+
+    if (!to) {
+      return res.status(400).json({ error: 'Recipient email (to) is required' });
+    }
+
+    // If caller requested a minimal plain-text SMTP check, send a stripped-down message
+    if (format === 'simple') {
+      try {
+        const { transporter, fromAddress, smtpUser, host, port } = await EmailService.createTransporter(profile);
+        const text = [
+          'SMTP connected',
+          `Profile: ${profile}`,
+          `Host: ${host}`,
+          `Port: ${port}`,
+          `User: ${smtpUser || fromAddress}`,
+        ].join('\n');
+
+        await transporter.sendMail({
+          from: fromAddress,
+          to,
+          subject: 'CDR Billing — SMTP Test (simple)',
+          text,
+          envelope: {
+            from: smtpUser || fromAddress,
+            to: [to],
+          },
+        });
+
+        return res.json({ message: 'SMTP simple test email sent' });
+      } catch (err) {
+        return res.status(400).json({ error: err?.message || String(err) });
+      }
+    }
+
+    // Minimal template data for welcome-credentials template
+    const templateData = {
+      firstName: 'Test',
+      lastName: 'User',
+      email: to,
+      password: '********',
+      role: 'tester',
+      phone: '',
+      portalUrl: process.env.FRONTEND_URL || '/',
+    };
+
+    await EmailService.sendEmail(to, 'CDR Billing — Test email', 'welcome-credentials', templateData, [], profile);
+
+    return res.json({ message: 'Test email queued/sent' });
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }

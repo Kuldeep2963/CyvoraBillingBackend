@@ -17,6 +17,19 @@ class EmailService {
     this.defaultProfile = 'management';
   }
 
+  toBoolean(value, fallback = false) {
+    if (value === undefined || value === null || value === '') return fallback;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (!normalized) return fallback;
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    }
+    return Boolean(value);
+  }
+
   getProfilePrefix(profileName = this.defaultProfile) {
     return SMTP_PROFILE_PREFIXES[profileName] || SMTP_PROFILE_PREFIXES[this.defaultProfile];
   }
@@ -25,10 +38,12 @@ class EmailService {
     const settings = await getGlobalSettings();
     const prefix = this.getProfilePrefix(profileName);
 
-    const host = String(settings[`${prefix}Host`] || process.env.EMAIL_HOST || '').trim();
-    const portValue = String(settings[`${prefix}Port`] || process.env.EMAIL_PORT || '').trim();
-    const user = String(settings[`${prefix}Email`] || process.env.EMAIL_USER || '').trim();
-    const pass = String(settings[`${prefix}Password`] || process.env.EMAIL_PASS || '').trim();
+    const host = String(settings[`${prefix}Host`]).trim();
+    const portValue = String(settings[`${prefix}Port`]).trim();
+    const user = String(settings[`${prefix}Email`]).trim();
+    const pass = String(settings[`${prefix}Password`]).trim();
+    const secure = this.toBoolean(settings[`${prefix}Secure`], Number.parseInt(portValue, 10) === 465);
+    const certificateCheck = this.toBoolean(settings[`${prefix}CertificateCheck`], false);
 
     if (!host || !portValue || !user || !pass) {
       throw new Error(`Email profile "${profileName}" is not configured. Set host, port, email, and password in Settings.`);
@@ -38,17 +53,26 @@ class EmailService {
     if (!Number.isFinite(port)) {
       throw new Error(`Email profile "${profileName}" has an invalid SMTP port.`);
     }
+    console.log({
+  host,
+  portValue,
+  user,
+  pass,
+  secure,
+  certificateCheck,
+});
 
     return {
       host,
       port,
-      secure: port === 465,
+      secure,
       auth: {
         user,
         pass,
       },
       fromAddress: String(process.env.EMAIL_FROM || user).trim(),
       smtpUser: user,
+      certificateCheck,
     };
   }
 
@@ -59,9 +83,10 @@ class EmailService {
         host: config.host,
         port: config.port,
         secure: config.secure,
+        authMethod: 'LOGIN',
         auth: config.auth,
         tls: {
-          rejectUnauthorized: false,
+          rejectUnauthorized: config.certificateCheck,
         },
       }),
       ...config,
