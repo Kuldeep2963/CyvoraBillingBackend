@@ -21,8 +21,8 @@ import {
   Box,
   HStack,
 } from "@chakra-ui/react";
-import { fetchLiteInvoices } from "../../utils/api";
-import { MemoizedInput as Input, MemoizedSelect as Select } from "../memoizedinput/memoizedinput";
+import { fetchLiteInvoices } from "../../../utils/api";
+import { MemoizedInput as Input, MemoizedSelect as Select } from "../../memoizedinput/memoizedinput";
 
 const RecordPaymentModal = ({
   isOpen,

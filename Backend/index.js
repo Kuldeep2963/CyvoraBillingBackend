@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const sequelize = require('./models/db');
+const { DataTypes } = require('sequelize');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
@@ -88,7 +89,30 @@ app.use((req, res) => {
 });
 
 // Start server and sync database
-sequelize.sync().then(() => {
+const ensureBillingClassColumnIsString = async () => {
+  const queryInterface = sequelize.getQueryInterface();
+  const tableNames = ['accounts', 'Accounts', 'customers', 'Customers'];
+
+  for (const tableName of tableNames) {
+    try {
+      // Prefer the canonical accounts table, but keep a fallback for older schemas.
+      // If the column is already a STRING this is a no-op on supported dialects.
+      await queryInterface.changeColumn(tableName, 'billingClass', {
+        type: DataTypes.STRING,
+        allowNull: false,
+      });
+      return;
+    } catch (error) {
+      // Try the next table name; ignore missing-table/column mismatches.
+      if (!/does not exist|cannot be cast|unknown column|missing/i.test(error.message || '')) {
+        throw error;
+      }
+    }
+  }
+};
+
+sequelize.sync().then(async () => {
+  await ensureBillingClassColumnIsString();
 
   new MySQLCDRFetcher();
   new BillingScheduler();

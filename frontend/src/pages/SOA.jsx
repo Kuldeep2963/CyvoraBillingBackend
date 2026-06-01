@@ -22,12 +22,11 @@ import {
   TableContainer,
   HStack,
   Tooltip,
-  useDisclosure,
   Spacer,
 } from "@chakra-ui/react";
 import useNotify from "../utils/notify";
 import { SearchIcon } from "@chakra-ui/icons";
-import { FiAlertCircle, FiDownload, FiMail } from "react-icons/fi";
+import { FiDownload, FiMail } from "react-icons/fi";
 import {
   fetchReportAccounts,
   fetchLiteInvoices,
@@ -35,11 +34,9 @@ import {
   exportReport,
   exportSOA,
   sendSOAEmail,
-  getAllDisputes,
 } from "../utils/api";
 import { MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import DateRangePicker from "../components/formats/DateRangepicker";
-import RaiseDisputeModal from "../components/modals/RaiseDisputeModal";
 import PageNavBar from "../components/PageNavBar";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -116,13 +113,12 @@ const InvoiceTable = ({
   loading,
   emptyLabel = "No invoices to display.",
   mismatchedInvoices = [],
-  disputes = [],
 }) => {
-  const getInvoiceDispute = (invoiceNumber) => {
-    if (!disputes.length) return null;
-    return disputes.find((d) =>
-      d.invoiceNumber?.includes(invoiceNumber)
-    );
+  const getInvoiceDispute = (invoice) => {
+    if (!invoice) return null;
+    const disputed = String(invoice.status || "").toLowerCase() === "disputed";
+    const hasDisputeAmount = Number(invoice.disputeDetails?.disputedAmount || 0) > 0;
+    return disputed || hasDisputeAmount ? { source: 'vendor_invoice', invoice } : null;
   };
 
   if (loading) {
@@ -296,8 +292,6 @@ const ComparisonSummary = ({
   hasMismatch,
   onExport,
   onEmail,
-  onDispute,
-  hasExistingDispute = false,
 }) => {
   if (!customerInvoices.length && !uploadedVendorInvoices.length)
     return null;
@@ -406,24 +400,6 @@ const ComparisonSummary = ({
             >
               Export
             </Button>
-            {hasMismatch && (
-              <Button
-                size="sm"
-                leftIcon={<FiAlertCircle />}
-                borderRadius="4px"
-                bg={hasExistingDispute ? "gray.400" : "red.600"}
-                color="white"
-                _hover={{ bg: hasExistingDispute ? "gray.400" : "red.700" }}
-                _active={{ bg: hasExistingDispute ? "gray.400" : "red.800" }}
-                minW="130px"
-                onClick={onDispute}
-                isDisabled={hasExistingDispute}
-                cursor={hasExistingDispute ? "not-allowed" : "pointer"}
-                title={hasExistingDispute ? "Dispute already raised for these invoices" : ""}
-              >
-                Raise Dispute
-              </Button>
-            )}
           </Flex>
         </Flex>
       </CardBody>
@@ -544,43 +520,25 @@ const fetchAllVendorData = async (selectedAccount, startDate, endDate) => {
 const SOAPage = () => {
   const toast = useNotify();
 
-  const {
-    isOpen: isDisputeOpen,
-    onOpen: onDisputeOpen,
-    onClose: onDisputeClose,
-  } = useDisclosure();
-
   const [allAccounts, setAllAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [customerInvoices, setCustomerInvoices] = useState([]);
   const [uploadedVendorInvoices, setUploadedVendorInvoices] = useState([]);
-  const [disputes, setDisputes] = useState([]);
+  // disputes state removed — infer from invoice.status / invoice.disputeDetails
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
   const [loadingVendor, setLoadingVendor] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const fetchDisputes = useCallback(async () => {
-    try {
-      const res = await getAllDisputes();
-      if (res.success) {
-        setDisputes(res.data || []);
-      }
-    } catch (error) {
-      console.error("Error fetching disputes:", error);
-    }
-  }, []);
+  // no explicit disputes fetch; vendor invoices include disputeDetails/status
 
   // ── Load report accounts (customer/vendor/bilateral) ───────────────────────
   useEffect(() => {
     const loadAccounts = async () => {
       try {
         setLoadingAccounts(true);
-        const [accountsResponse, disputesResponse] = await Promise.all([
-          fetchReportAccounts(),
-          getAllDisputes(),
-        ]);
+        const accountsResponse = await fetchReportAccounts();
 
         if (accountsResponse.success) {
           const customers = accountsResponse.customers || [];
@@ -623,9 +581,7 @@ const SOAPage = () => {
           setAllAccounts(mergedAccounts);
         }
 
-        if (disputesResponse.success) {
-          setDisputes(disputesResponse.data || []);
-        }
+        // disputes handled via vendor invoices (status/disputeDetails)
       } catch {
         toast({
           title: "Error loading accounts",
@@ -770,61 +726,6 @@ const SOAPage = () => {
     toast,
   ]);
 
-  // ── Dispute ────────────────────────────────────────────────────────────────
-  // Check if a dispute already exists for the current mismatched invoices
-  const hasExistingDispute = React.useMemo(() => {
-    if (mismatchedInvoices.length === 0 || !disputes.length) return false;
-    
-    // Get the invoice numbers of mismatched invoices
-    const misatchedInvoiceNums = new Set();
-    mismatchedInvoices.forEach((id) => {
-      const uploadedInv = uploadedVendorInvoices.find((inv) => inv.id === id);
-      if (uploadedInv) misatchedInvoiceNums.add(uploadedInv.invoiceNumber);
-    });
-
-    // Check if any dispute covers these invoice numbers
-    return disputes.some((dispute) => {
-      if (!dispute.invoiceNumber) return false;
-      // Check if any of our current mismatched numbers are mentioned in this dispute
-      return Array.from(misatchedInvoiceNums).some((num) =>
-        dispute.invoiceNumber.toLowerCase().includes(num.toLowerCase())
-      );
-    });
-  }, [
-    mismatchedInvoices,
-    disputes,
-    uploadedVendorInvoices,
-  ]);
-
-  // Show toast when a dispute is already raised for mismatched invoices
-  useEffect(() => {
-    if (hasExistingDispute && (loadingCustomer || loadingVendor) === false) {
-      toast({
-        title: "Dispute Already Raised",
-        description:
-          "A dispute has already been raised for the current mismatched invoices.",
-        status: "info",
-        duration: 5000,
-        isClosable: true,
-        position: "top",
-      });
-    }
-  }, [hasExistingDispute, loadingCustomer, loadingVendor, toast]);
-
-  const handleDispute = useCallback(() => {
-    if (hasExistingDispute) {
-      toast({
-        title: "Dispute Already Raised",
-        description: "A dispute has already been raised for the mismatched invoices.",
-        status: "warning",
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
-    onDisputeOpen();
-  }, [onDisputeOpen, hasExistingDispute, toast]);
-
   const isLoading = loadingCustomer || loadingVendor;
   const showCustomerSection = !selectedAccount || isCustomerAccountRole(selectedAccount.accountRole);
   const showVendorSection = !selectedAccount || isVendorAccountRole(selectedAccount.accountRole);
@@ -959,8 +860,6 @@ const SOAPage = () => {
             hasMismatch={mismatchedInvoices.length > 0}
             onExport={handleExport}
             onEmail={handleEmail}
-            onDispute={handleDispute}
-            hasExistingDispute={hasExistingDispute}
           />
 
           {/* ── Three invoice tables ───────────────────────────────────────── */}
@@ -986,7 +885,6 @@ const SOAPage = () => {
                       ? "No customer invoices found."
                       : "Selected account is not a customer."
                   }
-                  disputes={disputes}
                 />
               </GridItem>
             )}
@@ -1007,21 +905,11 @@ const SOAPage = () => {
                   loading={loadingVendor}
                   emptyLabel="No uploaded vendor invoices found."
                   mismatchedInvoices={mismatchedInvoices}
-                  disputes={disputes}
                 />
               </GridItem>
             )}
           </Grid>
 
-          <RaiseDisputeModal
-            isOpen={isDisputeOpen}
-            onClose={onDisputeClose}
-            selectedAccount={selectedAccount}
-            mismatchedCount={mismatchedPairCount}
-            invoiceNumbers={mismatchedInvoiceNumbers}
-            disputeAmount={totalDisputeAmount}
-            onSuccess={fetchDisputes}
-          />
         </>
       )}
     </Box>

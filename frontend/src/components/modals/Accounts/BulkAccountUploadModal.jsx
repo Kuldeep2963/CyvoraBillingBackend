@@ -151,7 +151,7 @@ const BulkAccountUploadModal = ({ isOpen, onClose, onUploaded }) => {
       country: pick("country") || "US",
       countryCode: pick("countrycode") || "US",
       billingType: (pick("billingtype") || "prepaid").toLowerCase(),
-      billingClass: pick("billingclass") || "paiusa",
+      billingClass: pick("billingclass") || "",
       billingTimezone: pick("billingtimezone") || "UTC",
       billingStartDate: pick("billingstartdate") || today,
       billingCycle: (pick("billingcycle") || "monthly").toLowerCase(),

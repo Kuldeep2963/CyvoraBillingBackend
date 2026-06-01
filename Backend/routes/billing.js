@@ -43,12 +43,7 @@ router.delete('/invoices/:id', billingController.deleteInvoice);
 router.post('/invoices/bulk-delete', billingController.deleteInvoices);
 
 // Raise dispute
-router.post('/dispute/raise', billingController.raiseDispute);
-
-// Get all disputes
-router.get('/disputes', billingController.getAllDisputes);
-router.put('/disputes/:id', billingController.updateDispute);
-router.delete('/disputes/:id', billingController.deleteDispute);
+// Dispute endpoints removed: disputes are represented by vendor invoices (status/disputeDetails).
 
 /* ===================== PAYMENT ROUTES ===================== */
 

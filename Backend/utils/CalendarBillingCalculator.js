@@ -32,13 +32,13 @@ const parseMomentDate = (dateValue) => {
   
   if (!Number.isNaN(numericValue)) {
     const isMilliseconds = Math.abs(numericValue) >= 1e12;
-    date = isMilliseconds ? moment(numericValue) : moment.unix(numericValue);
+    date = isMilliseconds ? moment.utc(numericValue) : moment.utc(moment.unix(numericValue));
   } else {
-    date = moment(String(dateValue).slice(0, 10), DATE_FORMAT, true);
+    date = moment.utc(String(dateValue).slice(0, 10), DATE_FORMAT, true);
   }
   
   if (!date.isValid()) {
-    date = moment(dateValue);
+    date = moment.utc(dateValue);
   }
   
   return date.isValid() ? date : null;

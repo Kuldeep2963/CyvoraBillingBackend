@@ -3,11 +3,19 @@ const router = express.Router();
 const multer = require('multer');
 const Papa = require('papaparse');
 const { Op } = require('sequelize');
-const { getGlobalSettings, updateGlobalSettings } = require('../services/system-settings');
+const {
+  getGlobalSettings,
+  updateGlobalSettings,
+  getBillingClassProfiles,
+  getBillingClassProfile,
+  upsertBillingClassProfile,
+} = require('../services/system-settings');
 const { createNotification } = require('../services/notification-service');
 const EmailService = require('../services/EmailService');
 const CDRRetentionService = require('../services/cdr-retention-service');
 const CountryCode = require('../models/CountryCode');
+const Account = require('../models/Account');
+const SystemSetting = require('../models/SystemSetting');
 const sequelize = require('../models/db');
 
 const upload = multer({
@@ -134,6 +142,130 @@ router.put('/', async (req, res) => {
     res.json(settings);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/billing-classes', async (_req, res) => {
+  try {
+    const billingClasses = await getBillingClassProfiles();
+    return res.json({ billingClasses });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/billing-classes/:tag', async (req, res) => {
+  try {
+    const tag = String(req.params?.tag || '').trim().toLowerCase();
+    if (!tag) {
+      return res.status(400).json({ error: 'Billing class tag is required' });
+    }
+
+    const billingClass = await getBillingClassProfile(tag);
+    if (!billingClass) {
+      return res.status(404).json({ error: `Billing class profile not found for tag: ${tag}` });
+    }
+    return res.json({ billingClass });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+router.put('/billing-classes/:tag', async (req, res) => {
+  try {
+    const role = req.user?.role?.toLowerCase();
+    if (role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can update billing class settings' });
+    }
+
+    const tag = String(req.params?.tag || '').trim().toLowerCase();
+    if (!tag) {
+      return res.status(400).json({ error: 'Billing class tag is required' });
+    }
+
+    const billingClass = await upsertBillingClassProfile(tag, req.body || {}, req.user?.email);
+
+    return res.json({
+      message: `Billing class ${tag} updated successfully`,
+      billingClass,
+    });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+router.delete('/billing-classes/:tag', async (req, res) => {
+  try {
+    const role = req.user?.role?.toLowerCase();
+    if (role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can delete billing class settings' });
+    }
+
+    const tag = String(req.params?.tag || '').trim().toLowerCase();
+    if (!tag) {
+      return res.status(400).json({ error: 'Billing class tag is required' });
+    }
+
+    const billingClass = await getBillingClassProfile(tag);
+    if (!billingClass) {
+      return res.status(404).json({ error: `Billing class profile not found for tag: ${tag}` });
+    }
+
+    const accountCount = await Account.count({ where: { billingClass: tag } });
+    const reassignToRaw = String(req.body?.reassignTo || '').trim().toLowerCase();
+
+    if (accountCount > 0 && !reassignToRaw) {
+      return res.status(409).json({
+        error: `Billing class ${tag} is assigned to ${accountCount} account(s). Reassign them before deleting.`,
+        accountCount,
+        requiresReassignment: true,
+      });
+    }
+
+    let reassignedAccounts = 0;
+
+    await sequelize.transaction(async (transaction) => {
+      if (accountCount > 0) {
+        if (reassignToRaw === tag) {
+          throw new Error('Replacement billing class must be different from the billing class being deleted');
+        }
+
+        const replacement = await getBillingClassProfile(reassignToRaw);
+        if (!replacement) {
+          throw new Error(`Replacement billing class profile not found for tag: ${reassignToRaw}`);
+        }
+
+        const [updatedCount] = await Account.update(
+          { billingClass: reassignToRaw },
+          { where: { billingClass: tag }, transaction },
+        );
+        reassignedAccounts = Number(updatedCount || 0);
+      }
+
+      await SystemSetting.destroy({
+        where: { key: tag },
+        transaction,
+      });
+    });
+
+    await createNotification({
+      title: 'Billing class deleted',
+      message: reassignedAccounts > 0
+        ? `Billing class ${tag} deleted and ${reassignedAccounts} account(s) reassigned to ${reassignToRaw}.`
+        : `Billing class ${tag} deleted by ${req.user?.email || 'admin'}.`,
+      type: 'warning',
+      category: 'settings',
+    });
+
+    return res.json({
+      message: `Billing class ${tag} deleted successfully`,
+      deletedTag: tag,
+      reassignedTo: reassignedAccounts > 0 ? reassignToRaw : null,
+      reassignedAccounts,
+    });
+  } catch (error) {
+    const status = error.message?.includes('Replacement billing class') ? 400 : 400;
+    return res.status(status).json({ error: error.message });
   }
 });
 
@@ -356,18 +488,33 @@ router.post('/test-email', async (req, res) => {
       }
     }
 
-    // Minimal template data for welcome-credentials template
+    // Prepare template data for a diagnostic test-email template.
+    // We resolve transporter info so the template can show host/port/user.
+    let smtpInfo;
+    try {
+      smtpInfo = await EmailService.createTransporter(profile);
+    } catch (err) {
+      return res.status(400).json({ error: `SMTP profile "${profile}" not configured: ${err?.message || String(err)}` });
+    }
+
+    const { smtpUser, host, port } = smtpInfo;
+
     const templateData = {
       firstName: 'Test',
       lastName: 'User',
-      email: to,
-      password: '********',
+      to,
+      message: 'SMTP connected',
       role: 'tester',
       phone: '',
+      profile,
+      smtpUser,
+      host,
+      port,
       portalUrl: process.env.FRONTEND_URL || '/',
+      details: null,
     };
 
-    await EmailService.sendEmail(to, 'CDR Billing — Test email', 'welcome-credentials', templateData, [], profile);
+    await EmailService.sendEmail(to, 'CDR Billing — SMTP Test', 'test-email', templateData, [], profile);
 
     return res.json({ message: 'Test email queued/sent' });
   } catch (error) {

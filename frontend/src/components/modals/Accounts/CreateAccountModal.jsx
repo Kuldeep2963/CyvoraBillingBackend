@@ -63,6 +63,7 @@ import {
   downloadAccountDocument,
   viewAccountDocument,
   fetchCountryCodes,
+  fetchBillingClassProfiles,
 } from "../../../utils/api";
 import {
   MemoizedInput as Input,
@@ -442,7 +443,7 @@ const CreateAccountModal = ({
       customerNextBillingDate: "",
       vendorLastBillingDate: "",
       vendorNextBillingDate: "",
-      billingClass: "paiusa",
+      billingClass: "",
       billingType: "prepaid",
       billingTimezone: "UTC",
       billingStartDate: todayLocalDate(),
@@ -463,6 +464,7 @@ const CreateAccountModal = ({
   const [pendingDocuments, setPendingDocuments] = useState([]);
   const [documentBusy, setDocumentBusy] = useState(false);
   const createDraftBaselineRef = useRef(null);
+  const [billingClassOptions, setBillingClassOptions] = useState([]);
 
   // ── Country search state ────────────────────────────────────────────────────
   // searchTerm drives what the user has typed in the country field.
@@ -487,6 +489,40 @@ const CreateAccountModal = ({
       ...getSyncedContactEmailValues(fd.ratesEmails),
     }));
   }, [formData.ratesEmails, formData.syncContactEmailsWithRates]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let cancelled = false;
+
+    fetchBillingClassProfiles()
+      .then((profiles) => {
+        if (cancelled || !Array.isArray(profiles) || profiles.length === 0) return;
+
+        const normalizedOptions = profiles
+          .map((profile) => {
+            const tag = String(profile?.tag || "").trim().toLowerCase();
+            if (!tag) return null;
+            return {
+              tag,
+              displayName:
+                String(profile?.displayName || profile?.companyName || tag).trim() || tag,
+            };
+          })
+          .filter(Boolean);
+
+        if (!normalizedOptions.length) return;
+
+        setBillingClassOptions(normalizedOptions);
+      })
+      .catch(() => {
+        // Keep local fallback options when API is unavailable.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   // The label shown in the SearchSelect input once a country is selected.
   // Recomputed only when the saved country values change.
@@ -1189,6 +1225,9 @@ const CreateAccountModal = ({
     if (!formData.billingStartDate)
       errors.push("Billing Start Date is required");
 
+    if (!String(formData.billingClass || "").trim())
+      errors.push("Billing Class is required");
+
     // FIX: Validate that a country was actually selected (not just typed)
     if (!formData.countryCode)
       errors.push("Country is required — please select from the list");
@@ -1274,7 +1313,7 @@ const CreateAccountModal = ({
         trunks: normalizeTrunks(formData.trunks),
         lastbillingdate: formData.lastbillingdate || null,
         nextbillingdate: formData.nextbillingdate || null,
-        billingClass: formData.billingClass || "paiusa",
+        billingClass: String(formData.billingClass || "").trim(),
       };
 
       // Clean up legacy / derived keys
@@ -2193,7 +2232,11 @@ const CreateAccountModal = ({
                             }
                             isDisabled={isViewMode}
                           >
-                            <option value="cyvora">Cyvora</option>
+                            {billingClassOptions.map((option) => (
+                              <option key={option.tag} value={option.tag}>
+                                {option.displayName}
+                              </option>
+                            ))}
                           </Select>
                         </FormControl>
 

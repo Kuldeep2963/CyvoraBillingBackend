@@ -21,6 +21,13 @@ import {
   InputGroup,
   InputRightElement,
   IconButton,
+  Modal,
+  ModalBody,
+  ModalCloseButton,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  ModalOverlay,
   NumberInput,
   NumberInputField,
   Spinner,
@@ -37,6 +44,7 @@ import {
 import {
   FiBell,
   FiDatabase,
+  FiFileText,
   FiKey,
   FiEye,
   FiEyeOff,
@@ -46,12 +54,16 @@ import {
   FiServer,
   FiUpload,
   FiMail,
+  FiPlus,
+  FiGlobe,
 } from "react-icons/fi";
 import {
   createTestNotification,
   fetchCDRCount,
-  fetchNotifications,
+  fetchBillingClassProfiles,
   getGlobalSettings,
+  getSettingsSections,
+  updateSettingsSections,
   markAllNotificationsRead,
   markNotificationRead,
   runRetentionCleanup,
@@ -60,11 +72,15 @@ import {
   fetchCountryCodes,
   uploadCountryCodes,
   updateGlobalSettings,
+  updateBillingClassProfile,
+  deleteBillingClassProfile,
   sendTestEmail,
 } from "../utils/api";
+import { useNotifications } from "../context/NotificationsContext";
 import { formatNotificationTime } from "../utils/notificationTime";
 import PageNavBar from "../components/PageNavBar";
 import DataTable from "../components/DataTable";
+import ConfirmDialog from "../components/modals/ConfirmDialog";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -544,15 +560,34 @@ const EmailProfileCard = ({
 
 // ─── Tab navigation ───────────────────────────────────────────────────────────
 
-const TABS = [
+const DEFAULT_TABS = [
   { id: "general", label: "General", icon: FiSettings },
   { id: "retention", label: "Data Retention", icon: FiDatabase },
-  { id: "codes", label: "Country Codes", icon: FiUpload },
+  { id: "billing", label: "Billing Settings", icon: FiFileText },
+  { id: "codes", label: "Country Codes", icon: FiGlobe },
   { id: "notifs", label: "Notifications", icon: FiBell },
   { id: "email", label: "System Emails", icon: FiMail },
 ];
 
-const TabNav = ({ active, onChange }) => (
+const buildTabsFromSections = (sections) => {
+  if (!sections) return DEFAULT_TABS;
+  const tabs = [];
+  // General
+  if (sections.generalSettings) tabs.push({ id: 'general', label: 'General', icon: FiSettings });
+  // Data fetch / retention
+  if (sections.dataFetchSettings) tabs.push({ id: 'retention', label: 'Data Retention', icon: FiDatabase });
+  // Billing settings is independent and always available.
+  tabs.push({ id: 'billing', label: 'Billing Settings', icon: FiServer });
+  // Country codes is an independent tool-style tab (keep always)
+  tabs.push({ id: 'codes', label: 'Country Codes', icon: FiUpload });
+  // Notifications
+  if (sections.notificationSettings) tabs.push({ id: 'notifs', label: 'Notifications', icon: FiBell });
+  // Email settings
+  if (sections.emailSettings) tabs.push({ id: 'email', label: 'System Emails', icon: FiMail });
+  return tabs;
+};
+
+const TabNav = ({ active, onChange, tabs = DEFAULT_TABS }) => (
   <HStack
     spacing={0}
     borderBottomWidth="0.5px"
@@ -560,7 +595,7 @@ const TabNav = ({ active, onChange }) => (
     mb={5}
     overflowX="auto"
   >
-    {TABS.map(({ id, label, icon: Icon }) => {
+    {tabs.map(({ id, label, icon: Icon }) => {
       const isActive = active === id;
       return (
         <Box
@@ -1595,9 +1630,7 @@ const NotificationsTab = ({ settings, updateSetting }) => {
   const notify = useNotify();
   const isMounted = useRef(true);
 
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const { notifications, unreadCount, loading: loadingNotifications, refresh: refreshNotifications } = useNotifications();
 
   useEffect(() => {
     isMounted.current = true;
@@ -1606,39 +1639,14 @@ const NotificationsTab = ({ settings, updateSetting }) => {
     };
   }, []);
 
-  const loadNotifications = useCallback(async (silent = false) => {
-    if (!silent && isMounted.current) setLoadingNotifications(true);
-    try {
-      const data = await fetchNotifications({ limit: 20 });
-      if (!isMounted.current) return;
-      setNotifications(data.notifications || []);
-      setUnreadCount(Number(data.unreadCount || 0));
-    } catch (error) {
-      console.error("Failed to load notifications", error);
-    } finally {
-      if (!silent && isMounted.current) setLoadingNotifications(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
-
-  const pollingMs = useMemo(() => {
-    const seconds = Number(settings.notificationPollingSeconds) || 10;
-    return Math.max(5, Math.min(3600, seconds)) * 1000;
-  }, [settings.notificationPollingSeconds]);
-
-  useEffect(() => {
-    const timer = setInterval(() => loadNotifications(true), pollingMs);
-    return () => clearInterval(timer);
-  }, [loadNotifications, pollingMs]);
+  // Notifications are provided centrally by the Layout-level NotificationsProvider.
+  // Use `refreshNotifications()` to request a silent refresh when needed.
 
   const handleMarkRead = async (id) => {
     try {
       await markNotificationRead(id);
       if (!isMounted.current) return;
-      await loadNotifications();
+      await refreshNotifications();
     } catch (error) {
       notify({
         title: "Failed to update notification",
@@ -1652,7 +1660,7 @@ const NotificationsTab = ({ settings, updateSetting }) => {
     try {
       await markAllNotificationsRead();
       if (!isMounted.current) return;
-      await loadNotifications();
+      await refreshNotifications();
     } catch (error) {
       notify({
         title: "Failed to mark all read",
@@ -1671,7 +1679,7 @@ const NotificationsTab = ({ settings, updateSetting }) => {
         type: "info",
       });
       if (!isMounted.current) return;
-      await loadNotifications();
+      await refreshNotifications();
       notify({
         title: "Test notification sent",
         status: "success",
@@ -1991,6 +1999,499 @@ const EmailSettingsTab = ({ settings, updateSetting }) => {
   );
 };
 
+const normalizeBillingProfile = (raw = {}) => {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const paymentInfo = source.paymentInfo && typeof source.paymentInfo === "object"
+    ? source.paymentInfo
+    : {};
+
+  return {
+    tag: String(source.tag || "").trim().toLowerCase(),
+    displayName: String(source.displayName || "").trim(),
+    companyName: String(source.companyName || "").trim(),
+    email: String(source.email || "").trim(),
+    phone: String(source.phone || "").trim(),
+    footerText: String(source.footerText || "").trim(),
+    addressLines: Array.isArray(source.addressLines)
+      ? source.addressLines.map((line) => String(line || "").trim()).filter(Boolean)
+      : [],
+    paymentInfo: {
+      beneficiaryName: String(paymentInfo.beneficiaryName || "").trim(),
+      bankName: String(paymentInfo.bankName || "").trim(),
+      swiftCode: String(paymentInfo.swiftCode || "").trim(),
+      accountNo: String(paymentInfo.accountNo || "").trim(),
+      iban: String(paymentInfo.iban || "").trim(),
+      bankAddress: String(paymentInfo.bankAddress || "").trim(),
+      accountCurrency: String(paymentInfo.accountCurrency || "").trim(),
+    },
+  };
+};
+
+const BillingProfileCard = ({ profile, onSaved, profiles = [] }) => {
+  const notify = useNotify();
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isReassignDialogOpen, setIsReassignDialogOpen] = useState(false);
+  const [reassignTo, setReassignTo] = useState("");
+  const [reassignAccountCount, setReassignAccountCount] = useState(0);
+  const [local, setLocal] = useState(() => normalizeBillingProfile(profile));
+  useEffect(() => {
+    if (isEditing) return;
+    setLocal(normalizeBillingProfile(profile));
+  }, [profile, isEditing]);
+
+  const handleDone = async () => {
+    const payload = {
+      ...local,
+      addressLines: Array.isArray(local.addressLines)
+        ? local.addressLines
+        : String(local.addressLines || "").split("\n").map((l) => l.trim()).filter(Boolean),
+    };
+    // Do not send footerText from the UI; footer is hardcoded server-side
+    if (payload.footerText !== undefined) delete payload.footerText;
+    try {
+      await updateBillingClassProfile(local.tag, payload);
+      notify({ title: "Billing settings saved", status: "success", duration: 2500 });
+      setIsEditing(false);
+      if (typeof onSaved === "function") onSaved();
+    } catch (err) {
+      notify({ title: "Failed to save", description: err.message, status: "error" });
+    }
+  };
+
+  const handleCancel = () => {
+    setLocal(normalizeBillingProfile(profile));
+    setIsEditing(false);
+  };
+
+  const handleDelete = () => {
+    if (isEditing) return;
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirmed = async () => {
+    setIsDeleting(true);
+    try {
+      await deleteBillingClassProfile(local.tag);
+      notify({
+        title: "Billing class deleted",
+        status: "success",
+        duration: 2500,
+      });
+      setIsDeleteDialogOpen(false);
+      if (typeof onSaved === "function") onSaved();
+      return;
+    } catch (error) {
+      if (error?.status === 409) {
+        const accountCount = Number(error?.payload?.accountCount || 0);
+        setReassignAccountCount(accountCount);
+        setIsDeleteDialogOpen(false);
+        setReassignTo("");
+        setIsReassignDialogOpen(true);
+        return;
+      }
+
+      notify({
+        title: "Failed to delete billing class",
+        description: error.message,
+        status: "error",
+        duration: 4000,
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const availableReassignOptions = profiles
+    .map((item) => item.tag)
+    .filter((tag) => tag && tag !== local.tag)
+    .sort((a, b) => a.localeCompare(b));
+
+  const handleReassignDeleteConfirmed = async () => {
+    const targetTag = String(reassignTo || "").trim().toLowerCase();
+    if (!targetTag || targetTag === local.tag) {
+      notify({
+        title: "Select a replacement billing class",
+        status: "warning",
+        duration: 2500,
+      });
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await deleteBillingClassProfile(local.tag, targetTag);
+      notify({
+        title: "Billing class deleted",
+        description: reassignAccountCount > 0
+          ? `Accounts were reassigned to ${targetTag}.`
+          : undefined,
+        status: "success",
+        duration: 3000,
+      });
+      setIsReassignDialogOpen(false);
+      if (typeof onSaved === "function") onSaved();
+    } catch (error) {
+      notify({
+        title: "Failed to delete billing class",
+        description: error.message,
+        status: "error",
+        duration: 4000,
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <Card {...CARD_PROPS}>
+      <CardBody px={5} py={5}>
+        <HStack justify="space-between" align="start" mb={3}>
+          <Box>
+            <Text fontSize="15px" fontWeight="600" color="gray.800">
+              {local.displayName || local.tag}
+            </Text>
+            <Text fontSize="12px" color="gray.500" mt={1}>
+              Tag: {local.tag}
+            </Text>
+          </Box>
+          <HStack spacing={2}>
+            <Button
+              size="sm"
+              height="34px"
+              px={3}
+              fontSize="12px"
+              fontWeight="500"
+              borderRadius="8px"
+              borderWidth="0.5px"
+              boxShadow="none"
+              bg={isEditing ? "green.50" : "gray.50"}
+              color={isEditing ? "green.600" : "gray.500"}
+              borderColor={isEditing ? "green.200" : "gray.200"}
+              _hover={{ bg: isEditing ? "green.100" : "gray.100" }}
+              onClick={() => {
+                if (isEditing) return handleDone();
+                setIsEditing(true);
+              }}
+            >
+              {isEditing ? "Done" : "Edit"}
+            </Button>
+            {!isEditing && (
+              <Button
+                size="sm"
+                height="34px"
+                px={3}
+                fontSize="12px"
+                fontWeight="500"
+                borderRadius="8px"
+                borderWidth="0.5px"
+                boxShadow="none"
+                bg="red.50"
+                color="red.600"
+                borderColor="red.100"
+                _hover={{ bg: "red.100" }}
+                onClick={handleDelete}
+              >
+                Delete
+              </Button>
+            )}
+            {isEditing && (
+              <Button
+                size="sm"
+                height="34px"
+                px={3}
+                fontSize="12px"
+                fontWeight="500"
+                borderRadius="8px"
+                borderWidth="0.5px"
+                boxShadow="none"
+                bg="red.50"
+                color="red.500"
+                borderColor="red.100"
+                _hover={{ bg: "red.100" }}
+                onClick={handleCancel}
+              >
+                Cancel
+              </Button>
+            )}
+          </HStack>
+        </HStack>
+
+        <Grid templateColumns={{ base: "1fr", md: "1fr 1fr" }} gap={3}>
+          
+          <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>Billing Class Name</FormLabel>
+            <Input {...INPUT_PROPS} value={local.displayName || ""} onChange={(e) => setLocal((p) => ({ ...p, displayName: e.target.value }))} isDisabled={!isEditing} />
+          </FormControl>
+            <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>Company Name</FormLabel>
+            <Input {...INPUT_PROPS} value={local.companyName || ""} onChange={(e) => setLocal((p) => ({ ...p, companyName: e.target.value }))} isDisabled={!isEditing} />
+          </FormControl>
+          <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>Email</FormLabel>
+            <Input {...INPUT_PROPS} value={local.email || ""} onChange={(e) => setLocal((p) => ({ ...p, email: e.target.value }))} isDisabled={!isEditing} />
+          </FormControl>
+          <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>Phone</FormLabel>
+            <Input {...INPUT_PROPS} value={local.phone || ""} onChange={(e) => setLocal((p) => ({ ...p, phone: e.target.value }))} isDisabled={!isEditing} />
+          </FormControl>
+
+          <FormControl gridColumn={{ base: "span 1", md: "span 2" }}>
+            <FormLabel {...FORM_LABEL_PROPS}>Company Address</FormLabel>
+            <Input
+              as="textarea"
+              {...INPUT_PROPS}
+              minH="72px"
+              value={Array.isArray(local.addressLines)
+                ? local.addressLines.join("\n")
+                : String(local.addressLines || "")}
+              onChange={(e) =>
+                setLocal((p) => ({ ...p, addressLines: e.target.value }))
+              }
+              isDisabled={!isEditing}
+            />
+          </FormControl>
+
+          {/* footerText removed: footer will be hardcoded server-side and use billing email from system settings */}
+
+          <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>Bank Name</FormLabel>
+            <Input {...INPUT_PROPS} value={local.paymentInfo?.bankName || ""} onChange={(e) => setLocal((p) => ({ ...p, paymentInfo: { ...p.paymentInfo, bankName: e.target.value } }))} isDisabled={!isEditing} />
+          </FormControl>
+          <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>Beneficiary Name</FormLabel>
+            <Input {...INPUT_PROPS} value={local.paymentInfo?.beneficiaryName || ""} onChange={(e) => setLocal((p) => ({ ...p, paymentInfo: { ...p.paymentInfo, beneficiaryName: e.target.value } }))} isDisabled={!isEditing} />
+          </FormControl>
+
+          <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>Account No</FormLabel>
+            <Input {...INPUT_PROPS} value={local.paymentInfo?.accountNo || ""} onChange={(e) => setLocal((p) => ({ ...p, paymentInfo: { ...p.paymentInfo, accountNo: e.target.value } }))} isDisabled={!isEditing} />
+          </FormControl>
+          <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>SWIFT Code</FormLabel>
+            <Input {...INPUT_PROPS} value={local.paymentInfo?.swiftCode || ""} onChange={(e) => setLocal((p) => ({ ...p, paymentInfo: { ...p.paymentInfo, swiftCode: e.target.value } }))} isDisabled={!isEditing} />
+          </FormControl>
+          <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>IBAN</FormLabel>
+            <Input {...INPUT_PROPS} value={local.paymentInfo?.iban || ""} onChange={(e) => setLocal((p) => ({ ...p, paymentInfo: { ...p.paymentInfo, iban: e.target.value } }))} isDisabled={!isEditing} />
+          </FormControl>
+          
+          <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>Account Currency</FormLabel>
+            <Input {...INPUT_PROPS} value={local.paymentInfo?.accountCurrency || ""} onChange={(e) => setLocal((p) => ({ ...p, paymentInfo: { ...p.paymentInfo, accountCurrency: e.target.value } }))} isDisabled={!isEditing} />
+          </FormControl>
+          <FormControl>
+            <FormLabel {...FORM_LABEL_PROPS}>Bank Address</FormLabel>
+            <Input as="textarea" {...INPUT_PROPS} minH="72px" value={local.paymentInfo?.bankAddress || ""} onChange={(e) => setLocal((p) => ({ ...p, paymentInfo: { ...p.paymentInfo, bankAddress: e.target.value } }))} isDisabled={!isEditing} />
+          </FormControl>
+        </Grid>
+        <ConfirmDialog
+          isOpen={isDeleteDialogOpen}
+          onClose={() => setIsDeleteDialogOpen(false)}
+          onConfirm={handleDeleteConfirmed}
+          title="Delete billing class"
+          message={`Delete billing class ${local.tag}?`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          type="danger"
+          isLoading={isDeleting}
+          warningNote="This will remove the billing class profile. If accounts still use it, you will be prompted to reassign them."
+        />
+
+        <Modal
+          isOpen={isReassignDialogOpen}
+          onClose={() => setIsReassignDialogOpen(false)}
+          isCentered
+          size="sm"
+        >
+          <ModalOverlay />
+          <ModalContent borderRadius="xl">
+            <ModalHeader fontSize="md" fontWeight="semibold">
+              Reassign Billing Class
+            </ModalHeader>
+            <ModalCloseButton />
+            <ModalBody pb={4}>
+              <Text fontSize="sm" color="gray.600" mb={3}>
+                Billing class {local.tag} is assigned to {reassignAccountCount} account(s). Select a replacement billing class.
+              </Text>
+              <FormControl>
+                <FormLabel fontSize="sm">Replace with</FormLabel>
+                <Select
+                  value={reassignTo}
+                  onChange={(e) => setReassignTo(e.target.value)}
+                  placeholder={availableReassignOptions.length > 0 ? "Select billing class" : "No replacement available"}
+                  isDisabled={availableReassignOptions.length === 0}
+                >
+                  {availableReassignOptions.map((tag) => {
+                    const option = profiles.find((item) => item.tag === tag);
+                    return (
+                      <option key={tag} value={tag}>
+                        {option?.displayName || tag}
+                      </option>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+              {availableReassignOptions.length === 0 && (
+                <Text mt={3} fontSize="sm" color="orange.500">
+                  Create another billing class first, then re-run delete.
+                </Text>
+              )}
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="ghost" mr={3} onClick={() => setIsReassignDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                colorScheme="red"
+                onClick={handleReassignDeleteConfirmed}
+                isLoading={isDeleting}
+                isDisabled={!reassignTo || availableReassignOptions.length === 0}
+              >
+                Reassign & Delete
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+      </CardBody>
+    </Card>
+  );
+};
+
+const BillingSettingsTab = () => {
+  const notify = useNotify();
+  const [profiles, setProfiles] = useState([]);
+  const [newTag, setNewTag] = useState("");
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const loadProfiles = useCallback(async () => {
+    setLoadingProfiles(true);
+    try {
+      const list = await fetchBillingClassProfiles();
+      const normalized = Array.isArray(list)
+        ? list.map((item) => normalizeBillingProfile(item)).filter((item) => item.tag)
+        : [];
+      setProfiles(normalized);
+
+      if (normalized.length === 0) return;
+    } catch (error) {
+      notify({
+        title: "Failed to load billing settings",
+        description: error.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setLoadingProfiles(false);
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    loadProfiles();
+  }, [loadProfiles]);
+
+  useEffect(() => {
+    // no-op: profiles loaded
+  }, [profiles]);
+
+  const handleCreateTag = async () => {
+    const tag = String(newTag || "").trim().toLowerCase();
+    if (!tag) {
+      notify({ title: "Tag required", status: "warning", duration: 2500 });
+      return;
+    }
+    if (profiles.some((item) => item.tag === tag)) {
+      notify({ title: "Tag already exists", status: "warning", duration: 2500 });
+      return;
+    }
+
+    setSavingProfile(true);
+    try {
+      await updateBillingClassProfile(tag, {
+        tag,
+        displayName: tag,
+        companyName: "",
+        addressLines: [],
+        email: "",
+        phone: "",
+        footerText: "",
+        paymentInfo: {
+          beneficiaryName: "",
+          bankName: "",
+          swiftCode: "",
+          accountNo: "",
+          iban: "",
+          bankAddress: "",
+          accountCurrency: "",
+        },
+      });
+      setNewTag("");
+      await loadProfiles();
+      notify({ title: "Billing class created", status: "success", duration: 2500 });
+    } catch (error) {
+      notify({
+        title: "Failed to create billing class",
+        description: error.message,
+        status: "error",
+        duration: 4000,
+      });
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  
+
+  return (
+    <VStack spacing={5} align="stretch">
+      <Card {...CARD_PROPS}>
+        <CardBody px={5} py={5}>
+          <SectionHeader>Billing Class Profiles</SectionHeader>
+          <Grid templateColumns={{ base: "1fr", md: "minmax(0, 1fr) auto" }} gap={3} alignItems="center">
+            <Input
+              {...INPUT_PROPS}
+              placeholder="New billing class tag (e.g. cyvoraeu)"
+              value={newTag}
+              onChange={(e) => setNewTag(e.target.value)}
+            />
+            <Button
+              leftIcon={<FiPlus/>}
+              size="sm"
+              onClick={handleCreateTag}
+              isLoading={savingProfile}
+              isDisabled={savingProfile}
+              bg="blue.600"
+              color="white"
+              borderRadius="8px"
+              _hover={{ bg: "blue.700" }}
+            >
+              Add Tag
+            </Button>
+          </Grid>
+        </CardBody>
+      </Card>
+
+      
+       {profiles.length === 0 ? (
+  <Text textAlign="center" fontSize="13px" color="gray.500">
+    No billing classes defined yet.
+  </Text>
+) : (
+  <Grid templateColumns={{ base: "1fr", md: "repeat(2, 1fr)" }} gap={4}>
+    {profiles.map((p) => (
+      <Box key={p.tag}>
+        <BillingProfileCard profile={p} profiles={profiles} onSaved={loadProfiles} />
+      </Box>
+    ))}
+  </Grid>
+)}
+    </VStack>
+  );
+};
+
 // ─── Settings (root) ──────────────────────────────────────────────────────────
 
 const Settings = () => {
@@ -1999,6 +2500,7 @@ const Settings = () => {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [sections, setSections] = useState(null);
   const [isDirty, setIsDirty] = useState(false);
   const [activeTab, setActiveTab] = useState("general");
   // Track which tabs have been visited (for lazy mounting)
@@ -2014,6 +2516,8 @@ const Settings = () => {
   const [pollingError, setPollingError] = useState("");
 
   const isMounted = useRef(true);
+
+  const { refresh: refreshNotifications } = useNotifications();
 
   useEffect(() => {
     isMounted.current = true;
@@ -2039,13 +2543,17 @@ const Settings = () => {
   const loadSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const serverSettings = await getGlobalSettings();
+      const [serverSettings, serverSections] = await Promise.all([
+        getGlobalSettings(),
+        getSettingsSections().catch(() => null),
+      ]);
       if (!isMounted.current) return;
       const merged = {
         ...DEFAULT_SETTINGS,
         ...normalizeSettingsShape(serverSettings),
       };
       applySettings(merged);
+      setSections(serverSections);
     } catch (error) {
       if (!isMounted.current) return;
       notify({
@@ -2116,17 +2624,94 @@ const Settings = () => {
     };
     setSaving(true);
     try {
-      const payload = {
-        ...DEFAULT_SETTINGS,
-        ...normalizeSettingsShape(settingsToSave),
-      };
-      const saved = await updateGlobalSettings(payload);
-      if (!isMounted.current) return;
-      const merged = { ...DEFAULT_SETTINGS, ...normalizeSettingsShape(saved) };
-      applySettings(merged);
-      window.dispatchEvent(
-        new CustomEvent("settings-updated", { detail: saved }),
-      );
+      // If server supports sections, send grouped payload
+      if (sections) {
+        const nextSections = {
+          generalSettings: {
+            systemName: settingsToSave.systemName,
+            currency: settingsToSave.currency,
+            timezone: settingsToSave.timezone,
+          },
+          emailSettings: {
+            syncEmailProfiles: settingsToSave.syncEmailProfiles,
+            billing: {
+              email: settingsToSave.billingSmtpEmail,
+              password: settingsToSave.billingSmtpPassword,
+              host: settingsToSave.billingSmtpHost,
+              port: settingsToSave.billingSmtpPort,
+              secure: settingsToSave.billingSmtpSecure,
+              certificateCheck: settingsToSave.billingSmtpCertificateCheck,
+            },
+            reports: {
+              email: settingsToSave.reportsSmtpEmail,
+              password: settingsToSave.reportsSmtpPassword,
+              host: settingsToSave.reportsSmtpHost,
+              port: settingsToSave.reportsSmtpPort,
+              secure: settingsToSave.reportsSmtpSecure,
+              certificateCheck: settingsToSave.reportsSmtpCertificateCheck,
+            },
+            rates: {
+              email: settingsToSave.ratesSmtpEmail,
+              password: settingsToSave.ratesSmtpPassword,
+              host: settingsToSave.ratesSmtpHost,
+              port: settingsToSave.ratesSmtpPort,
+              secure: settingsToSave.ratesSmtpSecure,
+              certificateCheck: settingsToSave.ratesSmtpCertificateCheck,
+            },
+            management: {
+              email: settingsToSave.managementSmtpEmail,
+              password: settingsToSave.managementSmtpPassword,
+              host: settingsToSave.managementSmtpHost,
+              port: settingsToSave.managementSmtpPort,
+              secure: settingsToSave.managementSmtpSecure,
+              certificateCheck: settingsToSave.managementSmtpCertificateCheck,
+            },
+          },
+          notificationSettings: {
+            emailNotifications: settingsToSave.emailNotifications,
+            notifyInvoiceGenerated: settingsToSave.notifyInvoiceGenerated,
+            notifyPaymentDue: settingsToSave.notifyPaymentDue,
+            notifyDisputes: settingsToSave.notifyDisputes,
+            notifyErrors: settingsToSave.notifyErrors,
+            notifyPaymentReceived: settingsToSave.notifyPaymentReceived,
+            notificationEmail: settingsToSave.notificationEmail,
+            notificationPollingSeconds: settingsToSave.notificationPollingSeconds,
+          },
+          dataFetchSettings: {
+            dataRetentionDays: settingsToSave.dataRetentionDays,
+            dataRetentionMinDays: settingsToSave.dataRetentionMinDays,
+            dataRetentionMaxDays: settingsToSave.dataRetentionMaxDays,
+          },
+        };
+
+        const resp = await updateSettingsSections(nextSections);
+        if (!isMounted.current) return;
+        // resp may include { settings, sections }
+        const savedFlat = resp?.settings || resp || {};
+        const merged = { ...DEFAULT_SETTINGS, ...normalizeSettingsShape(savedFlat) };
+        applySettings(merged);
+        setSections(resp?.sections || nextSections);
+        window.dispatchEvent(new CustomEvent('settings-updated', { detail: savedFlat }));
+      } else {
+        const payload = {
+          ...DEFAULT_SETTINGS,
+          ...normalizeSettingsShape(settingsToSave),
+        };
+        const saved = await updateGlobalSettings(payload);
+        if (!isMounted.current) return;
+        const merged = { ...DEFAULT_SETTINGS, ...normalizeSettingsShape(saved) };
+        applySettings(merged);
+        // refresh sections if server returned grouped payload
+        try {
+          const refreshedSections = await getSettingsSections();
+          setSections(refreshedSections);
+        } catch (e) {
+          // ignore section refresh failures
+        }
+        window.dispatchEvent(
+          new CustomEvent("settings-updated", { detail: saved }),
+        );
+      }
       notify({
         title: "Settings saved",
         status: "success",
@@ -2192,7 +2777,7 @@ const Settings = () => {
         }
       />
 
-      <TabNav active={activeTab} onChange={handleTabChange} />
+      <TabNav active={activeTab} onChange={handleTabChange} tabs={buildTabsFromSections(sections)} />
 
       <Box>
         {/* General — always mounted */}
@@ -2215,15 +2800,22 @@ const Settings = () => {
               setPollingError={setPollingError}
               updateSetting={updateSetting}
               setIsDirty={setIsDirty}
-              loadNotifications={noopLoadNotifications}
+              loadNotifications={refreshNotifications}
             />
+          </Box>
+        )}
+
+        {/* Country Codes — lazy mount on first visit */}
+        {visitedTabs.has("billing") && (
+          <Box display={activeTab === "billing" ? "block" : "none"}>
+            <BillingSettingsTab />
           </Box>
         )}
 
         {/* Country Codes — lazy mount on first visit */}
         {visitedTabs.has("codes") && (
           <Box display={activeTab === "codes" ? "block" : "none"}>
-            <CountryCodesTab loadNotifications={noopLoadNotifications} />
+            <CountryCodesTab loadNotifications={refreshNotifications} />
           </Box>
         )}
 

@@ -12,11 +12,11 @@ initializeSentry();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
-  <Sentry.ErrorBoundary fallback={<h1>frontend me kuch galat hai</h1>}>
+  // <Sentry.ErrorBoundary fallback={<h1>frontend me kuch galat hai</h1>}>
     <ChakraProvider theme={theme} toastOptions={{ defaultOptions: { position: 'top-right' } }}>
       <AuthProvider>
         <App />
       </AuthProvider>
     </ChakraProvider>
-  </Sentry.ErrorBoundary>
+  // </Sentry.ErrorBoundary>
 );

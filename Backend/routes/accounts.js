@@ -322,6 +322,7 @@ const validateAccountPayload = (data) => {
     'email',
     'country',
     'lastbillingdate',
+    'billingClass',
   ];
 
   const missing = required.filter((field) => !String(data[field] ?? '').trim());
@@ -832,6 +833,10 @@ router.post('/', async (req, res) => {
 
     applyBillingTypeAdjustments(data);
 
+    if (!String(data.billingClass ?? '').trim()) {
+      return res.status(400).json({ error: 'billingClass is required' });
+    }
+
     let account = await Customer.create(data);
     // reload to include owner info
     account = await Customer.findByPk(account.id);
@@ -864,6 +869,12 @@ router.put('/:id', async (req, res) => {
     }
     if (Object.prototype.hasOwnProperty.call(updates, 'trunks')) {
       updates.trunks = normalizeTrunks(updates.trunks);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, 'billingClass')) {
+      if (!String(updates.billingClass ?? '').trim()) {
+        return res.status(400).json({ error: 'billingClass is required' });
+      }
     }
 
     // if billing type is changing, clear/seed appropriate fields

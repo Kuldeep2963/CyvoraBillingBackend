@@ -870,110 +870,7 @@ export const recordPayment = async (paymentData) => {
   }
 };
 
-export const raiseDispute = async (disputeData) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/billing/dispute/raise`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders()
-      },
-      body: JSON.stringify(disputeData),
-    });
-    const data = await handleResponse(response);
-    requestNotificationsRefresh();
-    return data;
-  } catch (error) {
-    console.error('Error raising dispute:', error);
-    throw error;
-  }
-};
-
-export const getAllDisputes = async (params = {}) => {
-  try {
-    const sanitizedParams = Object.fromEntries(
-      Object.entries(params).filter(([, value]) => {
-        if (value === undefined || value === null) return false;
-        const normalized = String(value).trim().toLowerCase();
-        return normalized !== '' && normalized !== 'undefined' && normalized !== 'null';
-      })
-    );
-
-    const vendorParams = {
-      ...sanitizedParams,
-      status: 'disputed',
-    };
-
-    const query = new URLSearchParams(vendorParams).toString();
-    const url = query
-      ? `${API_BASE_URL}/vendor-invoices?${query}`
-      : `${API_BASE_URL}/vendor-invoices?status=disputed`;
-
-    const response = await fetch(url, {
-      headers: getAuthHeaders()
-    });
-    const result = await handleResponse(response);
-
-    if (!result?.success) {
-      return result;
-    }
-
-    const mappedDisputes = (result.data || []).map((invoice) => ({
-      id: `vendor-${invoice.id}`,
-      invoiceNumber: invoice.invoiceNumber,
-      customerCode: invoice.vendorCode,
-      customerName: invoice.vendor?.accountName || invoice.vendorCode,
-      disputeAmount: Number(invoice.disputeDetails?.disputedAmount || invoice.grandTotal || 0),
-      disputePercentage: Number(invoice.disputeDetails?.disputedPercentage || 0),
-      actualAmount: Number(invoice.disputeDetails?.actualAmount || 0),
-      status: invoice.status || 'open',
-      invoiceIds: [invoice.id],
-      comments: [],
-      source: 'vendor_invoice',
-      createdAt: invoice.createdAt,
-      updatedAt: invoice.updatedAt,
-    }));
-
-    return {
-      ...result,
-      data: mappedDisputes,
-      pagination: result.pagination,
-    };
-  } catch (error) {
-    console.error('Error fetching disputes:', error);
-    throw error;
-  }
-};
-
-export const deleteDispute = async (id) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/billing/disputes/${id}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
-    return await handleResponse(response);
-  } catch (error) {
-    console.error(`Error deleting dispute ${id}:`, error);
-    throw error;
-  }
-};
-
-export const updateDisputeStatus = async (id, statusData) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/billing/disputes/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders()
-      },
-      body: JSON.stringify(statusData),
-    });
-    return await handleResponse(response);
-  } catch (error) {
-    console.error(`Error updating dispute ${id}:`, error);
-    throw error;
-  }
-};
+// Dispute-specific API helpers removed; disputes are represented by vendor-invoices (status/disputeDetails)
 
 export const fetchPayments = async (params = {}) => {
   try {
@@ -1318,9 +1215,118 @@ export const getGlobalSettings = async () => {
     const response = await fetch(`${API_BASE_URL}/settings`, {
       headers: getAuthHeaders()
     });
-    return await handleResponse(response);
+    const data = await handleResponse(response);
+    // Backwards-compatible: server may return { settings, sections }
+    if (data && typeof data === 'object' && (data.settings || data.sections)) {
+      return data.settings || {};
+    }
+    return data;
   } catch (error) {
     console.error('Error fetching global settings:', error);
+    throw error;
+  }
+};
+
+export const fetchBillingClassProfiles = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings/billing-classes`, {
+      headers: getAuthHeaders(),
+    });
+    const data = await handleResponse(response);
+    if (Array.isArray(data?.billingClasses)) {
+      return data.billingClasses;
+    }
+    return [];
+  } catch (error) {
+    console.error('Error fetching billing class profiles:', error);
+    throw error;
+  }
+};
+
+export const updateBillingClassProfile = async (tag, profile) => {
+  try {
+    const normalizedTag = String(tag || '').trim().toLowerCase();
+    if (!normalizedTag) {
+      throw new Error('Billing class tag is required');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/settings/billing-classes/${encodeURIComponent(normalizedTag)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify(profile || {}),
+    });
+
+    const data = await handleResponse(response);
+    return data?.billingClass || data;
+  } catch (error) {
+    console.error('Error updating billing class profile:', error);
+    throw error;
+  }
+};
+
+export const deleteBillingClassProfile = async (tag, reassignTo = '') => {
+  try {
+    const normalizedTag = String(tag || '').trim().toLowerCase();
+    if (!normalizedTag) {
+      throw new Error('Billing class tag is required');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/settings/billing-classes/${encodeURIComponent(normalizedTag)}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        reassignTo: String(reassignTo || '').trim().toLowerCase(),
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(extractApiErrorMessage(payload, `HTTP error! status: ${response.status}`));
+      error.status = response.status;
+      error.payload = payload;
+      throw error;
+    }
+
+    return payload;
+  } catch (error) {
+    console.error('Error deleting billing class profile:', error);
+    throw error;
+  }
+};
+
+export const getSettingsSections = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings`, {
+      headers: getAuthHeaders(),
+    });
+    const data = await handleResponse(response);
+    if (data && typeof data === 'object') return data.sections || null;
+    return null;
+  } catch (error) {
+    console.error('Error fetching settings sections:', error);
+    throw error;
+  }
+};
+
+export const updateSettingsSections = async (sections) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/settings`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify(sections),
+    });
+    return await handleResponse(response);
+  } catch (error) {
+    console.error('Error updating settings sections:', error);
     throw error;
   }
 };

@@ -11,6 +11,18 @@
     </style>
 </head>
 <body>
+    <%
+        const formatDate = (timestamp) => {
+            if (!timestamp) return '-';
+
+            const d = new Date(parseInt(timestamp));
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+
+            return `${day}/${month}/${year}`;
+        };
+    %>
     <div class="container">
         <div class="header">
             <h1>Dispute Status Updated</h1>
@@ -25,7 +37,7 @@
                 <p><strong>Dispute Amount:</strong> <%= customer.currency %> <%= dispute.disputeAmount %></p>
                 <p><strong>Previous Status:</strong> <%= dispute.status %></p>
                 <p><strong>New Status:</strong> <%= status %></p>
-                <p><strong>Resolved At:</strong> <%= dispute.resolvedAt ? new Date(dispute.resolvedAt).toLocaleString() : 'N/A' %></p>
+                <p><strong>Resolved At:</strong> <%= dispute.resolvedAt ? formatDate(dispute.resolvedAt) : 'N/A' %></p>
             </div>
             <div>
                 <p><strong>Best regards,</strong></p>

@@ -63,6 +63,18 @@
     </style>
 </head>
 <body>
+    <%
+        const formatDate = (timestamp) => {
+            if (!timestamp) return '-';
+
+            const d = new Date(parseInt(timestamp));
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+
+            return `${day}/${month}/${year}`;
+        };
+    %>
     <div class="container">
         <div class="header">
             Payment Received
@@ -76,7 +88,7 @@
             <div class="details">
                 <p><strong>Payment Number:</strong> <%= payment.paymentNumber %></p>
                 <p><strong>Amount Paid:</strong> <%= payment.amount %> <%= payment.currency || 'USD' %></p>
-                <p><strong>Date:</strong> <%= new Date(parseInt(payment.paymentDate)).toLocaleDateString() %></p>
+                <p><strong>Date:</strong> <%= formatDate(payment.paymentDate) %></p>
                 <p><strong>Payment Method:</strong> <%= payment.paymentMethod %></p>
             </div>
 

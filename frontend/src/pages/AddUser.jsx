@@ -40,7 +40,7 @@ import useNotify from "../utils/notify";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import { useState, useEffect, useCallback } from "react";
 import { createUser, fetchUsers, deleteUser, updateUser } from "../utils/api";
-import ConfirmDialog from "../components/ConfirmDialog";
+import ConfirmDialog from "../components/modals/ConfirmDialog";
 import PageNavBar from "../components/PageNavBar";
 import { FiEdit,FiTrash2, FiMail } from "react-icons/fi";
 import { FiRotateCcw, FiUser, FiPlus, FiSearch, FiRefreshCw, FiMoreVertical, FiUsers, FiAlertTriangle } from "react-icons/fi";

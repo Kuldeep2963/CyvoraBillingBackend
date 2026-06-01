@@ -41,9 +41,9 @@ import {
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
 import useNotify from "../utils/notify";
-import ConfirmDialog from "../components/ConfirmDialog";
+import ConfirmDialog from "../components/modals/ConfirmDialog";
 import CreateAccountModal from "../components/modals/Accounts/CreateAccountModal";
-import TopupModal from "../components/modals/TopupModal";
+import TopupModal from "../components/modals/Accounts/TopupModal";
 import BulkAccountUploadModal from "../components/modals/Accounts/BulkAccountUploadModal";
 import {
   fetchCustomers,
@@ -140,7 +140,7 @@ const Accounts = () => {
     countryCode: "US",
 
     // Billing
-    billingClass: "paiusa",
+    billingClass: "",
     billingType: "prepaid",
     billingTimezone: "UTC",
     billingStartDate: new Date().toISOString().split("T")[0],

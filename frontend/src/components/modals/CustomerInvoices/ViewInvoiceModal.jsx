@@ -37,7 +37,7 @@ import {
   Spinner,
   Center,
 } from "@chakra-ui/react";
-import { MemoizedInput as Input } from "../memoizedinput/memoizedinput";
+import { MemoizedInput as Input } from "../../memoizedinput/memoizedinput";
 import {
   FiDownload,
   FiMail,
@@ -46,7 +46,7 @@ import {
   FiSearch,
   FiX,
 } from "react-icons/fi";
-import { fetchInvoiceItems } from "../../utils/api";
+import { fetchInvoiceItems } from "../../../utils/api";
 
 const formatUtcDate = (value, options) => {
   if (!value) return "N/A";

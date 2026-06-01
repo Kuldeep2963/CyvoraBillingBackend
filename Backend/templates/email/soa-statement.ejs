@@ -73,6 +73,18 @@
     </style>
 </head>
 <body>
+    <%
+        const formatDate = (timestamp) => {
+            if (!timestamp) return '-';
+
+            const d = new Date(parseInt(timestamp));
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+
+            return `${day}/${month}/${year}`;
+        };
+    %>
     <div class="container">
         <div class="header">
             Statement of Account
@@ -91,7 +103,7 @@
                 <tbody>
                 <% soaData.customerInvoices.forEach(inv => { %>
                     <tr>
-                        <td><%= new Date(parseInt(inv.invoiceDate)).toLocaleDateString() %></td>
+                        <td><%= formatDate(inv.invoiceDate) %></td>
                         <td><%= inv.invoiceNumber %></td>
                         <td><%= inv.totalAmount %> <%= inv.currency || 'USD' %></td>
                     </tr>
@@ -111,7 +123,7 @@
                 <tbody>
                 <% soaData.customerPayments.forEach(pay => { %>
                     <tr>
-                        <td><%= new Date(parseInt(pay.paymentDate)).toLocaleDateString() %></td>
+                        <td><%= formatDate(pay.paymentDate) %></td>
                         <td><%= pay.paymentNumber %></td>
                         <td><%= pay.amount %> <%= pay.currency || 'USD' %></td>
                     </tr>
@@ -131,7 +143,7 @@
                 <tbody>
                 <% soaData.vendorInvoices.forEach(inv => { %>
                     <tr>
-                        <td><%= new Date(parseInt(inv.invoiceDate)).toLocaleDateString() %></td>
+                        <td><%= formatDate(inv.invoiceDate) %></td>
                         <td><%= inv.invoiceNumber %></td>
                         <td><%= inv.totalAmount %> <%= inv.currency || 'USD' %></td>
                     </tr>
@@ -151,7 +163,7 @@
                 <tbody>
                 <% soaData.vendorPayments.forEach(pay => { %>
                     <tr>
-                        <td><%= new Date(parseInt(pay.paymentDate)).toLocaleDateString() %></td>
+                        <td><%= formatDate(pay.paymentDate) %></td>
                         <td><%= pay.paymentNumber %></td>
                         <td><%= pay.amount %> <%= pay.currency || 'USD' %></td>
                     </tr>

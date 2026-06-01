@@ -62,10 +62,10 @@ import {
   FiMoreVertical,
   FiSettings,
 } from "react-icons/fi";
-import ViewInvoiceModal from "../components/modals/ViewInvoiceModal";
-import GenerateInvoiceModal from "../components/modals/GenerateInvoiceModal";
-import RecordPaymentModal from "../components/modals/RecordPaymentModal";
-import ConfirmDialog from "../components/ConfirmDialog";
+import ViewInvoiceModal from "../components/modals/CustomerInvoices/ViewInvoiceModal";
+import GenerateInvoiceModal from "../components/modals/CustomerInvoices/GenerateInvoiceModal";
+import RecordPaymentModal from "../components/modals/Payments/RecordPaymentModal";
+import ConfirmDialog from "../components/modals/ConfirmDialog";
 import {
   fetchInvoices,
   searchInvoicesByAccountName,

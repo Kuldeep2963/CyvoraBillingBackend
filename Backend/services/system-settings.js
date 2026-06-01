@@ -1,6 +1,9 @@
+const { Op } = require('sequelize');
 const SystemSetting = require('../models/SystemSetting');
 
 const SETTINGS_KEY = 'global';
+
+const BILLING_CLASS_RESERVED_KEYS = new Set([SETTINGS_KEY]);
 
 const DEFAULT_SETTINGS = {
   systemName: 'CDR Billing System',
@@ -71,6 +74,152 @@ const normalizeIncomingSettings = (raw = {}) => {
   }, {});
 };
 
+const normalizeBillingClassTag = (tag) => String(tag || '').trim().toLowerCase();
+
+const normalizeAddressLines = (value, fallback = []) => {
+  if (Array.isArray(value)) {
+    const lines = value
+      .map((line) => String(line || '').trim())
+      .filter(Boolean);
+    return lines.length ? lines : fallback;
+  }
+
+  if (typeof value === 'string') {
+    const lines = value
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return lines.length ? lines : fallback;
+  }
+
+  return fallback;
+};
+
+const normalizeBillingClassProfile = (tag, rawProfile = {}) => {
+  const normalizedTag = normalizeBillingClassTag(tag);
+  const base = {
+    tag: normalizedTag,
+    displayName: normalizedTag,
+    companyName: '',
+    addressLines: [],
+    email: '',
+    phone: '',
+    paymentInfo: {
+      beneficiaryName: '',
+      bankName: '',
+      swiftCode: '',
+      accountNo: '',
+      iban: '',
+      bankAddress: '',
+      accountCurrency: '',
+    },
+    footerText: '',
+  };
+
+  const source = rawProfile && typeof rawProfile === 'object' ? rawProfile : {};
+  const paymentInfoSource = source.paymentInfo && typeof source.paymentInfo === 'object'
+    ? source.paymentInfo
+    : {};
+
+  return {
+    ...base,
+    ...source,
+    tag: normalizedTag || base.tag,
+    displayName: String(source.displayName || base.displayName || '').trim() || normalizedTag,
+    companyName: String(source.companyName || base.companyName || '').trim(),
+    addressLines: normalizeAddressLines(source.addressLines, base.addressLines),
+    email: String(source.email || base.email || '').trim(),
+    phone: String(source.phone || base.phone || '').trim(),
+    paymentInfo: {
+      ...base.paymentInfo,
+      ...paymentInfoSource,
+      beneficiaryName: String(paymentInfoSource.beneficiaryName || base.paymentInfo.beneficiaryName || '').trim(),
+      bankName: String(paymentInfoSource.bankName || base.paymentInfo.bankName || '').trim(),
+      swiftCode: String(paymentInfoSource.swiftCode || base.paymentInfo.swiftCode || '').trim(),
+      accountNo: String(paymentInfoSource.accountNo || base.paymentInfo.accountNo || '').trim(),
+      iban: String(paymentInfoSource.iban || base.paymentInfo.iban || '').trim(),
+      bankAddress: String(paymentInfoSource.bankAddress || base.paymentInfo.bankAddress || '').trim(),
+      accountCurrency: String(paymentInfoSource.accountCurrency || base.paymentInfo.accountCurrency || '').trim(),
+    },
+    footerText: String(source.footerText || base.footerText || '').trim(),
+  };
+};
+
+const isBillingClassProfileValue = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+
+  const hasCompanyFields = [
+    'companyName',
+    'displayName',
+    'addressLines',
+    'paymentInfo',
+    'footerText',
+  ].some((key) => Object.prototype.hasOwnProperty.call(value, key));
+
+  const looksLikeCheckpoint = Object.prototype.hasOwnProperty.call(value, 'flowno')
+    && Object.keys(value).length <= 2;
+
+  return hasCompanyFields && !looksLikeCheckpoint;
+};
+
+async function getBillingClassProfiles() {
+  const rows = await SystemSetting.findAll({
+    where: {
+      key: {
+        [Op.notIn]: Array.from(BILLING_CLASS_RESERVED_KEYS),
+      },
+    },
+    raw: true,
+  });
+
+  return rows
+    .filter((row) => isBillingClassProfileValue(row.value))
+    .map((row) => normalizeBillingClassProfile(row.key, row.value))
+    .sort((a, b) => a.tag.localeCompare(b.tag));
+}
+
+async function getBillingClassProfile(tag) {
+  const normalizedTag = normalizeBillingClassTag(tag);
+  if (!normalizedTag || BILLING_CLASS_RESERVED_KEYS.has(normalizedTag)) {
+    return null;
+  }
+
+  const row = await SystemSetting.findOne({
+    where: { key: normalizedTag },
+    raw: true,
+  });
+
+  if (!row || !isBillingClassProfileValue(row.value)) {
+    return null;
+  }
+
+  return normalizeBillingClassProfile(normalizedTag, row.value || {});
+}
+
+async function upsertBillingClassProfile(tag, nextProfile = {}, updatedBy) {
+  const normalizedTag = normalizeBillingClassTag(tag);
+  if (!normalizedTag) {
+    throw new Error('Billing class tag is required');
+  }
+  if (BILLING_CLASS_RESERVED_KEYS.has(normalizedTag)) {
+    throw new Error(`Unsupported billing class tag: ${tag}`);
+  }
+
+  const current = (await getBillingClassProfile(normalizedTag)) || normalizeBillingClassProfile(normalizedTag, {});
+  const merged = normalizeBillingClassProfile(normalizedTag, {
+    ...current,
+    ...(nextProfile && typeof nextProfile === 'object' ? nextProfile : {}),
+  });
+
+  await SystemSetting.upsert({
+    key: normalizedTag,
+    value: merged,
+    updatedBy: updatedBy || null,
+  });
+
+  return merged;
+}
+
 async function getGlobalSettings() {
   const row = await SystemSetting.findByPk(SETTINGS_KEY);
   if (!row) {
@@ -138,4 +287,7 @@ module.exports = {
   DEFAULT_SETTINGS,
   getGlobalSettings,
   updateGlobalSettings,
+  getBillingClassProfiles,
+  getBillingClassProfile,
+  upsertBillingClassProfile,
 };

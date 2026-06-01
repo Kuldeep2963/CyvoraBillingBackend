@@ -79,7 +79,7 @@ import {
   FiChevronDown,
 } from 'react-icons/fi';
 import PageNavBar from '../components/PageNavBar';
-import ConfirmDialog from '../components/ConfirmDialog';
+import ConfirmDialog from '../components/modals/ConfirmDialog';
 import { MemoizedSelect as Select } from '../components/memoizedinput/memoizedinput';
 import useNotify from '../utils/notify';
 import {

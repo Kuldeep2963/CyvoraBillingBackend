@@ -24,7 +24,7 @@ import {
 } from "@chakra-ui/react";
 import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import ConfirmDialog from "./ConfirmDialog";
+import ConfirmDialog from "./modals/ConfirmDialog";
 import ChangePasswordModal from "./modals/ChangePasswordModal";
 import {
   FiHome,
@@ -48,11 +48,10 @@ import {
   FiCheckCircle,
 } from "react-icons/fi";
 import {
-  fetchNotifications,
-  getGlobalSettings,
   markAllNotificationsRead,
   markNotificationRead,
 } from "../utils/api";
+import { NotificationsProvider, useNotifications } from "../context/NotificationsContext";
 import { formatNotificationTime } from "../utils/notificationTime";
 
 const SidebarContent = () => {
@@ -70,76 +69,19 @@ const SidebarContent = () => {
     onClose: onChangePasswordClose,
   } = useDisclosure();
   const [openDropdown, setOpenDropdown] = useState(null);
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loadingNotifications, setLoadingNotifications] = useState(false);
-  const [notificationPollingSeconds, setNotificationPollingSeconds] =
-    useState(10);
+  const { notifications, unreadCount, loading: loadingNotifications, refresh } = useNotifications();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const userRole = user?.role?.trim().toLowerCase();
-  const pollingMs = useMemo(() => {
-    const seconds = Number(notificationPollingSeconds);
-    return Math.max(5, Math.min(3600, seconds)) * 1000;
-  }, [notificationPollingSeconds]);
-
   const loadNotifications = useCallback(async () => {
-    setLoadingNotifications(true);
     try {
-      const data = await fetchNotifications({ limit: 10 });
-      setNotifications(data.notifications || []);
-      setUnreadCount(Number(data.unreadCount || 0));
-    } catch (error) {
-      console.error("Failed to load notifications", error);
-    } finally {
-      setLoadingNotifications(false);
+      await refresh();
+    } catch (e) {
+      console.error('Failed to refresh notifications', e);
     }
-  }, []);
+  }, [refresh]);
 
-  useEffect(() => {
-    getGlobalSettings()
-      .then((settings) => {
-        setNotificationPollingSeconds(
-          Number(settings.notificationPollingSeconds) || 10,
-        );
-      })
-      .catch(() => {
-        setNotificationPollingSeconds(10);
-      });
-    loadNotifications();
-  }, [loadNotifications]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      loadNotifications();
-    }, pollingMs);
-    return () => clearInterval(timer);
-  }, [pollingMs, loadNotifications]);
-
-  useEffect(() => {
-    const onSettingsUpdated = (event) => {
-      const nextPoll = Number(event?.detail?.notificationPollingSeconds) || 10;
-      setNotificationPollingSeconds(nextPoll);
-    };
-
-    const onNotificationsRefreshRequested = () => {
-      loadNotifications();
-    };
-
-    window.addEventListener("settings-updated", onSettingsUpdated);
-    window.addEventListener(
-      "notifications-refresh-requested",
-      onNotificationsRefreshRequested,
-    );
-
-    return () => {
-      window.removeEventListener("settings-updated", onSettingsUpdated);
-      window.removeEventListener(
-        "notifications-refresh-requested",
-        onNotificationsRefreshRequested,
-      );
-    };
-  }, [loadNotifications]);
+  // Layout returns wrapped in NotificationsProvider at the top-level below
 
   const navItems = [
     {
@@ -213,6 +155,7 @@ const SidebarContent = () => {
       icon: FiAlertTriangle,
       roles: ["admin", "sales-manager", "noc-dept", "view only"],
     },
+    // Disputes route removed: disputes are derived from vendor invoices (status/disputeDetails)
     {
       path: "/reports",
       label: "Reports",
@@ -712,14 +655,16 @@ const SidebarContent = () => {
 
 const Layout = ({ children }) => {
   return (
-    <Box minH="100%" bg="white" maxW="100%" overflowX="clip">
-      <SidebarContent />
+    <NotificationsProvider>
+      <Box minH="100%" bg="white" maxW="100%" overflowX="clip">
+        <SidebarContent />
 
-      {/* Main Content */}
-      <Box ml="250px" p={4} pt={2} maxW="100%" minW={0} overflowX="clip">
-        {children}
+        {/* Main Content */}
+        <Box ml="250px" p={4} pt={2} maxW="100%" minW={0} overflowX="clip">
+          {children}
+        </Box>
       </Box>
-    </Box>
+    </NotificationsProvider>
   );
 };
 

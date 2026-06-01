@@ -21,8 +21,8 @@ import {
   FiX,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
-import RecordPaymentModal from "../components/modals/RecordPaymentModal";
-import ViewPaymentModal from "../components/modals/ViewPaymentModal";
+import RecordPaymentModal from "../components/modals/Payments/RecordPaymentModal";
+import ViewPaymentModal from "../components/modals/Payments/ViewPaymentModal";
 import {
   fetchPayments,
   fetchReportAccounts,

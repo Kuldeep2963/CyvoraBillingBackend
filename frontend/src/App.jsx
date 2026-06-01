@@ -97,7 +97,7 @@ function App() {
               </ProtectedRoute>
             } />
 
-            {/* admin, sales-manager, noc-dept, view only */}
+             {/* admin, sales-manager, noc-dept, view only */}
             <Route path="/disputes" element={
               <ProtectedRoute allowedRoles={["admin", "sales-manager", "noc-dept", "view only"]}>
                 <Disputes />

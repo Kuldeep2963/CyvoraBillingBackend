@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color:#222; background:#fff; margin:0; padding:20px; }
+    .container { max-width:600px; margin:0 auto; }
+    .header { font-size:18px; font-weight:700; margin-bottom:12px; }
+    .muted { color:#666; font-size:13px; }
+    .box { border:1px solid #eee; padding:14px; border-radius:6px; background:#fafafa; }
+    .kv { margin:6px 0; }
+    .kv strong { display:inline-block; width:120px; }
+    .footer { margin-top:18px; font-size:12px; color:#888; }
+    .logo { margin-top:12px; }
+  </style>
+</head>
+<body>
+  <%
+    const formatDate = (timestamp) => {
+      if (!timestamp) return '-';
+      const d = new Date(parseInt(timestamp));
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+  %>
+  <div class="container">
+    <div class="header">SMTP Connectivity — Test Message</div>
+
+    <div class="box">
+      <p>Hi,</p>
+      <p>This is a lightweight test email confirming SMTP connectivity and template rendering.</p>
+
+      <div class="kv"><strong>Message:</strong> <%= message || 'SMTP connected' %></div>
+      <div class="kv"><strong>Profile:</strong> <%= profile || 'management' %></div>
+      <div class="kv"><strong>Host:</strong> <%= host || '' %></div>
+      <div class="kv"><strong>Port:</strong> <%= port || '' %></div>
+      <div class="kv"><strong>SMTP User:</strong> <%= smtpUser || '' %></div>
+      <div class="kv"><strong>Timestamp:</strong> <%= formatDate(Date.now()) %></div>
+
+      <% if (details) { %>
+        <div style="margin-top:10px;">
+          <div class="section-title" style="font-weight:600; margin-bottom:6px;">Details</div>
+          <pre style="white-space:pre-wrap; font-size:12px; color:#444;"> <%= JSON.stringify(details, null, 2) %></pre>
+        </div>
+      <% } %>
+
+      <p class="muted" style="margin-top:10px">If you did not trigger this test, please ignore this message.</p>
+    </div>
+
+    <% if (logoSrc) { %>
+      <div class="logo">
+        <img src="<%= logoSrc %>" alt="logo" style="max-width:120px; height:auto; display:block;"/>
+      </div>
+    <% } %>
+
+    <div class="footer">This is an automated diagnostic email from the CDR Billing system.</div>
+  </div>
+</body>
+</html>

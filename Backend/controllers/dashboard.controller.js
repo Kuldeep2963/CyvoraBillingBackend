@@ -175,6 +175,7 @@ exports.getTopDestinations = async (req, res) => {
     const topDestinations = Object.values(groupedDestinations)
       .map(item => {
         const minutes = item.duration / 60;
+        const revenueBase = Math.abs(item.revenue);
         return {
           destination:      item.destination,
           trunk:            item.trunk,
@@ -184,8 +185,8 @@ exports.getTopDestinations = async (req, res) => {
           revenue:          parseFloat(item.revenue.toFixed(4)),
           cost:             parseFloat(item.cost.toFixed(4)),
           margin:           parseFloat((item.revenue - item.cost).toFixed(4)),
-          marginPercentage: item.revenue > 0
-            ? parseFloat((((item.revenue - item.cost) / item.revenue) * 100).toFixed(5))
+          marginPercentage: revenueBase > 0
+            ? parseFloat((((item.revenue - item.cost) / revenueBase) * 100).toFixed(2))
             : 0,
           ASR: item.totalCalls > 0
             ? parseFloat(((item.completedCalls / item.totalCalls) * 100).toFixed(4))

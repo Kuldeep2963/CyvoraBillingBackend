@@ -53,14 +53,7 @@ class EmailService {
     if (!Number.isFinite(port)) {
       throw new Error(`Email profile "${profileName}" has an invalid SMTP port.`);
     }
-    console.log({
-  host,
-  portValue,
-  user,
-  pass,
-  secure,
-  certificateCheck,
-});
+ 
 
     return {
       host,

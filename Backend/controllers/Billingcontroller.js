@@ -13,9 +13,9 @@ const PaymentAllocation = require("../models/PaymentAllocation");
 const CDR = require("../models/CDR");
 const Account = require("../models/Account");
 const CountryCode = require("../models/CountryCode");
-const Dispute = require("../models/Dispute");
 const BillingAutomationService = require("../services/BillingAutomationService");
 const EmailService = require("../services/EmailService");
+const { getBillingClassProfile, getGlobalSettings } = require("../services/system-settings");
 const { createNotification } = require("../services/notification-service");
 const {
   addDays,
@@ -1216,6 +1216,14 @@ const generateInvoicePDFBuffer = async (invoice) => {
   try {
     const invoiceData = invoice.toJSON();
 
+    const escapeHtml = (value) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
     const logoCandidates = [
       process.env.INVOICE_LOGO_PATH,
       path.resolve(process.cwd(), "frontend/public/Cyvora.png"),
@@ -1254,11 +1262,60 @@ const generateInvoicePDFBuffer = async (invoice) => {
       parseInt(invoiceData.billingPeriodEnd),
     ).utc().format("DD MMM YYYY");
 
+    const accountForInvoice = await resolveInvoiceAccount(invoice);
+    const billingClassTag = String(accountForInvoice?.billingClass || "")
+      .trim()
+      .toLowerCase();
+    if (!billingClassTag) {
+      throw new Error("Invoice account billing class is missing");
+    }
+    const billingProfile = await getBillingClassProfile(billingClassTag);
+    if (!billingProfile) {
+      throw new Error(`Billing class profile not configured for tag: ${billingClassTag}`);
+    }
+
+    const fromCompanyName = escapeHtml(
+      billingProfile.companyName || "Cyvora LLC",
+    );
+    const fromAddressHtml = (Array.isArray(billingProfile.addressLines)
+      ? billingProfile.addressLines
+      : [])
+      .filter(Boolean)
+      .map((line) => escapeHtml(line))
+      .join("<br>");
+    const fromEmail = escapeHtml(billingProfile.email || "");
+    const fromPhone = escapeHtml(billingProfile.phone || "");
+
+    const paymentInfo = billingProfile.paymentInfo || {};
+    const beneficiaryName = escapeHtml(paymentInfo.beneficiaryName || "");
+    const bankName = escapeHtml(paymentInfo.bankName || "");
+    const swiftCode = escapeHtml(paymentInfo.swiftCode || "");
+    const accountNo = escapeHtml(paymentInfo.accountNo || "");
+    const iban = escapeHtml(paymentInfo.iban || "");
+    const bankAddress = escapeHtml(paymentInfo.bankAddress || "");
+    const accountCurrency = escapeHtml(paymentInfo.accountCurrency || "USD");
+    // Footer text is hardcoded server-side. Inject the system billing email into the message.
+    const globalSettings = await getGlobalSettings();
+    const billingEmailRaw = String(globalSettings.billingSmtpEmail || globalSettings.notificationEmail || "").trim();
+    const billingEmail = escapeHtml(billingEmailRaw);
+    const footerText = billingEmail
+      ? `Thank you for your business. For billing enquiries, email ${billingEmail}.`
+      : "Thank you for your business.";
+
     const invoiceHtml = `
       <html>
         <head>
           <title>Invoice ${invoiceData.invoiceNumber}</title>
           <style>
+            @page {
+              size: A4;
+              margin: 15mm 15mm;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
             body { 
               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
               margin: 0; 
@@ -1266,38 +1323,52 @@ const generateInvoicePDFBuffer = async (invoice) => {
               color: #333;
               background-color: #fff;
             }
+
             .invoice-container {
-              padding: 40px;
+              padding: 30px;
               max-width: 800px;
               margin: 0 auto;
             }
+
+            /* ── Header ── */
             .invoice-header {
               display: flex;
               justify-content: space-between;
-              margin-bottom: 40px;
+              align-items: flex-start;
+              margin-bottom: 30px;
               border-bottom: 3px solid #1a365d;
               padding-bottom: 20px;
+              page-break-inside: avoid;
+              break-inside: avoid;
             }
+
             .company-logo {
               height: 65px;
               width: auto;
               display: block;
               object-fit: contain;
             }
+
             .invoice-title {
               font-size: 20px;
               font-weight: bold;
               color: #2d3748;
               text-align: right;
             }
+
+            /* ── Address Section ── */
             .address-section {
               display: flex;
               justify-content: space-between;
-              margin-bottom: 40px;
+              margin-bottom: 30px;
+              page-break-inside: avoid;
+              break-inside: avoid;
             }
+
             .address-box {
               width: 45%;
             }
+
             .address-label {
               font-weight: bold;
               color: #4a5568;
@@ -1307,10 +1378,13 @@ const generateInvoicePDFBuffer = async (invoice) => {
               border-bottom: 1px solid #e2e8f0;
               padding-bottom: 4px;
             }
+
             .address-content {
               font-size: 14px;
               line-height: 1.6;
             }
+
+            /* ── Details Grid ── */
             .details-grid {
               display: grid;
               grid-template-columns: repeat(4, 1fr);
@@ -1318,33 +1392,58 @@ const generateInvoicePDFBuffer = async (invoice) => {
               background-color: #f7fafc;
               padding: 20px;
               border-radius: 8px;
-              margin-bottom: 40px;
+              margin-bottom: 30px;
               border: 1px solid #e2e8f0;
+              page-break-inside: avoid;
+              break-inside: avoid;
             }
+
             .detail-item {
               display: flex;
               flex-direction: column;
             }
+
             .detail-label {
               font-size: 11px;
               color: #718096;
               text-transform: uppercase;
               font-weight: bold;
             }
+
             .detail-value {
               font-size: 14px;
               color: #2d3748;
               font-weight: 600;
             }
+
+            /* ── Table ── */
             .table-section {
-              margin-bottom: 40px;
+              margin-bottom: 30px;
+              /* Allow section itself to span pages */
+              page-break-inside: auto;
+              break-inside: auto;
             }
+
             .invoice-table {
               width: 100%;
               border-collapse: collapse;
               font-size: 12px;
               table-layout: fixed;
+              /* Allow table to flow across pages, but control row breaks */
+              page-break-inside: auto;
+              break-inside: auto;
             }
+
+            /* Repeat header row on every new page */
+            .invoice-table thead {
+              display: table-header-group;
+            }
+
+            /* Keep footer pinned to bottom of table */
+            .invoice-table tfoot {
+              display: table-footer-group;
+            }
+
             .invoice-table th {
               background-color: #1a365d;
               color: white;
@@ -1353,15 +1452,25 @@ const generateInvoicePDFBuffer = async (invoice) => {
               text-transform: uppercase;
               font-weight: 600;
             }
+
             .invoice-table td {
               padding: 10px 8px;
               border-bottom: 1px solid #e2e8f0;
               word-break: break-word;
             }
+
+            /* Never split a single row across pages */
+            .invoice-table tbody tr {
+              page-break-inside: avoid;
+              break-inside: avoid;
+            }
+
             .invoice-table tr:nth-child(even) {
               background-color: #f8fafc;
             }
+
             .text-right { text-align: right; }
+
             .invoice-table th:nth-child(4),
             .invoice-table th:nth-child(5),
             .invoice-table th:nth-child(6),
@@ -1372,20 +1481,29 @@ const generateInvoicePDFBuffer = async (invoice) => {
             .invoice-table td:nth-child(7) {
               text-align: right;
             }
+
+            /* ── Totals ── */
             .totals-section {
               display: flex;
               justify-content: flex-end;
-              margin-bottom: 40px;
+              margin-bottom: 30px;
+              page-break-inside: avoid;
+              break-inside: avoid;
             }
+
             .totals-box {
               width: 250px;
+              page-break-inside: avoid;
+              break-inside: avoid;
             }
+
             .total-row {
               display: flex;
               justify-content: space-between;
               padding: 8px 0;
               font-size: 14px;
             }
+
             .total-grand {
               border-top: 2px solid #1a365d;
               margin-top: 8px;
@@ -1394,51 +1512,88 @@ const generateInvoicePDFBuffer = async (invoice) => {
               font-size: 18px;
               color: #1a365d;
             }
+
+            /* ── Bank / Payment ── */
             .bank-section {
               background-color: #f8fafc;
               padding: 20px;
               border-radius: 8px;
               border-left: 4px solid #1a365d;
               font-size: 12px;
+              margin-bottom: 20px;
+              page-break-inside: avoid;
+              break-inside: avoid;
             }
+
             .bank-title {
               font-weight: bold;
               margin-bottom: 10px;
               color: #1a365d;
               text-transform: uppercase;
             }
+
+            /* ── Footer ── */
             .footer {
-              margin-top: 60px;
+              margin-top: 40px;
               text-align: center;
               font-size: 11px;
               color: #3c3c3d;
               border-top: 1px solid #e2e8f0;
               padding-top: 20px;
+              page-break-inside: avoid;
+              break-inside: avoid;
+            }
+
+            /* ── Print overrides ── */
+            @media print {
+              body {
+                margin: 0;
+                padding: 0;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+
+              .invoice-container {
+                padding: 0;
+                max-width: 100%;
+              }
+
+              /* Tighten spacing slightly for print */
+              .invoice-header,
+              .address-section,
+              .details-grid,
+              .table-section,
+              .totals-section,
+              .bank-section {
+                margin-bottom: 20px;
+              }
             }
           </style>
         </head>
         <body>
           <div class="invoice-container">
+
+            <!-- Header -->
             <div class="invoice-header">
               <div>
                 ${
                   logoSrc
                     ? `<img class="company-logo" src="${logoSrc}" alt="Cyvora Logo" />`
-                    : '<h2 style="color: #1a365d; margin: 0;">Cyvora</h2>'
+                    : `<h2 style="color: #1a365d; margin: 0;">${fromCompanyName}</h2>`
                 }
               </div>
               <div class="invoice-title">${invoiceData.invoiceNumber || "INVOICE"}</div>
             </div>
 
+            <!-- Addresses -->
             <div class="address-section">
               <div class="address-box">
                 <div class="address-label">From</div>
                 <div class="address-content">
-                  <strong>Cyvora LLC,</strong><br>
-1229 Mustaqillik Street, 
-Istiglol Neighborhood, Bekabad District, 
-Tashkent Region, Uzbekistan<br>
-                  Email: account.voice@cyvoratech.com
+                  <strong>${fromCompanyName}</strong><br>
+                  ${fromAddressHtml}
+                  ${fromEmail ? `<br>Email: ${fromEmail}` : ''}
+                  ${fromPhone ? `<br>Phone: ${fromPhone}` : ''}
                 </div>
               </div>
               <div class="address-box">
@@ -1452,6 +1607,7 @@ Tashkent Region, Uzbekistan<br>
               </div>
             </div>
 
+            <!-- Invoice Meta -->
             <div class="details-grid">
               <div class="detail-item">
                 <span class="detail-label">Invoice Number</span>
@@ -1471,6 +1627,7 @@ Tashkent Region, Uzbekistan<br>
               </div>
             </div>
 
+            <!-- Line Items Table -->
             <div class="table-section">
               <table class="invoice-table">
                 <colgroup>
@@ -1513,13 +1670,13 @@ Tashkent Region, Uzbekistan<br>
               </table>
             </div>
 
+            <!-- Totals -->
             <div class="totals-section">
               <div class="totals-box">
                 <div class="total-row">
                   <span>Subtotal</span>
                   <span>$${parseFloat(invoiceData.subtotal).toFixed(4)}</span>
                 </div>
-               
                 <div class="total-row total-grand">
                   <span>Total Amount</span>
                   <span>$${parseFloat(invoiceData.totalAmount).toFixed(4)}</span>
@@ -1527,26 +1684,27 @@ Tashkent Region, Uzbekistan<br>
               </div>
             </div>
 
+            <!-- Payment Info -->
             <div class="bank-section">
               <div class="bank-title">Payment Information</div>
-              <strong>Beneficiary Name:</strong> Cyvora LLC<br>
-              <strong>Bank Name:</strong> KAPITAL BANK<br>
-              <strong>SWIFT Code:</strong> KACHUZ22<br>
-              <strong>Account No:</strong> 20208840207358100001<br>
-              <strong>IBAN:</strong> 01158<br>
-              <strong>Bank Address:</strong> Sailgokh Street 7, 100047, Tashkent, Uzbekistan<br>
-              <strong>Account Currency:</strong> USD
+              <strong>Beneficiary Name:</strong> ${beneficiaryName}<br>
+              <strong>Bank Name:</strong> ${bankName}<br>
+              <strong>SWIFT Code:</strong> ${swiftCode}<br>
+              <strong>Account No:</strong> ${accountNo}<br>
+              <strong>IBAN:</strong> ${iban}<br>
+              <strong>Bank Address:</strong> ${bankAddress}<br>
+              <strong>Account Currency:</strong> ${accountCurrency}
             </div>
 
+            <!-- Footer -->
             <div class="footer">
-              Thank you for your business. Please contact accounts.voice@cyvoratech.com for any billing inquiries.<br>
-              
+              ${footerText}
             </div>
+
           </div>
         </body>
       </html>
     `;
-
     const envChromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH;
     let puppeteerDefaultPath = null;
     try {
@@ -2671,331 +2829,8 @@ exports.runBillingAutomation = async (req, res) => {
   }
 };
 
-/* ===================== RAISE DISPUTE ===================== */
-exports.raiseDispute = async (req, res) => {
-  try {
-    const {
-      customerId,
-      comment,
-      mismatchedCount,
-      invoiceNumber,
-      disputeAmount,
-      invoiceIds,
-    } = req.body;
-
-    // Validate required fields
-    if (!customerId || !customerId.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: "Customer ID is required",
-      });
-    }
-
-    if (!comment || !comment.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: "Dispute comment is required",
-      });
-    }
-
-    if (!invoiceNumber || !invoiceNumber.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: "Invoice number(s) are required",
-      });
-    }
-
-    if (mismatchedCount <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Mismatch count must be greater than 0",
-      });
-    }
-
-    const isNumeric = /^\d+$/.test(customerId);
-    const customer = await Account.findOne({
-      where: {
-        [Op.or]: [
-          { customerCode: customerId },
-          { gatewayId: customerId },
-          ...(isNumeric ? [{ accountId: parseInt(customerId) }] : []),
-        ],
-      },
-    });
-
-    if (!customer) {
-      return res.status(404).json({
-        success: false,
-        error: "Customer not found",
-      });
-    }
-
-    // Save dispute to database
-    const dispute = await Dispute.create({
-      customerCode: customer.customerCode,
-      customerName: customer.accountName,
-      comment: comment.trim(),
-      mismatchedCount: parseInt(mismatchedCount) || 0,
-      invoiceNumber: invoiceNumber.trim(),
-      disputeAmount: parseFloat(disputeAmount) || 0,
-      invoiceIds: Array.isArray(invoiceIds) ? invoiceIds : [],
-      status: "open",
-    });
-
-    // Send email notification
-    await EmailService.sendDisputeRaisedNotification(
-      {
-        comment,
-        mismatchedCount,
-        invoiceNumber,
-        disputeAmount,
-        customerName: customer.accountName,
-      },
-      customer,
-    );
-
-    createNotification({
-      title: "Dispute raised",
-      message: `${customer.accountName} raised a dispute on invoice(s): ${invoiceNumber.trim()}.`,
-      type: "warning",
-      category: "dispute",
-      metadata: {
-        disputeId: dispute.id,
-        settingGate: "notifyDisputes",
-      },
-    }).catch((err) => {
-      console.error("Failed to create dispute notification:", err);
-    });
-
-    res.json({
-      success: true,
-      message: "Dispute raised and notification sent successfully",
-      data: {
-        disputeId: dispute.id,
-        status: dispute.status,
-      },
-    });
-  } catch (error) {
-    console.error("Raise Dispute Error:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message || "Failed to raise dispute",
-    });
-  }
-};
-
-/* ===================== GET ALL DISPUTES ===================== */
-exports.getAllDisputes = async (req, res) => {
-  try {
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 10));
-    const offset = (page - 1) * limit;
-    const search = String(req.query.search || "").trim();
-    const rawStatus = req.query.status;
-    const normalizedStatus =
-      rawStatus === undefined || rawStatus === null
-        ? ""
-        : String(rawStatus).trim().toLowerCase();
-    const validStatuses = ["open", "in_review", "resolved", "closed"];
-    const status = validStatuses.includes(normalizedStatus)
-      ? normalizedStatus
-      : "";
-
-    const where = {};
-
-    if (status) {
-      where.status = status;
-    }
-
-    if (search) {
-      where[Op.or] = [
-        { customerName: { [Op.iLike]: `%${search}%` } },
-        { customerCode: { [Op.iLike]: `%${search}%` } },
-        { invoiceNumber: { [Op.iLike]: `%${search}%` } },
-      ];
-    }
-
-    console.log("GET All Disputes - querying database...");
-    const { rows, count } = await Dispute.findAndCountAll({
-      where,
-      order: [["createdAt", "DESC"]],
-      limit,
-      offset,
-    });
-    console.log(
-      `GET All Disputes - found ${rows.length} disputes on page ${page}`,
-    );
-    res.json({
-      success: true,
-      data: rows,
-      pagination: {
-        total: count,
-        page,
-        limit,
-        totalPages: Math.ceil(count / limit),
-      },
-    });
-  } catch (error) {
-    console.error("Get All Disputes Error:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-};
-
-/* ===================== DELETE DISPUTE ===================== */
-exports.updateDispute = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { comment } = req.body;
-    const rawStatus = req.body?.status;
-    const normalizedStatus =
-      rawStatus === undefined || rawStatus === null
-        ? ""
-        : String(rawStatus).trim().toLowerCase();
-
-    const valid = ["open", "in_review", "resolved", "closed"];
-    const status = valid.includes(normalizedStatus) ? normalizedStatus : "";
-    const statusProvided =
-      normalizedStatus !== "" &&
-      normalizedStatus !== "undefined" &&
-      normalizedStatus !== "null";
-
-    // Check if there's at least a status change or a comment
-    if (!statusProvided && !comment) {
-      return res.status(400).json({
-        success: false,
-        error: "Provide either a status change or a comment",
-      });
-    }
-
-    // If status is provided, validate it
-    if (statusProvided && !status) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid status value",
-      });
-    }
-
-    const dispute = await Dispute.findByPk(id);
-    if (!dispute) {
-      return res.status(404).json({
-        success: false,
-        error: "Dispute not found",
-      });
-    }
-
-    // if transitioning to a final state, record resolution info
-    if (
-      status &&
-      ["resolved", "closed"].includes(status) &&
-      dispute.status !== status
-    ) {
-      dispute.resolvedAt = Date.now();
-      if (req.user && req.user.id) {
-        dispute.resolvedBy = req.user.id;
-      }
-    }
-
-    // Handle comments
-    if (comment && comment.trim()) {
-      const existingComments = dispute.comments || [];
-      // Ensure we have an array (in case it's stored as JSON string)
-      const comments = Array.isArray(existingComments) ? existingComments : [];
-      const firstName = req.user?.firstName || "";
-      const lastName = req.user?.lastName || "";
-      const userName =
-        `${firstName} ${lastName}`.trim() || req.user?.email || "Unknown User";
-      const newComment = {
-        text: comment.trim(),
-        timestamp: Date.now(),
-        userId: req.user?.id || null,
-        userName: userName,
-      };
-      // Create a new array to ensure Sequelize detects the change
-      const updatedComments = [...comments, newComment];
-      dispute.comments = updatedComments;
-      // Explicitly mark the field as changed for Sequelize
-      dispute.changed("comments", true);
-    }
-
-    // Update status only if provided
-    if (status) {
-      dispute.status = status;
-    }
-
-    await dispute.save();
-
-    // optional: notify customer/admin of status change
-    if (status && ["resolved", "closed", "in_review"].includes(status)) {
-      try {
-        const customer = await Account.findOne({
-          where: {
-            [Op.or]: [
-              { customerCode: dispute.customerCode },
-              { accountName: dispute.customerName },
-            ],
-          },
-        });
-
-        if (customer) {
-          await EmailService.sendDisputeStatusUpdateNotification(
-            dispute,
-            status,
-            customer,
-          );
-        } else {
-          console.warn(
-            "No customer account found for dispute status email:",
-            dispute.id,
-          );
-        }
-      } catch (e) {
-        console.error("Failed to send status update email", e);
-      }
-    }
-
-    res.json({
-      success: true,
-      data: dispute,
-    });
-  } catch (error) {
-    console.error("Update Dispute Error:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-};
-
-exports.deleteDispute = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const dispute = await Dispute.findByPk(id);
-
-    if (!dispute) {
-      return res.status(404).json({
-        success: false,
-        error: "Dispute not found",
-      });
-    }
-
-    await dispute.destroy();
-
-    res.json({
-      success: true,
-      message: "Dispute deleted successfully",
-    });
-  } catch (error) {
-    console.error("Delete Dispute Error:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-};
+/* Dispute functionality removed: disputes are now represented by vendor invoices (disputeDetails/status).
+   The Dispute model and related endpoints were deprecated and removed. */
 
 /* ===================== ACCOUNT TOPUP FOR PREPAID ===================== */
 exports.topupAccount = async (req, res) => {

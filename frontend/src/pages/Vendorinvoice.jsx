@@ -64,8 +64,8 @@ import {
 } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
 import DataTable from "../components/DataTable";
-import ConfirmDialog from "../components/ConfirmDialog";
-import RecordPaymentModal from "../components/modals/RecordPaymentModal";
+import ConfirmDialog from "../components/modals/ConfirmDialog";
+import RecordPaymentModal from "../components/modals/Payments/RecordPaymentModal";
 import { useNavigate } from "react-router-dom";
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
