@@ -692,7 +692,11 @@ const Dashboard = () => {
                             <Td isNumeric>{d.minutes}</Td>
                             <Td isNumeric>
                               <Badge
-                                px={2}
+                                borderRadius="full"
+        px="8px"
+        py="2px"
+        fontWeight="500"
+        fontSize="11px"
                                 colorScheme={d.ASR > 50 ? "green" : "orange"}
                               >
                                 {d.ASR}%

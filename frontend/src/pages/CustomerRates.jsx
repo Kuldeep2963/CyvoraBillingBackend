@@ -838,7 +838,7 @@ const CustomerRates = () => {
                     Active Rate Schedule
                   </Heading>
                   {rates.length > 0 && (
-                    <Badge colorScheme="teal" borderRadius="full" px={2}>
+                    <Badge colorScheme="blue" borderRadius="full" px={2}>
                       {rates.length} entries
                     </Badge>
                   )}
@@ -1153,15 +1153,16 @@ const CustomerRates = () => {
         <ModalOverlay backdropFilter="blur(4px)" />
         <ModalContent borderRadius="xl" overflow="hidden">
           <ModalHeader
-            bg={useColorModeValue('blue.50', 'blue.900')}
+            bg="blue.500"
             borderBottom="1px solid"
             borderColor={borderColor}
             fontSize="md"
             fontWeight="700"
+            color = "white"
           >
             Edit Rate
           </ModalHeader>
-          <ModalCloseButton />
+          <ModalCloseButton color="white" />
           <ModalBody py={5}>
             <VStack spacing={4} align="stretch">
               <FormControl>

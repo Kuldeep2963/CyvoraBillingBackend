@@ -91,8 +91,7 @@ const STATUS_CONFIG = {
   paid:      { color: "green",  icon: FiCheckCircle  },
   overdue:   { color: "red",    icon: FiAlertTriangle },
   sent:      { color: "orange", icon: FiSend         },
-  generated: { color: "blue",   icon: FiFileText     },
-  cancelled: { color: "gray",   icon: FiXCircle      },
+  pending:   { color: "gray",   icon: FiClock        },
 };
 
 const DEFAULT_PAGINATION = { total: 0, page: 1, limit: 25, totalPages: 1 };
@@ -202,19 +201,21 @@ const InvoiceStatusBadge = React.memo(({ status }) => {
   const Icon = getStatusIcon(status);
   return (
     <Badge
-      colorScheme={getStatusColor(status)}
-      display="inline-flex"
-      alignItems="center"
-      justifyContent="center"
-      gap={2}
-      px={3}
-      py={1}
-      borderRadius="full"
-      whiteSpace="nowrap"
-    >
-      <Icon />
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </Badge>
+  colorScheme={getStatusColor(status)}
+  display="inline-flex"
+  alignItems="center"
+  justifyContent="center"
+  gap={1}
+  borderRadius="full"
+  px="8px"
+  py="2px"
+  fontWeight="500"
+  fontSize="11px"
+  whiteSpace="nowrap"
+>
+  {Icon && <Icon size={12} />}
+  {status?.charAt(0).toUpperCase() + status?.slice(1)}
+</Badge>
   );
 });
 InvoiceStatusBadge.displayName = "InvoiceStatusBadge";
@@ -899,7 +900,7 @@ const Invoices = () => {
           const invoiceDateParsed = safeParseDateValue(row.invoiceDate);
           return (
             <VStack align="start" spacing={0}>
-              <Text fontWeight="bold" color="blue.600">
+              <Text fontWeight="500" color="blue.600">
                 {value}
               </Text>
               <HStack spacing={2}>
@@ -980,11 +981,15 @@ const Invoices = () => {
 
           return (
             <VStack align="start" spacing={1}>
-              <Text color={isOverdue ? "red.500" : "inherit"}>
+              <Text color={isOverdue ? "red.600" : "inherit"}>
                 {dueDateParsed ? format(dueDateParsed, "MMM dd, yyyy") : "—"}
               </Text>
               {isOverdue && daysOverdue > 0 && (
-                <Badge colorScheme="red" variant="subtle" size="sm">
+                <Badge colorScheme="red" borderRadius="full"
+        px="8px"
+        py="2px"
+        fontWeight="500"
+        fontSize="13px" textTransform="none">
                   {daysOverdue}d overdue
                 </Badge>
               )}
@@ -1145,7 +1150,14 @@ const Invoices = () => {
             <option value="overdue">Overdue</option>
           </Select>
           {selectedInvoiceIds.length > 0 && (
-            <Badge colorScheme="blue" variant="subtle" px={2} py={1} borderRadius="full">
+            <Badge  borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px"
+            colorScheme="orange"
+            textTransform="none"
+            >
               {selectedInvoiceIds.length} Invoices selected
             </Badge>
           )}

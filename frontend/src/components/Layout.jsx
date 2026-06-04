@@ -135,12 +135,12 @@ const SidebarContent = () => {
           icon: FiUsers,
           roles: ["admin", "sales-manager", "rates-dept", "view only"],
         },
-        {
-          path: "/vendor-rates",
-          label: "Vendor Rates",
-          icon: FiShoppingBag,
-          roles: ["admin", "sales-manager", "rates-dept", "view only"],
-        },
+        // {
+        //   path: "/vendor-rates",
+        //   label: "Vendor Rates",
+        //   icon: FiShoppingBag,
+        //   roles: ["admin", "sales-manager", "rates-dept", "view only"],
+        // },
       ],
     },
     {

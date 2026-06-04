@@ -180,7 +180,7 @@ const ViewPaymentModal = ({ isOpen, onClose, payment }) => {
         </ModalBody>
 
         <ModalFooter borderTopWidth="1px">
-          <Button leftIcon={<FiX />} colorScheme="blue" onClick={onClose}>Close</Button>
+          <Button leftIcon={<FiX />} colorScheme="gray" onClick={onClose}>Close</Button>
         </ModalFooter>
       </ModalContent>
     </Modal>

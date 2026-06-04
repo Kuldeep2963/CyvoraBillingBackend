@@ -26,6 +26,9 @@ router.get('/accounts', reportController.getReportAccounts);
 // Account exposure summary from CDRs (non-invoice based)
 router.post('/account-exposure', reportController.getAccountExposure);
 
+// account exposure of all accounts for a given date range
+router.get('/account-exposure/all', reportController.getAllAccountExposure);
+
 // Export report
 router.post('/export-report', reportController.exportReport);
 

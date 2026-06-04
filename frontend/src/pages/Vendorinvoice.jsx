@@ -239,12 +239,12 @@ const getVendorBillingDefaults = (vendor) => {
   if (vendorLastBillingDate) {
     // Always derive current period start from the cursor: day after last billing date.
     const window = currentBillingPeriodWindow(vendorLastBillingDate, billingCycle);
-    const periodStart = addDaysToDateInputValue(vendorLastBillingDate, 1) || window.periodStart || "";
+    const periodStart = addDaysToDateInputValue(vendorLastBillingDate) || window.periodStart || "";
 
     return {
       issueDate: getTodayInputValue(),
       startDate: periodStart,
-      endDate: vendorNextBillingDate || window.periodEnd || "",
+      endDate: addDaysToDateInputValue(vendorNextBillingDate, -1) || window.periodEnd || "",
     };
   }
 
@@ -268,26 +268,28 @@ const getVendorBillingDefaults = (vendor) => {
 // ── Status badge helper ───────────────────────────────────────
 const StatusBadge = ({ status }) => {
   const map = {
-    pending: { color: "orange", label: "Pending" },
-    disputed: { color: "red", label: "Disputed" },
-    approved: { color: "green", label: "Approved" },
-    rejected: { color: "red", label: "Rejected" },
-    processing: { color: "blue", label: "Processing" },
-    paid: { color: "teal", label: "Paid" },
+    pending: { icon: FiClock, color: "orange", label: "Pending" },
+    disputed: { icon: FiAlertTriangle, color: "red", label: "Disputed" },
+    paid: { icon: FiDollarSign, color: "teal", label: "Paid" },
   };
   const s = map[status?.toLowerCase()] || {
+    icon : FiAlertTriangle,
     color: "gray",
     label: status || "Unknown",
   };
   return (
-    <Badge
+    <Badge 
+      display="inline-flex"
+      gap={1}
+      alignItems="center"
       colorScheme={s.color}
-      variant="subtle"
-      fontSize="xs"
-      px={2}
-      py={0.5}
       borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px"
     >
+      {s.icon && <s.icon size={12} />}
       {s.label}
     </Badge>
   );
@@ -897,7 +899,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
       key: "grandTotal",
       header: "Grand Total",
       render: (value, row) => (
-        <Text fontSize="13px" fontWeight="700" color="gray.800">
+        <Text fontSize="13px" fontWeight="500" color="gray.800">
           {row.currency || "USD"}{" "}
           {Number(value || 0).toLocaleString("en", {
             minimumFractionDigits: 4,
@@ -912,7 +914,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
       render: (value, row) => (
         <Text
           fontSize="13px"
-          fontWeight="600"
+          fontWeight="500"
           color={Number(value || 0) > 0 ? "orange.600" : "gray.500"}
         >
           {row.currency || "USD"}{" "}
@@ -936,7 +938,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
           <Text
             fontSize="13px"
             color={hasDispute ? "red.600" : "gray.500"}
-            fontWeight="600"
+            fontWeight="500"
           >
             {hasDispute
               ? `${row.currency || "USD"} ${disputedAmount.toLocaleString("en", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
@@ -1700,8 +1702,8 @@ const UploadTab = ({ onViewInvoices, onSuccess, vendorRefreshToken }) => {
         // BACKFILL: if vendor has nextBillingDate but no lastBillingDate, compute it
         const enrichedVendors = (data || []).map((vendor) => {
           // Try vendor dates first, then fall back to customer dates
-          const last = vendor.vendorLastBillingDate || vendor.customerLastBillingDate || vendor.lastbillingdate;
-          const next = vendor.vendorNextBillingDate || vendor.customerNextBillingDate || vendor.nextbillingdate;
+          const last = vendor.vendorLastBillingDate;
+          const next = vendor.vendorNextBillingDate ;
           const cycle = vendor.billingCycle || 'monthly';
           
           // If missing last but has next, compute the last date from next
@@ -2976,16 +2978,7 @@ const UploadTab = ({ onViewInvoices, onSuccess, vendorRefreshToken }) => {
             </CardBody>
           </Card>
 
-          {/*
-            ── FIX: Button section rewrite
-            1. "Submit Invoice" button removed — usage check is mandatory before saving.
-            2. Always show both action buttons once usageComparison is present.
-               When no mismatch or mismatch is favorable (canRaiseDispute = false),
-               "Save and Raise Dispute" is disabled with a tooltip explaining why.
-            3. Each button passes its own action string and checks submittingAction
-               for independent loading state — clicking one will NOT spin the other.
-            4. Before usage is checked, show a prompt nudging the user to run the check.
-          */}
+          
           <VStack spacing={2}>
             {!usageComparison ? (
               // No usage check yet — show a disabled state with guidance

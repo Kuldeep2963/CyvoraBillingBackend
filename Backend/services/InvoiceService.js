@@ -191,25 +191,18 @@ const adjustAccountForInvoice = async (
   if (!account || normalizedAmount <= 0) return;
 
   if (account.billingType === 'postpaid') {
-    if (direction === "consume") {
-      // Postpaid credit limit is consumed only when the invoice is paid from
-      // account funds, not when the invoice is generated.
-      return;
-    }
+    const currentBalance = Number(account.balance || 0);
+    const nextBalance =
+      direction === "consume"
+        ? currentBalance - normalizedAmount
+        : currentBalance + normalizedAmount;
 
-    if (direction === "restore") {
-      const currentLimit = Number(account.creditLimit || 0);
-      const originalLimit = Number(account.originalCreditLimit || 0);
-      const nextLimit = currentLimit + normalizedAmount;
-      const cappedLimit = originalLimit > 0 ? Math.min(nextLimit, originalLimit) : nextLimit;
-
-      await account.update(
-        {
-          creditLimit: parseFloat(cappedLimit.toFixed(2))
-        },
-        { transaction }
-      );
-    }
+    await account.update(
+      {
+        balance: parseFloat(nextBalance.toFixed(2))
+      },
+      { transaction }
+    );
     return;
   }
 
@@ -580,12 +573,10 @@ class InvoiceService {
         });
 
         if (customer && customer.billingType === 'postpaid') {
-          const orig = parseFloat(customer.originalCreditLimit) || 0;
           const restoreAmt = Number(invoice.totalAmount) - Number(invoice.paidAmount || 0);
           if (restoreAmt > 0) {
-            let newLimit = parseFloat(customer.creditLimit) + restoreAmt;
-            if (orig && newLimit > orig) newLimit = orig;
-            await customer.update({ creditLimit: newLimit });
+            const nextBalance = Number(customer.balance || 0) + restoreAmt;
+            await customer.update({ balance: parseFloat(nextBalance.toFixed(2)) });
           }
         }
       }

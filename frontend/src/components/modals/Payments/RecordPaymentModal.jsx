@@ -18,8 +18,11 @@ import {
   AlertIcon,
   Spinner,
   Text,
+  Flex,
   Box,
   HStack,
+  Badge,
+  Divider,
 } from "@chakra-ui/react";
 import { fetchLiteInvoices } from "../../../utils/api";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../../memoizedinput/memoizedinput";
@@ -54,9 +57,10 @@ const RecordPaymentModal = ({
   });
 
   const isPostpaidCustomer = String(selectedCustomer?.billingType || "").toLowerCase() === "postpaid";
-  const accountFundsLabel = isPostpaidCustomer ? "Use Credit Limit" : "Use Balance";
+  const accountFundsLabel = "Use Account Funds";
+  const postpaidLimit = Number(selectedCustomer?.originalCreditLimit ?? 0);
   const availableFunds = isPostpaidCustomer
-    ? Number(selectedCustomer?.creditLimit || 0)
+    ? postpaidLimit + Number(selectedCustomer?.balance || 0)
     : Number(selectedCustomer?.balance || 0);
   const shouldShowCreditNote = isVendorMode || showCreditNote;
   const vendorGrossAmount = Number(creditNoteMax || 0);
@@ -189,7 +193,7 @@ const RecordPaymentModal = ({
               <Alert status="info" borderRadius="md" fontSize="sm">
                 <AlertIcon />
                 {isPostpaidCustomer
-                  ? `Available credit limit: $${availableFunds.toFixed(4)}`
+                  ? `Available funds remaining: $${availableFunds.toFixed(4)}`
                   : `Available balance: $${availableFunds.toFixed(4)}`}
               </Alert>
             )}
@@ -221,15 +225,28 @@ const RecordPaymentModal = ({
             )}
 
             {isVendorMode && (
-              <Alert status="info" borderRadius="md" fontSize="sm">
-                <AlertIcon />
-                <Box>
-                  <Text fontSize="xs">
-                    Payable amount: {currency} {Number(paymentForm.amount || 0).toFixed(2)}
-                  </Text>
-                </Box>
-              </Alert>
-            )}
+  <Flex
+    justify="space-between"
+    align="center"
+    p={3}
+    bg="orange.50"
+    border="1px solid"
+    borderColor="orange.200"
+    borderRadius="md"
+  >
+    <Text fontSize="sm" fontWeight="500" color="gray.700">
+      Payable Amount
+    </Text>
+
+    <Text
+      fontSize="md"
+      fontWeight="500"
+      color="orange.600"
+    >
+      {currency} {Number(paymentForm.amount || 0).toFixed(2)}
+    </Text>
+  </Flex>
+)}
 
             <SimpleGrid columns={2} spacing={4}>
               {!isVendorMode && (
@@ -281,32 +298,84 @@ const RecordPaymentModal = ({
               </FormControl>
             )}
 
-            {isVendorMode && (
-              <Box bg="blue.50" borderRadius="md" p={4}>
-                <VStack align="stretch" spacing={2}>
-                  <HStack justify="space-between">
-                    <Text fontSize="sm" color="gray.600">Invoice Amount</Text>
-                    <Text fontSize="sm" fontWeight="semibold">
-                      {currency} {vendorGrossAmount.toFixed(2)}
-                    </Text>
-                  </HStack>
-                  <HStack justify="space-between">
-                    <Text fontSize="sm" color="gray.600">Credit Note</Text>
-                    <Text fontSize="sm" fontWeight="semibold" color={vendorCreditNoteAmount > 0 ? "orange.600" : "gray.700"}>
-                      {currency} {vendorCreditNoteAmount.toFixed(2)}
-                    </Text>
-                  </HStack>
-                  <Box borderTopWidth="1px" borderColor="blue.100" pt={2}>
-                    <HStack justify="space-between">
-                      <Text fontSize="sm" fontWeight="bold" color="gray.700">Actually Payable</Text>
-                      <Text fontSize="md" fontWeight="bold" color="blue.600">
-                        {currency} {vendorPayableAmount.toFixed(2)}
-                      </Text>
-                    </HStack>
-                  </Box>
-                </VStack>
-              </Box>
-            )}
+           {isVendorMode && (
+  <Box
+    bg="linear-gradient(180deg, #F8FAFF 0%, #EEF4FF 100%)"
+    border="1px solid"
+    borderColor="blue.100"
+    borderRadius="lg"
+    p={4}
+  >
+    <VStack align="stretch" spacing={3}>
+      <Text
+        fontSize="xs"
+        fontWeight="700"
+        color="blue.600"
+        textTransform="uppercase"
+        letterSpacing="0.5px"
+      >
+        Payment Summary
+      </Text>
+
+      <HStack justify="space-between">
+        <Text fontSize="sm" color="gray.600">
+          Invoice Amount
+        </Text>
+        <Text fontSize="sm" fontWeight="600">
+          {currency} {vendorGrossAmount.toFixed(4)}
+        </Text>
+      </HStack>
+
+      <HStack justify="space-between">
+        <Text fontSize="sm" color="gray.600">
+          Credit Note
+        </Text>
+        <Badge
+          colorScheme={vendorCreditNoteAmount > 0 ? "orange" : "gray"}
+          borderRadius="full"
+          px={2}
+          py={1}
+        >
+          {currency} {vendorCreditNoteAmount.toFixed(4)}
+        </Badge>
+      </HStack>
+
+      <Divider borderColor="blue.100" />
+
+      <Flex
+        justify="space-between"
+        align="center"
+        bg="white"
+        p={3}
+        borderRadius="md"
+        border="1px solid"
+        borderColor="blue.200"
+      >
+        <Box>
+          <Text
+            fontSize="xs"
+            color="gray.500"
+            textTransform="uppercase"
+            fontWeight="600"
+          >
+            Actually Payable
+          </Text>
+          <Text fontSize="xs" color="gray.500">
+            Final vendor settlement amount
+          </Text>
+        </Box>
+
+        <Text
+          fontSize="xl"
+          fontWeight="700"
+          color="blue.600"
+        >
+          {currency} {vendorPayableAmount.toFixed(4)}
+        </Text>
+      </Flex>
+    </VStack>
+  </Box>
+)}
 
             {(isVendorMode || paymentForm.paymentSource !== "account_funds") && (
               <>
@@ -335,6 +404,7 @@ const RecordPaymentModal = ({
                   <FormControl>
                     <FormLabel>Transaction ID</FormLabel>
                     <Input
+                      placeholder={isVendorMode ? "e.g. Bank Txn ID" : "e.g. Payment Gateway Txn ID"}
                       value={paymentForm.transactionId}
                       onChange={(e) =>
                         setPaymentForm({
@@ -348,6 +418,7 @@ const RecordPaymentModal = ({
                   <FormControl>
                     <FormLabel>Ref Number</FormLabel>
                     <Input
+                      placeholder="e.g. Cheque number or any reference"
                       value={paymentForm.referenceNumber}
                       onChange={(e) =>
                         setPaymentForm({
@@ -365,6 +436,7 @@ const RecordPaymentModal = ({
             <FormControl>
               <FormLabel>Notes</FormLabel>
               <Input
+                placeholder="Any additional information about this payment"
                 value={paymentForm.notes}
                 onChange={(e) =>
                   setPaymentForm({ ...paymentForm, notes: e.target.value })

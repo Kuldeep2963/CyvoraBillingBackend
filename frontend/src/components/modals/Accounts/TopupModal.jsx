@@ -27,14 +27,12 @@ import {
 } from "@chakra-ui/react";
 import { topupAccount } from "../../../utils/api";
 import { toDateInput } from "../../../utils/dateInput";
-import { MemoizedInput as Input, MemoizedSelect as Select } from "../../memoizedinput/memoizedinput";
+import {
+  MemoizedInput as Input,
+  MemoizedSelect as Select,
+} from "../../memoizedinput/memoizedinput";
 
-const TopupModal = ({
-  isOpen,
-  onClose,
-  account,
-  onTopupSuccess,
-}) => {
+const TopupModal = ({ isOpen, onClose, account, onTopupSuccess }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [topupForm, setTopupForm] = useState({
@@ -96,7 +94,8 @@ const TopupModal = ({
     setIsLoading(true);
     try {
       const payload = {
-        customerId: account.customerCode || account.gatewayId || account.accountId,
+        customerId:
+          account.customerCode || account.gatewayId || account.accountId,
         amount: numericAmount,
         paymentMethod: topupForm.paymentMethod,
         paymentReference: topupForm.paymentReference.trim(),
@@ -129,21 +128,63 @@ const TopupModal = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="lg" scrollBehavior="inside" closeOnOverlayClick={!isLoading}>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="lg"
+      scrollBehavior="inside"
+      closeOnOverlayClick={!isLoading}
+    >
       <ModalOverlay />
       <ModalContent>
         <ModalHeader bg="blue.500" color="white" borderTopRadius="md" pr={12}>
           <Stack spacing={1}>
             <Heading size="md">Account Topup</Heading>
             {account && (
-              <Stack direction={{ base: "column", md: "row" }} spacing={2} align={{ base: "flex-start", md: "center" }}>
+              <Stack
+                direction={{ base: "column", md: "row" }}
+                spacing={2}
+                align={{ base: "center", md: "flex-end" }}
+              >
                 <Text fontSize="sm" color="blue.50" fontWeight="600">
                   {account.accountName}
                 </Text>
-                <Badge colorScheme="cyan" variant="subtle" borderRadius="full" px={2} textTransform="none">
-                  {account.accountRole || "Account"}
+                <Badge
+                  borderRadius="full"
+                  px="8px"
+                  py="2px"
+                  mt={2}
+                  fontWeight="500"
+                  fontSize="11px"
+                  colorScheme={
+                    account.accountRole === "customer"
+                      ? "green"
+                      : account.accountRole === "vendor"
+                        ? "blue"
+                        : account.accountRole === "both"
+                          ? "purple"
+                          : "gray"
+                  }
+                  textTransform="none"
+                >
+                  {account.accountRole === "customer"
+                      ? "Customer"
+                      : account.accountRole === "vendor"
+                        ? "Vendor"
+                        : "Bilateral"}
                 </Badge>
-                <Badge colorScheme={account.billingType === "postpaid" ? "orange" : "green"} variant="subtle" borderRadius="full" px={2} textTransform="none">
+                <Badge
+                  colorScheme={
+                    account.billingType === "postpaid" ? "orange" : "green"
+                  }
+                  borderRadius="full"
+                  px="8px"
+                  py="2px"
+                  mt={2}
+                  fontWeight="500"
+                  fontSize="11px"
+                  textTransform="none"
+                >
                   {account.billingType === "postpaid" ? "Postpaid" : "Prepaid"}
                 </Badge>
                 <Text fontSize="sm" color="blue.50">
@@ -255,12 +296,21 @@ const TopupModal = ({
 
             <Box bg="blue.50" p={3} borderRadius="md">
               <Text fontSize="xs" color="gray.600">
-                <strong>New Balance:</strong> ${(parseFloat(account?.balance || 0) + parseFloat(topupForm.amount || 0)).toFixed(2)}
+                <strong>New Balance:</strong> $
+                {(
+                  parseFloat(account?.balance || 0) +
+                  parseFloat(topupForm.amount || 0)
+                ).toFixed(2)}
               </Text>
             </Box>
           </VStack>
         </ModalBody>
-        <ModalFooter gap={3} pt={4} borderTop="1px solid" borderTopColor="gray.200">
+        <ModalFooter
+          gap={3}
+          pt={4}
+          borderTop="1px solid"
+          borderTopColor="gray.200"
+        >
           <Button variant="outline" onClick={onClose} isDisabled={isLoading}>
             Cancel
           </Button>

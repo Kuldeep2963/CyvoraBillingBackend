@@ -107,7 +107,10 @@ const normalizeTrunks = (input) => {
     try {
       parsed = JSON.parse(parsed);
     } catch {
-      parsed = parsed.split(",").map((s) => s.trim()).filter(Boolean);
+      parsed = parsed
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
     }
   }
   if (!Array.isArray(parsed)) return [];
@@ -119,7 +122,9 @@ const normalizeTrunks = (input) => {
       }
       if (typeof item === "object") {
         const name = String(item.name ?? item.label ?? item.trunk ?? "").trim();
-        const prefix = String(item.prefix ?? item.value ?? item.code ?? "").trim();
+        const prefix = String(
+          item.prefix ?? item.value ?? item.code ?? "",
+        ).trim();
         if (!name && !prefix) return null;
         return { name: name || prefix, prefix: prefix || name };
       }
@@ -423,7 +428,6 @@ const CreateAccountModal = ({
       reseller: "",
       currency: "USD",
       nominalCode: "",
-      creditLimit: 1000.0,
       originalCreditLimit: 1000.0,
       balance: 0.0,
       outstandingAmount: 0.0,
@@ -497,16 +501,21 @@ const CreateAccountModal = ({
 
     fetchBillingClassProfiles()
       .then((profiles) => {
-        if (cancelled || !Array.isArray(profiles) || profiles.length === 0) return;
+        if (cancelled || !Array.isArray(profiles) || profiles.length === 0)
+          return;
 
         const normalizedOptions = profiles
           .map((profile) => {
-            const tag = String(profile?.tag || "").trim().toLowerCase();
+            const tag = String(profile?.tag || "")
+              .trim()
+              .toLowerCase();
             if (!tag) return null;
             return {
               tag,
               displayName:
-                String(profile?.displayName || profile?.companyName || tag).trim() || tag,
+                String(
+                  profile?.displayName || profile?.companyName || tag,
+                ).trim() || tag,
             };
           })
           .filter(Boolean);
@@ -678,7 +687,9 @@ const CreateAccountModal = ({
 
       case "monthly": {
         // lastBillingDate is the 1st of the month; trigger is the 1st of next month
-        return formatLocalDate(new Date(last.getFullYear(), last.getMonth() + 1, 1));
+        return formatLocalDate(
+          new Date(last.getFullYear(), last.getMonth() + 1, 1),
+        );
       }
 
       case "biweekly": {
@@ -711,8 +722,16 @@ const CreateAccountModal = ({
       case "quarterly": {
         const month = last.getMonth();
         const quarterEndMonth = Math.floor(month / 3) * 3 + 2;
-        const currentQuarterEnd = new Date(last.getFullYear(), quarterEndMonth + 1, 0);
-        const nextQuarterStart = new Date(currentQuarterEnd.getFullYear(), currentQuarterEnd.getMonth() + 1, 1);
+        const currentQuarterEnd = new Date(
+          last.getFullYear(),
+          quarterEndMonth + 1,
+          0,
+        );
+        const nextQuarterStart = new Date(
+          currentQuarterEnd.getFullYear(),
+          currentQuarterEnd.getMonth() + 1,
+          1,
+        );
         return formatLocalDate(nextQuarterStart);
       }
 
@@ -726,7 +745,9 @@ const CreateAccountModal = ({
   };
 
   const getInitialLastBillingDate = (billingCycle, referenceDateStr) => {
-    const ref = referenceDateStr ? parseLocalDate(referenceDateStr) : new Date();
+    const ref = referenceDateStr
+      ? parseLocalDate(referenceDateStr)
+      : new Date();
     if (!ref) return null;
 
     switch (billingCycle) {
@@ -765,7 +786,9 @@ const CreateAccountModal = ({
 
       case "daily": {
         // For daily the lastBillingDate default is yesterday (period start)
-        return formatLocalDate(new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 1));
+        return formatLocalDate(
+          new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 1),
+        );
       }
 
       default:
@@ -825,6 +848,9 @@ const CreateAccountModal = ({
         ...initialFormData,
         ...selectedCustomer,
       });
+      const normalizedCreditLimit = Number(
+        merged.originalCreditLimit  ?? 0,
+      );
 
       // FIX: Resolve the stored country name and code clearly
       // API may return `country` as ISO code OR as a name — normalise here.
@@ -833,6 +859,9 @@ const CreateAccountModal = ({
 
       setFormData({
         ...merged,
+        balance: Number(merged.balance ?? 0),
+        originalCreditLimit:
+          merged.billingType === "postpaid" ? normalizedCreditLimit : 0,
         country: storedCountryName,
         countryCode: storedCountryCode,
         customerauthenticationValue: normalizeAuthValues(
@@ -1151,7 +1180,7 @@ const CreateAccountModal = ({
   const handleAddTrunk = () => {
     setFormData((fd) => ({
       ...fd,
-      trunks: [...(fd.trunks || []), { name: '', prefix: '' }],
+      trunks: [...(fd.trunks || []), { name: "", prefix: "" }],
     }));
   };
 
@@ -1164,7 +1193,10 @@ const CreateAccountModal = ({
   };
 
   const handleRemoveTrunk = (index) => {
-    setFormData((fd) => ({ ...fd, trunks: (fd.trunks || []).filter((_, i) => i !== index) }));
+    setFormData((fd) => ({
+      ...fd,
+      trunks: (fd.trunks || []).filter((_, i) => i !== index),
+    }));
   };
 
   // ── Options ──────────────────────────────────────────────────────────────────
@@ -1315,6 +1347,13 @@ const CreateAccountModal = ({
         nextbillingdate: formData.nextbillingdate || null,
         billingClass: String(formData.billingClass || "").trim(),
       };
+
+      const normalizedCreditLimit = Number(
+        sanitizedData.originalCreditLimit ?? 0,
+      );
+      sanitizedData.originalCreditLimit =
+        sanitizedData.billingType === "postpaid" ? normalizedCreditLimit : 0;
+      sanitizedData.balance = Number(sanitizedData.balance ?? 0);
 
       // Clean up legacy / derived keys
       [
@@ -1614,13 +1653,26 @@ const CreateAccountModal = ({
                             <Select
                               value={formData.billingType}
                               onChange={(e) =>
-                                setFormData((fd) => ({
-                                  ...fd,
-                                  billingType: e.target.value,
-                                  ...(e.target.value === "prepaid"
-                                    ? { creditLimit: 0, originalCreditLimit: 0 }
-                                    : {}),
-                                }))
+                                setFormData((fd) => {
+                                  const billingType = e.target.value;
+                                  if (billingType === "prepaid") {
+                                    return {
+                                      ...fd,
+                                      billingType,
+                                      originalCreditLimit: 0,
+                                    };
+                                  }
+                                  const syncedLimit = Number(fd.originalCreditLimit ?? 0,);
+                                  return {
+                                    ...fd,
+                                    billingType,
+                                    originalCreditLimit: Number.isFinite(
+                                      syncedLimit,
+                                    )
+                                      ? syncedLimit
+                                      : 0,
+                                  };
+                                })
                               }
                               isDisabled={isViewMode}
                             >
@@ -1688,8 +1740,6 @@ const CreateAccountModal = ({
                               isDisabled={isViewMode}
                             />
                           </FormControl>
-
-                          
 
                           <FormControl>
                             <FormLabel>Account Owner</FormLabel>
@@ -2296,16 +2346,13 @@ const CreateAccountModal = ({
                             }}
                             isDisabled={isViewMode}
                           >
-                            {[
-                              "daily",
-                              "weekly",
-                              "biweekly",
-                              "monthly",
-                            ].map((c) => (
-                              <option key={c} value={c}>
-                                {c.charAt(0).toUpperCase() + c.slice(1)}
-                              </option>
-                            ))}
+                            {["daily", "weekly", "biweekly", "monthly"].map(
+                              (c) => (
+                                <option key={c} value={c}>
+                                  {c.charAt(0).toUpperCase() + c.slice(1)}
+                                </option>
+                              ),
+                            )}
                           </Select>
                         </FormControl>
 
@@ -2325,60 +2372,36 @@ const CreateAccountModal = ({
                             />
                           </FormControl>
                         )}
-
-                        <FormControl
-                          isDisabled={
-                            formData.billingType === "prepaid" || isViewMode
-                          }
-                        >
-                          <FormLabel>Credit Limit ($)</FormLabel>
-                          <NumberInput
-                            value={formData.creditLimit}
-                            onChange={(v) =>
-                              setFormData((fd) => ({
-                                ...fd,
-                                creditLimit: parseFloat(v),
-                              }))
-                            }
-                            min={0}
-                          >
-                            <NumberInputField />
-                            <NumberInputStepper>
-                              <NumberIncrementStepper />
-                              <NumberDecrementStepper />
-                            </NumberInputStepper>
-                          </NumberInput>
-                          <FormHelperText>
-                            Maximum credit / prepaid balance
-                          </FormHelperText>
-                        </FormControl>
-
-                        <FormControl
-                          isDisabled={
-                            formData.billingType === "prepaid" || isViewMode
-                          }
-                        >
-                          <FormLabel>Original Credit Limit ($)</FormLabel>
-                          <NumberInput
-                            value={formData.originalCreditLimit}
-                            onChange={(v) =>
-                              setFormData((fd) => ({
-                                ...fd,
-                                originalCreditLimit: parseFloat(v),
-                              }))
-                            }
-                            min={0}
-                          >
-                            <NumberInputField />
-                            <NumberInputStepper>
-                              <NumberIncrementStepper />
-                              <NumberDecrementStepper />
-                            </NumberInputStepper>
-                          </NumberInput>
-                          <FormHelperText>
-                            Reset to this after payment (postpaid)
-                          </FormHelperText>
-                        </FormControl>
+                        {formData.billingType === "postpaid" && (
+                          <FormControl isDisabled={isViewMode}>
+                            <FormLabel>Credit Limit ($)</FormLabel>
+                            <NumberInput
+                              value={formData.originalCreditLimit}
+                              onChange={(v) => {
+                                const nextLimit = parseFloat(v);
+                                setFormData((fd) => ({
+                                  ...fd,
+                                  originalCreditLimit: Number.isFinite(
+                                    nextLimit,
+                                  )
+                                    ? nextLimit
+                                    : 0,
+                                  
+                                }));
+                              }}
+                              min={0}
+                            >
+                              <NumberInputField />
+                              <NumberInputStepper>
+                                <NumberIncrementStepper />
+                                <NumberDecrementStepper />
+                              </NumberInputStepper>
+                            </NumberInput>
+<FormHelperText>
+  Maximum credit cap for postpaid. Balance can go negative up to this amount.
+</FormHelperText>
+                          </FormControl>
+                        )}
                       </SimpleGrid>
                       <Divider />
                       <Heading size={"sm"} mb={2}>
@@ -2446,257 +2469,359 @@ const CreateAccountModal = ({
                       </SimpleGrid>
                       <Divider />
                       <Box>
-  <Heading size="sm" mb={4}>
-    CDR Mapping Configuration
-  </Heading>
+                        <Heading size="sm" mb={4}>
+                          CDR Mapping Configuration
+                        </Heading>
 
-  {/* Customer + Vendor side-by-side columns */}
-  <SimpleGrid columns={2} spacing={6} mb={6}>
-    {/* ── CUSTOMER COLUMN ── */}
-    {(formData.accountRole === "customer" || formData.accountRole === "both") && (
-      <Box
-      >
-        
-        <VStack align="stretch" spacing={4}>
-          <FormControl>
-            <FormLabel>Customer Code</FormLabel>
-            <Input
-              value={formData.customerCode}
-              onChange={(e) => setFormData((fd) => ({ ...fd, customerCode: e.target.value }))}
-              placeholder="C_XXXXX"
-              isDisabled={isViewMode}
-              // bg="white"
-              // _dark={{ bg: "gray.800" }}
-            />
-          </FormControl>
+                        {/* Customer + Vendor side-by-side columns */}
+                        <SimpleGrid columns={2} spacing={6} mb={6}>
+                          {/* ── CUSTOMER COLUMN ── */}
+                          {(formData.accountRole === "customer" ||
+                            formData.accountRole === "both") && (
+                            <Box>
+                              <VStack align="stretch" spacing={4}>
+                                <FormControl>
+                                  <FormLabel>Customer Code</FormLabel>
+                                  <Input
+                                    value={formData.customerCode}
+                                    onChange={(e) =>
+                                      setFormData((fd) => ({
+                                        ...fd,
+                                        customerCode: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="C_XXXXX"
+                                    isDisabled={isViewMode}
+                                    // bg="white"
+                                    // _dark={{ bg: "gray.800" }}
+                                  />
+                                </FormControl>
 
-          <FormControl isRequired>
-            <FormLabel>Auth Type</FormLabel>
-            <Select
-              value={formData.customerauthenticationType}
-              onChange={(e) =>
-                setFormData((fd) => ({ ...fd, customerauthenticationType: e.target.value }))
-              }
-              isDisabled={isViewMode}
-              // bg="white"
-              _dark={{ bg: "gray.800" }}
-            >
-              {authTypeOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </Select>
-            <FormHelperText>
-              {authTypeOptions.find((o) => o.value === formData.customerauthenticationType)?.description}
-            </FormHelperText>
-          </FormControl>
+                                <FormControl isRequired>
+                                  <FormLabel>Auth Type</FormLabel>
+                                  <Select
+                                    value={formData.customerauthenticationType}
+                                    onChange={(e) =>
+                                      setFormData((fd) => ({
+                                        ...fd,
+                                        customerauthenticationType:
+                                          e.target.value,
+                                      }))
+                                    }
+                                    isDisabled={isViewMode}
+                                    // bg="white"
+                                    _dark={{ bg: "gray.800" }}
+                                  >
+                                    {authTypeOptions.map((o) => (
+                                      <option key={o.value} value={o.value}>
+                                        {o.label}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                  <FormHelperText>
+                                    {
+                                      authTypeOptions.find(
+                                        (o) =>
+                                          o.value ===
+                                          formData.customerauthenticationType,
+                                      )?.description
+                                    }
+                                  </FormHelperText>
+                                </FormControl>
 
-          <FormControl isRequired>
-            <FormLabel>Auth Value</FormLabel>
-            <Input
-              value={
-                Array.isArray(formData.customerauthenticationValue)
-                  ? formData.customerauthenticationValue.join(", ")
-                  : formData.customerauthenticationValue
-              }
-              onChange={(e) =>
-                setFormData((fd) => ({ ...fd, customerauthenticationValue: e.target.value }))
-              }
-              placeholder={
-                formData.customerauthenticationType === "ip"
-                  ? "192.168.1.1, 192.168.1.2"
-                  : "Value 1, Value 2"
-              }
-              isDisabled={isViewMode}
-              // bg="white"
-              _dark={{ bg: "gray.800" }}
-            />
-            <FormHelperText>
-              Comma-separated{" "}
-              {formData.customerauthenticationType === "ip" ? "IP addresses" : "values"}
-            </FormHelperText>
-          </FormControl>
-        </VStack>
-      </Box>
-    )}
+                                <FormControl isRequired>
+                                  <FormLabel>Auth Value</FormLabel>
+                                  <Input
+                                    value={
+                                      Array.isArray(
+                                        formData.customerauthenticationValue,
+                                      )
+                                        ? formData.customerauthenticationValue.join(
+                                            ", ",
+                                          )
+                                        : formData.customerauthenticationValue
+                                    }
+                                    onChange={(e) =>
+                                      setFormData((fd) => ({
+                                        ...fd,
+                                        customerauthenticationValue:
+                                          e.target.value,
+                                      }))
+                                    }
+                                    placeholder={
+                                      formData.customerauthenticationType ===
+                                      "ip"
+                                        ? "192.168.1.1, 192.168.1.2"
+                                        : "Value 1, Value 2"
+                                    }
+                                    isDisabled={isViewMode}
+                                    // bg="white"
+                                    _dark={{ bg: "gray.800" }}
+                                  />
+                                  <FormHelperText>
+                                    Comma-separated{" "}
+                                    {formData.customerauthenticationType ===
+                                    "ip"
+                                      ? "IP addresses"
+                                      : "values"}
+                                  </FormHelperText>
+                                </FormControl>
+                              </VStack>
+                            </Box>
+                          )}
 
-    {/* ── VENDOR COLUMN ── */}
-    {(formData.accountRole === "vendor" || formData.accountRole === "both") && (
-      <Box
->        
-        <VStack align="stretch" spacing={4}>
-          <FormControl>
-            <FormLabel>Vendor Code</FormLabel>
-            <Input
-              value={formData.vendorCode}
-              onChange={(e) => setFormData((fd) => ({ ...fd, vendorCode: e.target.value }))}
-              placeholder="P_XXXXX"
-              isDisabled={isViewMode}
-              // bg="white"
-              // _dark={{ bg: "gray.800" }}
-            />
-          </FormControl>
+                          {/* ── VENDOR COLUMN ── */}
+                          {(formData.accountRole === "vendor" ||
+                            formData.accountRole === "both") && (
+                            <Box>
+                              <VStack align="stretch" spacing={4}>
+                                <FormControl>
+                                  <FormLabel>Vendor Code</FormLabel>
+                                  <Input
+                                    value={formData.vendorCode}
+                                    onChange={(e) =>
+                                      setFormData((fd) => ({
+                                        ...fd,
+                                        vendorCode: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="P_XXXXX"
+                                    isDisabled={isViewMode}
+                                    // bg="white"
+                                    // _dark={{ bg: "gray.800" }}
+                                  />
+                                </FormControl>
 
-          <FormControl isRequired>
-            <FormLabel>Auth Type</FormLabel>
-            <Select
-              value={formData.vendorauthenticationType}
-              onChange={(e) =>
-                setFormData((fd) => ({ ...fd, vendorauthenticationType: e.target.value }))
-              }
-              isDisabled={isViewMode}
-            >
-              {authTypeOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </Select>
-            <FormHelperText>
-              {authTypeOptions.find((o) => o.value === formData.vendorauthenticationType)?.description}
-            </FormHelperText>
-          </FormControl>
+                                <FormControl isRequired>
+                                  <FormLabel>Auth Type</FormLabel>
+                                  <Select
+                                    value={formData.vendorauthenticationType}
+                                    onChange={(e) =>
+                                      setFormData((fd) => ({
+                                        ...fd,
+                                        vendorauthenticationType:
+                                          e.target.value,
+                                      }))
+                                    }
+                                    isDisabled={isViewMode}
+                                  >
+                                    {authTypeOptions.map((o) => (
+                                      <option key={o.value} value={o.value}>
+                                        {o.label}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                  <FormHelperText>
+                                    {
+                                      authTypeOptions.find(
+                                        (o) =>
+                                          o.value ===
+                                          formData.vendorauthenticationType,
+                                      )?.description
+                                    }
+                                  </FormHelperText>
+                                </FormControl>
 
-          <FormControl isRequired>
-            <FormLabel>Auth Value</FormLabel>
-            <Input
-              value={
-                Array.isArray(formData.vendorauthenticationValue)
-                  ? formData.vendorauthenticationValue.join(", ")
-                  : formData.vendorauthenticationValue
-              }
-              onChange={(e) =>
-                setFormData((fd) => ({ ...fd, vendorauthenticationValue: e.target.value }))
-              }
-              placeholder={
-                formData.vendorauthenticationType === "ip"
-                  ? "192.168.1.1, 192.168.1.2"
-                  : "Value 1, Value 2"
-              }
-              isDisabled={isViewMode}
-            />
-            <FormHelperText>
-              Comma-separated{" "}
-              {formData.vendorauthenticationType === "ip" ? "IP addresses" : "values"}
-            </FormHelperText>
-          </FormControl>
-        </VStack>
-      </Box>
-    )}
-  </SimpleGrid>
+                                <FormControl isRequired>
+                                  <FormLabel>Auth Value</FormLabel>
+                                  <Input
+                                    value={
+                                      Array.isArray(
+                                        formData.vendorauthenticationValue,
+                                      )
+                                        ? formData.vendorauthenticationValue.join(
+                                            ", ",
+                                          )
+                                        : formData.vendorauthenticationValue
+                                    }
+                                    onChange={(e) =>
+                                      setFormData((fd) => ({
+                                        ...fd,
+                                        vendorauthenticationValue:
+                                          e.target.value,
+                                      }))
+                                    }
+                                    placeholder={
+                                      formData.vendorauthenticationType === "ip"
+                                        ? "192.168.1.1, 192.168.1.2"
+                                        : "Value 1, Value 2"
+                                    }
+                                    isDisabled={isViewMode}
+                                  />
+                                  <FormHelperText>
+                                    Comma-separated{" "}
+                                    {formData.vendorauthenticationType === "ip"
+                                      ? "IP addresses"
+                                      : "values"}
+                                  </FormHelperText>
+                                </FormControl>
+                              </VStack>
+                            </Box>
+                          )}
+                        </SimpleGrid>
 
-  {/* ── TRUNKS SECTION ── */}
-  <Box
-    borderWidth="1px"
-    borderColor="gray.200"
-    borderRadius="lg"
-    overflow="hidden"
-    _dark={{ borderColor: "gray.600" }}
-  >
-    {/* Header row */}
-    <HStack
-      px={4}
-      py={3}
-      bg="gray.50"
-      borderBottomWidth="1px"
-      borderColor="gray.200"
-      _dark={{ bg: "gray.750", borderColor: "gray.600" }}
-      justify="space-between"
-    >
-      <HStack spacing={2}>
-        <Icon as={FiServer} color="gray.500" boxSize={4} />
-        <Text fontWeight="semibold" fontSize="sm">Trunks</Text>
-        <Badge colorScheme="gray" fontSize="xs" borderRadius="full">
-          {(formData.trunks || []).length}
-        </Badge>
-      </HStack>
-      {!isViewMode && (
-        <Button
-          size="xs"
-          leftIcon={<FiPlus size={12} />}
-          colorScheme="blue"
-          variant="ghost"
-          onClick={handleAddTrunk}
-        >
-          Add Trunk
-        </Button>
-      )}
-    </HStack>
+                        {/* ── TRUNKS SECTION ── */}
+                        <Box
+                          borderWidth="1px"
+                          borderColor="gray.200"
+                          borderRadius="lg"
+                          overflow="hidden"
+                          _dark={{ borderColor: "gray.600" }}
+                        >
+                          {/* Header row */}
+                          <HStack
+                            px={4}
+                            py={3}
+                            bg="gray.50"
+                            borderBottomWidth="1px"
+                            borderColor="gray.200"
+                            _dark={{ bg: "gray.750", borderColor: "gray.600" }}
+                            justify="space-between"
+                          >
+                            <HStack spacing={2}>
+                              <Icon
+                                as={FiServer}
+                                color="gray.500"
+                                boxSize={4}
+                              />
+                              <Text fontWeight="semibold" fontSize="sm">
+                                Trunks
+                              </Text>
+                              <Badge
+                                colorScheme="gray"
+                                fontSize="xs"
+                                borderRadius="full"
+                              >
+                                {(formData.trunks || []).length}
+                              </Badge>
+                            </HStack>
+                            {!isViewMode && (
+                              <Button
+                                size="xs"
+                                leftIcon={<FiPlus size={12} />}
+                                colorScheme="blue"
+                                variant="ghost"
+                                onClick={handleAddTrunk}
+                              >
+                                Add Trunk
+                              </Button>
+                            )}
+                          </HStack>
 
-    {/* Column labels */}
-    {(formData.trunks || []).length > 0 && (
-      <HStack
-        px={4}
-        py={2}
-        bg="gray.25"
-        borderBottomWidth="1px"
-        borderColor="gray.100"
-        _dark={{ bg: "gray.800", borderColor: "gray.700" }}
-        spacing={2}
-      >
-        <Text fontSize="xs" fontWeight="medium" color="gray.500" flex={1}>
-          NAME
-        </Text>
-        <Text fontSize="xs" fontWeight="medium" color="gray.500" flex={1}>
-          PREFIX
-        </Text>
-        {!isViewMode && <Box w="32px" />}
-      </HStack>
-    )}
+                          {/* Column labels */}
+                          {(formData.trunks || []).length > 0 && (
+                            <HStack
+                              px={4}
+                              py={2}
+                              bg="gray.25"
+                              borderBottomWidth="1px"
+                              borderColor="gray.100"
+                              _dark={{
+                                bg: "gray.800",
+                                borderColor: "gray.700",
+                              }}
+                              spacing={2}
+                            >
+                              <Text
+                                fontSize="xs"
+                                fontWeight="medium"
+                                color="gray.500"
+                                flex={1}
+                              >
+                                NAME
+                              </Text>
+                              <Text
+                                fontSize="xs"
+                                fontWeight="medium"
+                                color="gray.500"
+                                flex={1}
+                              >
+                                PREFIX
+                              </Text>
+                              {!isViewMode && <Box w="32px" />}
+                            </HStack>
+                          )}
 
-    {/* Trunk rows */}
-    <VStack align="stretch" spacing={0} divider={<Divider />}>
-      {(formData.trunks || []).length === 0 ? (
-        <VStack py={8} spacing={2} color="gray.400">
-          {/* <Icon as={FiServer} boxSize={6} /> */}
-          {/* <Text fontSize="sm">No trunks configured</Text> */}
-          {!isViewMode && (
-            <Button size="sm" leftIcon={<FiPlus size={12} />} variant="outline" onClick={handleAddTrunk}>
-              Add your first trunk
-            </Button>
-          )}
-        </VStack>
-      ) : (
-        (formData.trunks || []).map((t, idx) => (
-          <HStack
-            key={idx}
-            px={4}
-            py={2}
-            spacing={2}
-            _hover={{ bg: "gray.50", _dark: { bg: "gray.750" } }}
-            transition="background 0.15s"
-          >
-            <Input
-              value={t.name || ""}
-              onChange={(e) => handleUpdateTrunk(idx, "name", e.target.value)}
-              placeholder="e.g. NCLI or #23578"
-              isDisabled={isViewMode}
-              size="sm"
-              variant="filled"
-              flex={1}
-            />
-            <Input
-              value={t.prefix || ""}
-              onChange={(e) => handleUpdateTrunk(idx, "prefix", e.target.value)}
-              placeholder="e.g. 100256"
-              isDisabled={isViewMode}
-              size="sm"
-              variant="filled"
-              flex={1}
-            />
-            {!isViewMode && (
-              <IconButton
-                size="sm"
-                aria-label="Remove trunk"
-                icon={<FiTrash2 size={13} />}
-                variant="ghost"
-                colorScheme="red"
-                onClick={() => handleRemoveTrunk(idx)}
-              />
-            )}
-          </HStack>
-        ))
-      )}
-    </VStack>
-  </Box>
-</Box>
+                          {/* Trunk rows */}
+                          <VStack
+                            align="stretch"
+                            spacing={0}
+                            divider={<Divider />}
+                          >
+                            {(formData.trunks || []).length === 0 ? (
+                              <VStack py={8} spacing={2} color="gray.400">
+                                {/* <Icon as={FiServer} boxSize={6} /> */}
+                                {/* <Text fontSize="sm">No trunks configured</Text> */}
+                                {!isViewMode && (
+                                  <Button
+                                    size="sm"
+                                    leftIcon={<FiPlus size={12} />}
+                                    variant="outline"
+                                    onClick={handleAddTrunk}
+                                  >
+                                    Add your first trunk
+                                  </Button>
+                                )}
+                              </VStack>
+                            ) : (
+                              (formData.trunks || []).map((t, idx) => (
+                                <HStack
+                                  key={idx}
+                                  px={4}
+                                  py={2}
+                                  spacing={2}
+                                  _hover={{
+                                    bg: "gray.50",
+                                    _dark: { bg: "gray.750" },
+                                  }}
+                                  transition="background 0.15s"
+                                >
+                                  <Input
+                                    value={t.name || ""}
+                                    onChange={(e) =>
+                                      handleUpdateTrunk(
+                                        idx,
+                                        "name",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="e.g. NCLI or #23578"
+                                    isDisabled={isViewMode}
+                                    size="sm"
+                                    variant="filled"
+                                    flex={1}
+                                  />
+                                  <Input
+                                    value={t.prefix || ""}
+                                    onChange={(e) =>
+                                      handleUpdateTrunk(
+                                        idx,
+                                        "prefix",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="e.g. 100256"
+                                    isDisabled={isViewMode}
+                                    size="sm"
+                                    variant="filled"
+                                    flex={1}
+                                  />
+                                  {!isViewMode && (
+                                    <IconButton
+                                      size="sm"
+                                      aria-label="Remove trunk"
+                                      icon={<FiTrash2 size={13} />}
+                                      variant="ghost"
+                                      colorScheme="red"
+                                      onClick={() => handleRemoveTrunk(idx)}
+                                    />
+                                  )}
+                                </HStack>
+                              ))
+                            )}
+                          </VStack>
+                        </Box>
+                      </Box>
                     </VStack>
                   </TabPanel>
 
@@ -2736,18 +2861,18 @@ const CreateAccountModal = ({
                           spacing={3}
                           px={4}
                           py={3}
-                          bg="orange.50"
+                          bg="blue.50"
                           border="1px solid"
-                          borderColor="orange.200"
+                          borderColor="blue.200"
                           borderRadius="lg"
                           mx={1}
                         >
                           <Box
                             as={FiAlertCircle}
-                            color="orange.500"
+                            color="blue.500"
                             flexShrink={0}
                           />
-                          <Text fontSize="sm" color="orange.700">
+                          <Text fontSize="sm" color="blue.600">
                             Documents added here will be uploaded once the
                             account is saved.
                           </Text>
@@ -3127,7 +3252,7 @@ const CreateAccountModal = ({
                     Clear Draft
                   </Button>
                   <Button
-                    size={"sm"} 
+                    size={"sm"}
                     variant="outline"
                     onClick={handleSaveDraft}
                     isDisabled={loading}

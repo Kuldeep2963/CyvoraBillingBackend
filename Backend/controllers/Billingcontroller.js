@@ -481,20 +481,15 @@ const adjustAccountForInvoice = async (
   if (!account || normalizedAmount <= 0) return;
 
   if (account.billingType === "postpaid") {
-    const currentLimit = Number(account.creditLimit || 0);
-    const nextLimit =
+    const currentBalance = Number(account.balance || 0);
+    const nextBalance =
       direction === "consume"
-        ? currentLimit - normalizedAmount
-        : currentLimit + normalizedAmount;
-
-    const cappedLimit =
-      direction === "restore" && Number(account.originalCreditLimit || 0) > 0
-        ? Math.min(nextLimit, Number(account.originalCreditLimit || 0))
-        : nextLimit;
+        ? currentBalance - normalizedAmount
+        : currentBalance + normalizedAmount;
 
     await account.update(
       {
-        creditLimit: parseFloat(cappedLimit.toFixed(2)),
+        balance: parseFloat(nextBalance.toFixed(2)),
       },
       { transaction },
     );
@@ -2149,9 +2144,10 @@ exports.recordPayment = async (req, res) => {
         });
       }
 
+      const postpaidLimit = Number(customer.originalCreditLimit ?? 0);
       const availableFunds =
         customer.billingType === "postpaid"
-          ? Number(customer.creditLimit || 0)
+          ? postpaidLimit + Number(customer.balance || 0)
           : Number(customer.balance || 0);
 
       if (availableFunds < totalAllocated) {
@@ -2159,7 +2155,7 @@ exports.recordPayment = async (req, res) => {
           success: false,
           error:
             customer.billingType === "postpaid"
-              ? "Insufficient credit limit for this payment"
+              ? "Insufficient available funds for this payment"
               : "Insufficient balance for this payment",
         });
       }
@@ -2903,15 +2899,6 @@ exports.topupAccount = async (req, res) => {
       return res.status(404).json({
         success: false,
         error: "Customer not found",
-      });
-    }
-
-    // Verify account is prepaid
-    if (customer.billingType !== "prepaid") {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        error: "Topup is only available for prepaid accounts",
       });
     }
 

@@ -114,26 +114,36 @@ const getBillingSnapshotUpdatePayload = (snapshot) => {
   };
 };
 
-const shouldRestoreSnapshotInsteadOfRecalculate = (deletedInvoice, latestRemainingInvoice) => {
-  if (!latestRemainingInvoice) return true;
-
-  const deletedEndDate = addDaysAsDateOnly(deletedInvoice?.endDate, 0);
-  const remainingEndDate = addDaysAsDateOnly(latestRemainingInvoice?.endDate, 0);
-
-  if (!deletedEndDate || !remainingEndDate) return true;
-  if (deletedEndDate > remainingEndDate) return true;
-  if (deletedEndDate < remainingEndDate) return false;
-
-  const deletedCreatedAt = deletedInvoice?.createdAt ? new Date(deletedInvoice.createdAt).getTime() : 0;
-  const remainingCreatedAt = latestRemainingInvoice?.createdAt ? new Date(latestRemainingInvoice.createdAt).getTime() : 0;
-
-  return deletedCreatedAt >= remainingCreatedAt;
-};
-
+/* =====================================================================
+ * recalculateVendorBillingDatesAfterDelete
+ *
+ * MIRRORS the customer logic in BillingController.js exactly:
+ *
+ * 1. Find the LATEST remaining vendor invoice (no date restriction —
+ *    just ORDER BY endDate DESC).  This is the key fix: the old code
+ *    filtered to endDate < deletedInvoiceEndValue which caused it to
+ *    ignore newer invoices and rewind dates, skipping days.
+ *
+ * 2. If a latest remaining invoice exists:
+ *    - Anchor lastBillingDate to that invoice's startDate (same as
+ *      customer logic which uses billingPeriodStart).
+ *    - Call buildStreamUpdates with that invoice's endDate so that
+ *      vendorLastBillingDate and vendorNextBillingDate are set
+ *      consistently with how creation sets them.
+ *
+ * 3. Safety clamp: deleting an invoice must NEVER move billing cursors
+ *    forward (same guard as customer logic).
+ *
+ * 4. If no remaining invoice exists, fall back in order:
+ *    a. billingStateSnapshot stored on the deleted invoice
+ *    b. calculatePrevBillingDate from the deleted invoice's endDate
+ *    c. getInitialLastBillingDate
+ * ===================================================================== */
 const recalculateVendorBillingDatesAfterDelete = async (account, deletedInvoice, transaction) => {
   if (!account) return;
 
   try {
+    // ── Build lookup conditions (same pattern as customer logic) ──────────
     const vendorLookupConditions = [];
     if (account.vendorCode) {
       vendorLookupConditions.push({ vendorCode: account.vendorCode });
@@ -141,9 +151,6 @@ const recalculateVendorBillingDatesAfterDelete = async (account, deletedInvoice,
     if (account.gatewayId) {
       vendorLookupConditions.push({ vendorCode: account.gatewayId });
     }
-
-    // account.accountId may contain non-numeric identifiers (e.g. 'ACC4510').
-    // Only add a numeric vendorId condition; otherwise treat it as a vendorCode.
     if (account.accountId) {
       const numericAccountId = Number(account.accountId);
       if (!Number.isNaN(numericAccountId) && Number.isInteger(numericAccountId)) {
@@ -153,66 +160,90 @@ const recalculateVendorBillingDatesAfterDelete = async (account, deletedInvoice,
       }
     }
 
-    // endDate is stored as DATEONLY (YYYY-MM-DD). Use the raw string for
-    // comparisons rather than Number(...) which produces NaN and leads to
-    // "Invalid date" SQL fragments. Only use the endDate filter when a
-    // valid value exists.
-    const deletedInvoiceEndValue = deletedInvoice?.endDate || null;
+    const whereBase = vendorLookupConditions.length > 0
+      ? { [Op.or]: vendorLookupConditions }
+      : { vendorCode: account.vendorCode };
 
-    const previousRemainingInvoice = deletedInvoiceEndValue
-      ? await VendorInvoice.findOne({
-          where: {
-            ...(vendorLookupConditions.length > 0
-              ? { [Op.or]: vendorLookupConditions }
-              : { vendorCode: account.vendorCode }),
-            endDate: { [Op.lt]: deletedInvoiceEndValue },
-          },
-          order: [["endDate", "DESC"], ["createdAt", "DESC"]],
-          transaction,
-        })
-      : await VendorInvoice.findOne({
-          where: vendorLookupConditions.length > 0 ? { [Op.or]: vendorLookupConditions } : { vendorCode: account.vendorCode },
-          order: [["endDate", "DESC"], ["createdAt", "DESC"]],
-          transaction,
-        });
+    // ── KEY FIX: find the latest remaining invoice with NO date filter ─────
+    // The old code used endDate < deletedInvoiceEndValue which skipped
+    // any invoices newer than the deleted one, causing billing dates to
+    // rewind when a newer invoice still existed.
+    const latestRemainingInvoice = await VendorInvoice.findOne({
+      where: whereBase,
+      order: [['endDate', 'DESC'], ['createdAt', 'DESC']],
+      transaction,
+    });
 
-    const billingSnapshot = deletedInvoice?.billingStateSnapshot || null;
-    const previousRemainingInvoiceEnd = previousRemainingInvoice?.endDate
-      ? addDaysAsDateOnly(previousRemainingInvoice.endDate, 0)
+    // Convert endDate / startDate strings to normalised date-only strings
+    // (addDaysAsDateOnly with 0 days just normalises the format).
+    const latestRemainingInvoiceStart = latestRemainingInvoice?.startDate
+      ? addDaysAsDateOnly(latestRemainingInvoice.startDate, 0)
       : null;
 
-    if (previousRemainingInvoiceEnd) {
-      const updates = BillingAutomationService.buildStreamUpdates(account, 'vendor', previousRemainingInvoiceEnd);
+    const deletedInvoiceEnd = addDaysAsDateOnly(deletedInvoice?.endDate, 0);
+
+    // ── Compute lastBillingDate (mirrors customer logic exactly) ──────────
+    let lastBillingDate = latestRemainingInvoiceStart
+      || (deletedInvoiceEnd
+        ? calculatePrevBillingDate(deletedInvoiceEnd, account.billingCycle || 'monthly')
+        : null)
+      || getInitialLastBillingDate(
+          account.billingCycle || 'monthly',
+          account.billingStartDate || account.createdAt || new Date(),
+        );
+
+    // If any invoice remains, always anchor to its startDate (same as customer).
+    if (latestRemainingInvoiceStart) {
+      lastBillingDate = latestRemainingInvoiceStart;
+    }
+
+    // ── Safety clamp: deletion must never move cursors forward ───────────
+    const currentLast = normalizeDateOnly(account.vendorLastBillingDate);
+    let wasClampedToCurrentLast = false;
+    if (lastBillingDate && currentLast && lastBillingDate > currentLast) {
+      lastBillingDate = currentLast;
+      wasClampedToCurrentLast = true;
+    }
+
+    if (!lastBillingDate) return;
+
+    // ── Apply updates (mirrors customer logic exactly) ────────────────────
+    // If a remaining invoice exists and we did NOT clamp, delegate to
+    // buildStreamUpdates with that invoice's endDate (same as customer).
+    // Otherwise fall back to explicit field assignment.
+    if (latestRemainingInvoiceStart && !wasClampedToCurrentLast) {
+      const updates = BillingAutomationService.buildStreamUpdates(
+        account,
+        'vendor',
+        latestRemainingInvoice.endDate,
+      );
       await account.update(updates, { transaction });
       return;
     }
 
-    if (billingSnapshot) {
+    // No remaining invoice or clamped: use billingStateSnapshot if available,
+    // otherwise compute from lastBillingDate.
+    const billingSnapshot = deletedInvoice?.billingStateSnapshot || null;
+    if (billingSnapshot && !latestRemainingInvoiceStart) {
       const snapshotUpdates = getBillingSnapshotUpdatePayload(billingSnapshot);
       await account.update(snapshotUpdates, { transaction });
       return;
     }
 
-    const deletedInvoiceEnd = addDaysAsDateOnly(deletedInvoice?.endDate, 0);
-    let lastBillingDate = previousRemainingInvoiceEnd
-      || (deletedInvoiceEnd
-        ? calculatePrevBillingDate(deletedInvoiceEnd, account.billingCycle || 'monthly')
-        : null)
-      || getInitialLastBillingDate(account.billingCycle || 'monthly', account.billingStartDate || account.createdAt || new Date());
+    const nextBillingDate = calculateNextBillingDate(
+      lastBillingDate,
+      account.billingCycle || 'monthly',
+    );
 
-    if (!lastBillingDate) {
-      return;
-    }
-
-    const nextBillingDate = calculateNextBillingDate(lastBillingDate, account.billingCycle || 'monthly');
-    const updates = {
-      vendorLastBillingDate: lastBillingDate,
-      vendorNextBillingDate: nextBillingDate,
-      lastbillingdate: lastBillingDate,
-      nextbillingdate: nextBillingDate,
-    };
-
-    await account.update(updates, { transaction });
+    await account.update(
+      {
+        vendorLastBillingDate: lastBillingDate,
+        vendorNextBillingDate: nextBillingDate,
+        lastbillingdate: lastBillingDate,
+        nextbillingdate: nextBillingDate,
+      },
+      { transaction },
+    );
   } catch (err) {
     console.error('recalcVendorBillingDatesAfterDelete:error', err);
     throw err;
@@ -228,11 +259,6 @@ const parsePaymentDate = (value) => {
   return date.getTime();
 };
 
-// BUG 7 FIX: wrap the sequence query + insert in a serialisable transaction so
-// that concurrent requests cannot read the same "last" sequence before either
-// has committed, which caused duplicate paymentNumber values and a unique
-// constraint error.  Using SELECT … FOR UPDATE via a dedicated transaction
-// with SERIALIZABLE isolation prevents the race.
 const generatePaymentNumber = async () => {
   const year = new Date().getFullYear();
   const month = String(new Date().getMonth() + 1).padStart(2, '0');
@@ -262,7 +288,6 @@ const generatePaymentNumber = async () => {
 
 /**
  * Helper: Fetch vendor usage from CDRs for a given billing period
- * Returns the total cost for the vendor in the specified period
  */
 const fetchVendorUsage = async (account, startDate, endDate) => {
   try {
@@ -359,16 +384,11 @@ const fetchVendorUsage = async (account, startDate, endDate) => {
 };
 
 const resolveVendorAccount = async ({ vendorId, vendorCode }, transaction = null) => {
-  // vendorId may sometimes contain a vendorCode string (e.g. "ACC4510").
-  // Safely handle numeric IDs and fall back to vendorCode lookup when
-  // vendorId is not a parseable integer.
   if (vendorId != null) {
     const numericId = Number(vendorId);
     if (!Number.isNaN(numericId) && Number.isInteger(numericId)) {
       return Account.findByPk(numericId, transaction ? { transaction } : undefined);
     }
-
-    // vendorId is present but not numeric -> treat it as vendorCode
     return Account.findOne({ where: { vendorCode: String(vendorId) }, ...(transaction ? { transaction } : {}) });
   }
 
@@ -506,7 +526,10 @@ exports.createVendorInvoice = async (req, res) => {
 
     let finalVendorId = vendorId;
     let finalVendorCode = vendorCode;
-    const account = await resolveVendorAccount({ vendorId: finalVendorId, vendorCode: normalizedVendorCode || finalVendorCode }, transaction);
+    const account = await resolveVendorAccount(
+      { vendorId: finalVendorId, vendorCode: normalizedVendorCode || finalVendorCode },
+      transaction,
+    );
 
     if (!account) {
       await transaction.rollback();
@@ -541,7 +564,11 @@ exports.createVendorInvoice = async (req, res) => {
     const actualUsage = await fetchVendorUsage(account, startDate, endDate);
     const usageComparison = buildUsageComparison(grandTotal, actualUsage.totalCost);
 
-    if (usageComparison.mismatchDetected && usageComparison.canRaiseDispute && !['without_dispute', 'raise_dispute'].includes(String(disputeAction || '').trim())) {
+    if (
+      usageComparison.mismatchDetected &&
+      usageComparison.canRaiseDispute &&
+      !['without_dispute', 'raise_dispute'].includes(String(disputeAction || '').trim())
+    ) {
       await transaction.rollback();
       await cleanupUploadedFiles(uploadedFiles);
       return res.status(409).json({
@@ -552,11 +579,13 @@ exports.createVendorInvoice = async (req, res) => {
       });
     }
 
-    const shouldRaiseDispute = usageComparison.mismatchDetected
-      && usageComparison.canRaiseDispute
-      && String(disputeAction).trim() === 'raise_dispute';
+    const shouldRaiseDispute =
+      usageComparison.mismatchDetected &&
+      usageComparison.canRaiseDispute &&
+      String(disputeAction).trim() === 'raise_dispute';
 
-    const disputedPercentage = Number.parseFloat(String(usageComparison.percentageDiff || '0').replace('%', '')) || 0;
+    const disputedPercentage =
+      Number.parseFloat(String(usageComparison.percentageDiff || '0').replace('%', '')) || 0;
     const disputeDetails = shouldRaiseDispute
       ? {
           actualAmount: usageComparison.actualUsage,
@@ -565,22 +594,29 @@ exports.createVendorInvoice = async (req, res) => {
         }
       : null;
 
-    const invoice = await VendorInvoice.create({
-      vendorId: finalVendorId,
-      vendorCode: finalVendorCode,
-      invoiceNumber: normalizedInvoiceNumber,
-      issueDate: normalizedIssueDate,
-      startDate: normalizedStartDate,
-      endDate: normalizedEndDate,
-      grandTotal: normalizedGrandTotal,
-      currency: normalizedCurrency,
-      totalSeconds: normalizedTotalSeconds,
-      filePaths: JSON.stringify(filePaths),
-      status: shouldRaiseDispute ? 'disputed' : 'pending',
-      disputeDetails,
-      billingStateSnapshot: getBillingDateSnapshot(account),
-    }, { transaction });
+    const invoice = await VendorInvoice.create(
+      {
+        vendorId: finalVendorId,
+        vendorCode: finalVendorCode,
+        invoiceNumber: normalizedInvoiceNumber,
+        issueDate: normalizedIssueDate,
+        startDate: normalizedStartDate,
+        endDate: normalizedEndDate,
+        grandTotal: normalizedGrandTotal,
+        currency: normalizedCurrency,
+        totalSeconds: normalizedTotalSeconds,
+        filePaths: JSON.stringify(filePaths),
+        status: shouldRaiseDispute ? 'disputed' : 'pending',
+        disputeDetails,
+        // Store current billing state so deletion can restore it if no
+        // remaining invoices exist (same safety net as customer logic).
+        billingStateSnapshot: getBillingDateSnapshot(account),
+      },
+      { transaction },
+    );
 
+    // Update vendor billing dates using the invoice endDate — mirrors how
+    // customer billing dates are updated on invoice creation.
     await account.update(buildVendorBillingUpdates(account, normalizedEndDate), { transaction });
 
     await transaction.commit();
@@ -915,8 +951,6 @@ exports.updateVendorInvoice = async (req, res) => {
       endDate: payload.endDate || invoice.endDate,
       currency: payload.currency || invoice.currency,
       grandTotal: payload.grandTotal != null ? Number(payload.grandTotal) : Number(invoice.grandTotal),
-      // BUG 6 FIX: floor to integer before validation so that "3600.0" is
-      // accepted rather than rejected with a confusing type error.
       totalSeconds: payload.totalSeconds != null ? Math.floor(Number(payload.totalSeconds)) : Math.floor(Number(invoice.totalSeconds)),
     };
 
@@ -1077,28 +1111,31 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
       ? `${notes}${normalizedCreditNoteAmount > 0 ? ` | Credit note applied: ${normalizedCreditNoteAmount.toFixed(2)}` : ''}`
       : `Vendor payment for invoice ${invoice.invoiceNumber}${normalizedCreditNoteAmount > 0 ? ` (Credit note: ${normalizedCreditNoteAmount.toFixed(2)})` : ''}`;
 
-    await Payment.create({
-      paymentNumber,
-      receiptNumber: `VND-${paymentNumber.split('-').slice(1).join('-')}`,
-      customerGatewayId: account?.gatewayId || invoice.vendorCode || String(invoice.vendorId || invoice.id),
-      customerCode: invoice.vendorCode,
-      customerName: account?.accountName || invoice.vendorCode,
-      partyType: 'vendor',
-      paymentDirection: 'outbound',
-      amount: payableAmount,
-      currency: invoice.currency || account?.currency || 'USD',
-      paymentDate: normalizedPaymentDate,
-      paymentMethod,
-      transactionId: transactionId || `VENDOR-PAY-${invoice.invoiceNumber}`,
-      referenceNumber: referenceNumber || invoice.invoiceNumber,
-      allocatedAmount: payableAmount,
-      unappliedAmount: 0,
-      creditNoteAmount: parseFloat(normalizedCreditNoteAmount.toFixed(2)),
-      notes: computedNotes,
-      vendorInvoiceId: invoice.id,
-      recordedBy: req.user?.id || null,
-      recordedDate: Date.now(),
-    }, { transaction });
+    await Payment.create(
+      {
+        paymentNumber,
+        receiptNumber: `VND-${paymentNumber.split('-').slice(1).join('-')}`,
+        customerGatewayId: account?.gatewayId || invoice.vendorCode || String(invoice.vendorId || invoice.id),
+        customerCode: invoice.vendorCode,
+        customerName: account?.accountName || invoice.vendorCode,
+        partyType: 'vendor',
+        paymentDirection: 'outbound',
+        amount: payableAmount,
+        currency: invoice.currency || account?.currency || 'USD',
+        paymentDate: normalizedPaymentDate,
+        paymentMethod,
+        transactionId: transactionId || `VENDOR-PAY-${invoice.invoiceNumber}`,
+        referenceNumber: referenceNumber || invoice.invoiceNumber,
+        allocatedAmount: payableAmount,
+        unappliedAmount: 0,
+        creditNoteAmount: parseFloat(normalizedCreditNoteAmount.toFixed(2)),
+        notes: computedNotes,
+        vendorInvoiceId: invoice.id,
+        recordedBy: req.user?.id || null,
+        recordedDate: Date.now(),
+      },
+      { transaction },
+    );
 
     await transaction.commit();
 
@@ -1118,7 +1155,6 @@ exports.updateVendorInvoiceStatus = async (req, res) => {
   }
 };
 
-
 /* ===================== DELETE VENDOR INVOICE ===================== */
 exports.deleteVendorInvoice = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -1127,8 +1163,6 @@ exports.deleteVendorInvoice = async (req, res) => {
     const invoice = await VendorInvoice.findByPk(id, { transaction });
 
     if (!invoice) {
-      // BUG 3 FIX: always rollback the open transaction before returning,
-      // otherwise the connection is leaked.
       await transaction.rollback();
       return res.status(404).json({ message: 'Vendor invoice not found' });
     }
@@ -1148,25 +1182,23 @@ exports.deleteVendorInvoice = async (req, res) => {
       transaction,
     });
 
-    // BUG 5 FIX: use the centralised parseStoredFilePaths helper so that
-    // comma-separated paths (not just JSON arrays) are handled consistently.
     const filePaths = parseStoredFilePaths(invoice.filePaths);
     if (filePaths.length > 0) {
       await Promise.allSettled(filePaths.map((filePath) => removeFileSafe(filePath)));
     }
 
     await invoice.destroy({ transaction });
+
+    // Recalculate vendor billing dates using the corrected logic that mirrors
+    // the customer billing date recalculation in BillingController.js.
     await recalculateVendorBillingDatesAfterDelete(account, invoice, transaction);
 
-    // BUG 4 FIX: reload account WITHOUT a transaction — the transaction has not
-    // been committed yet here, but passing the committed handle would throw in
-    // some Sequelize versions.  More importantly the reload must happen AFTER
-    // commit so it reflects the persisted state.
     await transaction.commit();
 
+    // Reload AFTER commit so the read reflects the persisted state.
     let billingDatesAfter = null;
     if (account) {
-      await account.reload(); // no transaction — reads committed state
+      await account.reload();
       billingDatesAfter = getBillingDateSnapshot(account);
     }
 

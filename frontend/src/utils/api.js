@@ -648,6 +648,23 @@ export const fetchAccountExposure = async (params = {}) => {
   }
 };
 
+export const fetchAllAccountExposure = async ({ startDate, endDate, page = 1, limit = 10 } = {}) => {
+  try {
+    const params = new URLSearchParams();
+    if (startDate) params.set('startDate', startDate);
+    if (endDate)   params.set('endDate', endDate);
+    params.set('page',  String(page));
+    params.set('limit', String(limit));
+
+    return await fetchWithTokenRefresh(
+      `${API_BASE_URL}/reports/account-exposure/all?${params.toString()}`
+    );
+  } catch (error) {
+    console.error('Error fetching all account exposure:', error);
+    throw error;
+  }
+};
+
 // Billing APIs
 export const fetchInvoices = async (params = {}) => {
   try {

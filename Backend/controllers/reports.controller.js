@@ -1334,7 +1334,6 @@ exports.getReportAccounts = async (req, res) => {
         'customerauthenticationValue',
         'billingType',
         'balance',
-        'creditLimit',
         'originalCreditLimit',
         'createdAt',
         'trunks',
@@ -1522,6 +1521,145 @@ exports.getAccountExposure = async (req, res) => {
   } catch (error) {
     console.error('Get Account Exposure Error:', error);
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/* ===================== ALL ACCOUNTS EXPOSURE (PAGINATED) ===================== */
+exports.getAllAccountExposure = async (req, res) => {
+  try {
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
+
+    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+      return res.status(400).json({ success: false, error: 'Start date cannot be after end date' });
+    }
+
+    const startTs = startDate ? Number(formatTime(startDate, 0, 0)) : 0;
+    const endTs   = endDate   ? Number(formatTime(endDate, 23, 59, true)) : Date.now();
+
+    if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) {
+      return res.status(400).json({ success: false, error: 'Invalid date range' });
+    }
+
+    const timeRangeLiteral = sequelize.literal(
+      `CASE WHEN "CDR"."starttime"::text ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END BETWEEN ${startTs} AND ${endTs}`
+    );
+
+    // 1. Fetch all active accounts (lightweight — only what we need)
+    const allAccounts = await Account.findAll({
+      where: { active: true },
+      attributes: [
+        'id', 'accountId', 'accountName', 'accountRole',
+        'customerCode', 'vendorCode', 'gatewayId',
+        'customerauthenticationType', 'customerauthenticationValue',
+        'vendorauthenticationType', 'vendorauthenticationValue',
+      ],
+      order: [['accountName', 'ASC']],
+      raw: true,
+    });
+
+    const total      = allAccounts.length;
+    const parsedPage = Math.max(1, Number(page));
+    const parsedLimit = Math.min(50, Math.max(1, Number(limit))); // cap at 50
+    const totalPages = Math.ceil(total / parsedLimit);
+    const offset     = (parsedPage - 1) * parsedLimit;
+    const slice      = allAccounts.slice(offset, offset + parsedLimit);
+
+    // 2. Reusable aggregator (same as single-account endpoint)
+    const aggregateSide = async (conditions) => {
+      if (!conditions || conditions.length === 0) {
+        return { attempts: 0, completed: 0, failed: 0, duration: 0, revenue: 0, cost: 0 };
+      }
+      const row = await CDR.findOne({
+        attributes: [
+          [fn('COUNT', col('*')),        'attempts'],
+          [fn('SUM', H.completedCall),   'completed'],
+          [fn('SUM', H.failedCall),      'failed'],
+          [fn('SUM', H.durationSec),     'duration'],
+          [fn('SUM', H.revenue),         'revenue'],
+          [fn('SUM', H.cost),            'cost'],
+        ],
+        where: {
+          [Op.and]: [timeRangeLiteral, { [Op.or]: conditions }]
+        },
+        raw: true,
+      });
+      return {
+        attempts:  Number(row?.attempts  || 0),
+        completed: Number(row?.completed || 0),
+        failed:    Number(row?.failed    || 0),
+        duration:  Number(row?.duration  || 0),
+        revenue:   Number(row?.revenue   || 0),
+        cost:      Number(row?.cost      || 0),
+      };
+    };
+
+    // 3. Run all 10 accounts in parallel
+    const results = await Promise.all(
+      slice.map(async (account) => {
+        try {
+          const includeCustomer = ['customer', 'both'].includes(account.accountRole);
+          const includeVendor   = ['vendor',   'both'].includes(account.accountRole);
+
+          const customerConditions = includeCustomer ? buildAccountConditions(account, false) : [];
+          const vendorConditions   = includeVendor   ? buildAccountConditions(account, true)  : [];
+
+          const [customerAgg, vendorAgg] = await Promise.all([
+            aggregateSide(customerConditions),
+            aggregateSide(vendorConditions),
+          ]);
+
+          const customerExpense = customerAgg.revenue;
+          const vendorExpense   = vendorAgg.cost;
+          const netAmount       = customerExpense - vendorExpense;
+          const diff            = Math.abs(netAmount);
+
+          return {
+            accountName:      account.accountName,
+            accountRole:      account.accountRole,
+            customerExpense:  parseFloat(customerExpense.toFixed(4)),
+            vendorExpense:    parseFloat(vendorExpense.toFixed(4)),
+            totalReceivable:  netAmount > 0 ? parseFloat(diff.toFixed(4)) : 0,
+            totalPayable:     netAmount < 0 ? parseFloat(diff.toFixed(4)) : 0,
+            netAmount:        parseFloat(diff.toFixed(4)),
+            netPosition:      netAmount > 0 ? 'receivable' : netAmount < 0 ? 'payable' : 'balanced',
+          };
+        } catch (err) {
+          console.error(`Exposure error for account ${account.accountName}:`, err.message);
+          // Don't fail the whole page — return a zeroed error row
+          return {
+            accountName:     account.accountName,
+            accountRole:     account.accountRole,
+            customerExpense: 0,
+            vendorExpense:   0,
+            totalReceivable: 0,
+            totalPayable:    0,
+            netAmount:       0,
+            netPosition:     'balanced',
+            error:           true,
+          };
+        }
+      })
+    );
+
+    return res.json({
+      success: true,
+      data: results,
+      pagination: {
+        total,
+        page:       parsedPage,
+        limit:      parsedLimit,
+        totalPages,
+      },
+      dateRange: {
+        startDate: startDate || null,
+        endDate:   endDate   || null,
+      },
+      generatedAt: Date.now(),
+    });
+
+  } catch (e) {
+    console.error('Get All Account Exposure Error:', e);
+    res.status(500).json({ success: false, error: e.message });
   }
 };
 

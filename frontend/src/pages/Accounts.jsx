@@ -54,6 +54,7 @@ import {
   fetchUsers,
 } from "../utils/api";
 import { useAuth } from "../context/AuthContext";
+import { FiDollarSign } from "react-icons/fi";
 
 const Accounts = () => {
   const DEFAULT_CDR_STATS = {
@@ -120,7 +121,6 @@ const Accounts = () => {
     // Financial
     currency: "USD",
     nominalCode: "",
-    creditLimit: 10000.0,
     balance: 0.0,
     outstandingAmount: 0.0,
 
@@ -362,7 +362,6 @@ const Accounts = () => {
       // Financial
       currency: "USD",
       nominalCode: "",
-      creditLimit: 10000.0,
       balance: 0.0,
       outstandingAmount: 0.0,
 
@@ -419,16 +418,6 @@ const Accounts = () => {
   };
 
   const handleTopup = (customer) => {
-    if (customer.billingType !== "prepaid") {
-      toast({
-        title: "Not applicable",
-        description: "Topup is only available for prepaid accounts",
-        status: "warning",
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
     setSelectedAccountForTopup(customer);
     setIsTopupModalOpen(true);
   };
@@ -583,16 +572,13 @@ const Accounts = () => {
   ];
 
   // Function to determine row background color based on credit limit status
-  const getRowBg = (row) => {
-    if (!row) return 'transparent';
-    const balance = parseFloat(row.balance || 0);
-    const creditLimit = parseFloat(row.creditLimit || 0);
-    // If balance has reached or exceeded credit limit (negative balance or equal to limit)
-    if (balance <= -creditLimit && creditLimit > 0) {
-      return 'red.50';
-    }
-    return 'transparent';
-  };
+ const getRowBg = (row) => {
+  if (!row) return 'transparent';
+  const balance = parseFloat(row.balance || 0);
+  const originalCreditLimit = parseFloat(row.originalCreditLimit || 0);
+  if (balance <= -originalCreditLimit && originalCreditLimit > 0) return 'red.50';
+  return 'transparent';
+};
 
   const columns = [
     {
@@ -610,18 +596,35 @@ const Accounts = () => {
       },
     },
     {
-      key: "accountRole",
-      header: "Account Type",
-      minWidth: "100px",
-      render: (value) => {
-        const role = accountRoleOptions.find((r) => r.value === value);
-        return (
-          <Badge colorScheme={role?.color || "gray"}>
-            {role?.label || value}
-          </Badge>
-        );
-      },
-    },
+  key: "accountRole",
+  header: "Account Type",
+  minWidth: "100px",
+  render: (value) => {
+    const role = accountRoleOptions.find((r) => r.value === value);
+
+    return (
+      <Badge
+        borderRadius="full"
+        px="8px"
+        py="2px"
+        fontWeight="500"
+        fontSize="11px"
+        colorScheme={
+          value === "customer"
+            ? "green"
+            : value === "vendor"
+              ? "blue"
+              : value === "both"
+                ? "purple"
+                : "gray"
+        }
+        // textTransform="none"
+      >
+        {role?.label || value || "-"}
+      </Badge>
+    );
+  },
+},
     {
       key: "accountName",
       header: "Account Name",
@@ -633,12 +636,20 @@ const Accounts = () => {
           </Text>
           <HStack spacing={1} mt={1}>
             {row.customerCode && (
-              <Badge fontSize="xs" colorScheme="black" variant="outline">
+              <Badge  borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px">
                 {row.customerCode}
               </Badge>
             )}
             {row.vendorCode && (
-              <Badge fontSize="xs" colorScheme="black" variant="outline">
+              <Badge  borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px">
                 {row.vendorCode}
               </Badge>
             )}
@@ -672,10 +683,14 @@ const Accounts = () => {
         const billing = billingTypeOptions.find((b) => b.value === value);
         return (
           <Badge
-            borderRadius={"full"}
-            px={2}
+            borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px"
             colorScheme={billing?.color || "gray"}
             variant="subtle"
+            // textTransform="none"
           >
             {billing?.label || "-"}
           </Badge>
@@ -685,7 +700,7 @@ const Accounts = () => {
     {
       key: "balance",
       header: "Balance",
-      // minWidth: "110px",
+      minWidth: "110px",
       isNumeric: true,
       render: (value) => (
         <Text
@@ -697,21 +712,21 @@ const Accounts = () => {
         </Text>
       ),
     },
-    {
-      key: "creditLimit",
-      header: "Credit Limit",
-      minWidth: "120px",
-      isNumeric: true,
-      render: (value) => (
-        <Text
-          fontWeight="medium"
-          textAlign="right"
-          color={parseFloat(value) < 0 ? "red.600" : "green.600"}
-        >
-          ${parseFloat(value).toFixed(2)}
-        </Text>
-      ),
-    },
+    // {
+    //   key: "creditLimit",
+    //   header: "Credit Limit",
+    //   minWidth: "120px",
+    //   isNumeric: true,
+    //   render: (value) => (
+    //     <Text
+    //       fontWeight="medium"
+    //       textAlign="right"
+    //       color={parseFloat(value) < 0 ? "red.600" : "green.600"}
+    //     >
+    //       ${parseFloat(value).toFixed(2)}
+    //     </Text>
+    //   ),
+    // },
     {
       key: "lastbillingdate",
       header: "Last Billing",
@@ -1045,21 +1060,19 @@ const Accounts = () => {
               setPage(1);
             }}
             isPaginationDisabled={loading}
-            // render a topup button beside the three‑dot menu when the account is
-            // prepaid; this keeps both actions in the same column
+            // render a topup button beside the three‑dot menu for any account
+            // so balance topups work for both prepaid and postpaid customers
             rowActions={(row) =>
-              row.billingType === "prepaid" ? (
-                <Button
-                  size="xs"
-                  colorScheme="green"
-                  variant="ghost"
-                  leftIcon={<FiArrowUp />}
-                  onClick={() => handleTopup(row)}
-                  mr={2}
-                >
-                  Topup
-                </Button>
-              ) : null
+              <Button
+                size="xs"
+                colorScheme="green"
+                variant="ghost"
+                leftIcon={<FiDollarSign/>}
+                onClick={() => handleTopup(row)}
+                mr={0}
+              >
+                TopUp
+              </Button>
             }
             striped={true}
             height="calc(100vh - 350px)"

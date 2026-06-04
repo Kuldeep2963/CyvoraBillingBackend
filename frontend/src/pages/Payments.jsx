@@ -248,10 +248,21 @@ const Payments = () => {
       render: (_, row) => {
         const flow = getPaymentFlowMeta(row);
         return (
-          <Badge px={2} borderRadius={"full"} py={0.5} colorScheme={flow.colorScheme} variant="subtle" textTransform="capitalize" display="inline-flex" alignItems="center" gap={1}>
-            <Box as={flow.icon} />
-            {flow.label}
-          </Badge>
+          <Badge
+  borderRadius="full"
+  px="8px"
+  py="2px"
+  mt={2}
+  display="inline-flex"
+  alignItems="center"
+  gap={1}
+  fontWeight="500"
+  fontSize="11px"
+  colorScheme={flow.colorScheme}
+>
+  <Box as={flow.icon} boxSize="12px" />
+  {flow.label}
+</Badge>
         );
       },
     },
@@ -302,8 +313,15 @@ const Payments = () => {
       key: "paymentMethod",
       render: (value) => (
         <Badge
-          variant="ghost"
-          colorScheme="blue"
+           borderRadius="full"
+  px="8px"
+  py="2px"
+  mt={2}
+  display="inline-flex"
+  alignItems="center"
+  gap={1}
+  fontWeight="500"
+  fontSize="11px" 
           textTransform="capitalize"
         >
           {value?.replace("_", " ")}
@@ -337,13 +355,15 @@ const Payments = () => {
           {allocations && allocations.length > 0 ? (
             allocations.map((alloc, idx) => (
               <Badge
-                px={2}
-                py={0.5}
                 borderRadius="full"
-                key={idx}
-                colorScheme="blue"
-                variant="subtle"
-                fontSize="xs"
+  px="8px"
+  py="2px"
+  mt={2}
+  display="inline-flex"
+  alignItems="center"
+  gap={1}
+  fontWeight="500"
+  fontSize="11px"
               >
                 {alloc.invoice?.invoiceNumber || alloc.invoiceNumber}
               </Badge>
@@ -458,8 +478,6 @@ const Payments = () => {
 
         {/* Data Table */}
         <DataTable
-          m = {2}
-          mt = {0}
           columns={columns}
           data={payments}
           onView={handleViewDetails}

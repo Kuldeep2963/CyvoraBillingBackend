@@ -138,7 +138,7 @@ export default function Disputes() {
         key: "invoiceNumber",
         header: "Invoice #",
         minWidth: "150px",
-        render: (value) => <Text fontWeight="600">{value}</Text>,
+        render: (value) => <Text fontWeight="500" color="blue.700">{value}</Text>,
       },
       {
         key: "vendorCode",
@@ -168,16 +168,25 @@ export default function Disputes() {
         header: "Amount",
         minWidth: "120px",
         isNumeric: true,
-        render: (value) => <Text textAlign="right">${formatAmount(value)}</Text>,
+        render: (value) => <Text textAlign="right" color="green.700">${formatAmount(value)}</Text>,
       },
      
-      {
-        key: "status",
-        header: "Status",
-        minWidth: "120px",
-        justifyContent: "center",
-        render: (value) => <Badge colorScheme={statusColor(value)}>{value || "pending"}</Badge>,
-      },
+      // {
+      //   key: "status",
+      //   header: "Status",
+      //   minWidth: "120px",
+      //   justifyContent: "center",
+      //   render: (value) => <Badge borderRadius="full"
+      //   px="8px"
+      //   py="2px"
+      //   mt={2}
+      //   fontWeight="500"
+      //   fontSize="11px"
+      //   colorScheme={statusColor(value)}
+      //   >
+      //     {value || "-"}
+      //   </Badge>,
+      // },
       {
         key: "dispute",
         header: "Dispute",
@@ -187,8 +196,22 @@ export default function Disputes() {
           const disputedAmount = Number(details.disputedAmount || 0);
           const disputedPercentage = Number(details.disputedPercentage || 0);
           return (
-            <Text fontSize="sm" color="red.600" fontWeight="600">
-              ${formatAmount(disputedAmount)} ({disputedPercentage.toFixed(2)}%)
+            <Text fontSize="sm" color="red.600" fontWeight="500">
+              ${formatAmount(disputedAmount)} 
+            </Text>
+          );
+        },
+      },
+      {
+        key: "disputedPercentage",
+        header: "Disputed %",
+        minWidth: "120px",
+        render: (_, row) => {
+          const details = row.disputeDetails || {};
+          const disputedPercentage = Number(details.disputedPercentage || 0);
+          return (
+            <Text fontSize="sm" color="red.600" fontWeight="500">
+              {disputedPercentage.toFixed(2)}%
             </Text>
           );
         },
@@ -228,7 +251,6 @@ export default function Disputes() {
       <DataTable
   columns={columns}
   data={rows}
-  actions
   onView={(row) => setSelectedRow(row)}
   serverPagination
   page={page}
@@ -279,7 +301,7 @@ export default function Disputes() {
                   </Box>
                   <Box>
                     <Text fontSize="xs" color="gray.500">Status</Text>
-                    <Badge colorScheme={statusColor(selectedRow.status)}>{selectedRow.status || "pending"}</Badge>
+                    <Badge borderRadius="full" px="8px" py="2px" mt={2} fontWeight="500" fontSize="11px" colorScheme={statusColor(selectedRow.status)}>{selectedRow.status || "pending"}</Badge>
                   </Box>
                   <Box>
                     <Text fontSize="xs" color="gray.500">Period</Text>

@@ -302,15 +302,13 @@ const syncDirectionalBillingDates = (data, existingAccount = null) => {
 };
 
 const applyBillingTypeAdjustments = (data) => {
-  if (data.billingType === 'prepaid') {
-    data.creditLimit = 0;
-    data.originalCreditLimit = 0;
-  } else if (data.billingType === 'postpaid') {
-    if (data.creditLimit != null) {
-      data.originalCreditLimit = data.creditLimit;
-    }
-    data.balance = 0;
-  }
+  // REMOVE creditLimit logic, keep only originalCreditLimit
+if (data.billingType === 'prepaid') {
+  data.originalCreditLimit = 0;
+} else if (data.billingType === 'postpaid') {
+  const limit = Number(data.originalCreditLimit ?? 0);
+  data.originalCreditLimit = limit;
+}
 
   return syncDirectionalBillingDates(data);
 };
@@ -344,9 +342,7 @@ router.get('/stats/summary', async (req, res) => {
       attributes: [
         'accountRole',
         [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
-        [sequelize.fn('SUM', sequelize.col('balance')), 'totalBalance'],
-        [sequelize.fn('SUM', sequelize.col('creditLimit')), 'totalCreditLimit']
-      ],
+        [sequelize.fn('SUM', sequelize.col('balance')), 'totalBalance'],      ],
       group: ['accountRole']
     });
 
@@ -400,7 +396,6 @@ router.get('/search/autocomplete', async (req, res) => {
         'vendorCode',
         'email',
         'phone',
-        'gatewayId'
       ],
       order: [['accountName', 'ASC']]
     });
@@ -882,21 +877,22 @@ router.put('/:id', async (req, res) => {
       if (updates.billingType === 'prepaid') {
         updates.creditLimit = 0;
         updates.originalCreditLimit = 0;
-        // maybe keep existing balance
       } else if (updates.billingType === 'postpaid') {
-        updates.balance = 0;
-        if (updates.creditLimit != null) {
-          updates.originalCreditLimit = updates.creditLimit;
-        } else {
-          // if no new limit supplied, keep old-credit as original
-          updates.originalCreditLimit = account.creditLimit;
-        }
+        const nextLimit = Number(
+          updates.originalCreditLimit ?? updates.creditLimit ?? account.originalCreditLimit ?? account.creditLimit ?? 0,
+        );
+        updates.originalCreditLimit = nextLimit;
       }
     }
 
-    // otherwise just update originalCreditLimit when limit changes on postpaid
-    if (updates.creditLimit != null && account.billingType === 'postpaid') {
-      updates.originalCreditLimit = updates.creditLimit;
+    // keep postpaid credit limit and original credit limit mirrored
+    if (account.billingType === 'postpaid') {
+      const nextLimit = Number(
+        updates.originalCreditLimit ?? updates.creditLimit ?? account.originalCreditLimit ?? account.creditLimit ?? 0,
+      );
+      if (updates.originalCreditLimit != null || updates.creditLimit != null || updates.billingType === 'postpaid') {
+        updates.originalCreditLimit = nextLimit;
+      }
     }
 
     // recalc nextBilling if last or cycle changed

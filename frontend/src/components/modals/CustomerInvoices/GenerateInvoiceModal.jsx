@@ -22,7 +22,10 @@ import {
   AlertDescription,
 } from "@chakra-ui/react";
 import { FiFileText } from "react-icons/fi";
-import { MemoizedInput as Input, MemoizedSelect as Select } from "../../memoizedinput/memoizedinput";
+import {
+  MemoizedInput as Input,
+  MemoizedSelect as Select,
+} from "../../memoizedinput/memoizedinput";
 import {
   calculateNextBillingDate,
   currentBillingPeriodWindow,
@@ -34,7 +37,10 @@ const pad2 = (value) => String(value).padStart(2, "0");
 const toLocalDateInputValue = (value) => {
   if (!value) return "";
 
-  const source = value instanceof Date ? value : new Date(String(value).slice(0, 10) + "T00:00:00");
+  const source =
+    value instanceof Date
+      ? value
+      : new Date(String(value).slice(0, 10) + "T00:00:00");
   if (Number.isNaN(source.getTime())) return "";
 
   return `${source.getFullYear()}-${pad2(source.getMonth() + 1)}-${pad2(source.getDate())}`;
@@ -61,7 +67,10 @@ const GenerateInvoiceModal = ({
       "";
 
     if (customerLastBillingDate) {
-      const window = currentBillingPeriodWindow(customerLastBillingDate, billingCycle);
+      const window = currentBillingPeriodWindow(
+        customerLastBillingDate,
+        billingCycle,
+      );
       return {
         periodStart: window.periodStart || "",
         periodEnd: window.periodEnd || "",
@@ -71,9 +80,14 @@ const GenerateInvoiceModal = ({
     if (customerNextBillingDate) {
       const fallbackLastBillingDate = getAutoLastBillingDate(
         billingCycle,
-        selectedAccount?.billingStartDate || selectedAccount?.createdAt || new Date(),
+        selectedAccount?.billingStartDate ||
+          selectedAccount?.createdAt ||
+          new Date(),
       );
-      const window = currentBillingPeriodWindow(fallbackLastBillingDate, billingCycle);
+      const window = currentBillingPeriodWindow(
+        fallbackLastBillingDate,
+        billingCycle,
+      );
       return {
         periodStart: window.periodStart || "",
         periodEnd: window.periodEnd || customerNextBillingDate,
@@ -84,20 +98,26 @@ const GenerateInvoiceModal = ({
       selectedAccount?.billingStartDate ||
       selectedAccount?.createdAt ||
       new Date();
-    const fallbackLastBillingDate = getAutoLastBillingDate(billingCycle, referenceDate);
-    const window = currentBillingPeriodWindow(fallbackLastBillingDate, billingCycle);
+    const fallbackLastBillingDate = getAutoLastBillingDate(
+      billingCycle,
+      referenceDate,
+    );
+    const window = currentBillingPeriodWindow(
+      fallbackLastBillingDate,
+      billingCycle,
+    );
     return {
       periodStart: window.periodStart || "",
-      periodEnd: window.periodEnd || calculateNextBillingDate(fallbackLastBillingDate, billingCycle) || "",
+      periodEnd:
+        window.periodEnd ||
+        calculateNextBillingDate(fallbackLastBillingDate, billingCycle) ||
+        "",
     };
   };
 
   const getAccountSelectionValue = (account) => {
     return String(
-      account.gatewayId ||
-      account.customerCode ||
-      account.accountId ||
-      ""
+      account.gatewayId || account.customerCode || account.accountId || "",
     );
   };
 
@@ -106,7 +126,9 @@ const GenerateInvoiceModal = ({
 
     return customers.find((account) => {
       // Only show customers
-      if (!(account.accountRole === "customer" || account.accountRole === "both")) {
+      if (
+        !(account.accountRole === "customer" || account.accountRole === "both")
+      ) {
         return false;
       }
       return getAccountSelectionValue(account) === normalizedSelectionValue;
@@ -126,7 +148,8 @@ const GenerateInvoiceModal = ({
       return;
     }
 
-    const { periodStart, periodEnd } = buildBillingPeriodValues(selectedAccount);
+    const { periodStart, periodEnd } =
+      buildBillingPeriodValues(selectedAccount);
 
     setGenerateForm((prev) => ({
       ...prev,
@@ -155,17 +178,33 @@ const GenerateInvoiceModal = ({
       ...prev,
       ...nextValues,
     }));
-  }, [customers, generateForm.customerId, generateForm.periodStart, generateForm.periodEnd, setGenerateForm]);
+  }, [
+    customers,
+    generateForm.customerId,
+    generateForm.periodStart,
+    generateForm.periodEnd,
+    setGenerateForm,
+  ]);
 
   // Validation helper: check if period end date is not greater than today
   const getTodayDate = () => toLocalDateInputValue(new Date());
-  const isEndDateInFuture = generateForm.periodEnd && generateForm.periodEnd > getTodayDate();
-  const isStartAfterEnd = generateForm.periodStart && generateForm.periodEnd && generateForm.periodStart > generateForm.periodEnd;
+  const isEndDateInFuture =
+    generateForm.periodEnd && generateForm.periodEnd > getTodayDate();
+  const isStartAfterEnd =
+    generateForm.periodStart &&
+    generateForm.periodEnd &&
+    generateForm.periodStart > generateForm.periodEnd;
   const hasDateError = isEndDateInFuture || isStartAfterEnd;
   const canSubmit = generateForm.customerId && !hasDateError && !isSubmitting;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside" closeOnOverlayClick={!isSubmitting}>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xl"
+      scrollBehavior="inside"
+      closeOnOverlayClick={!isSubmitting}
+    >
       <ModalOverlay />
       <ModalContent>
         <ModalHeader
@@ -195,7 +234,9 @@ const GenerateInvoiceModal = ({
               >
                 {customers
                   .filter((c) => {
-                    return c.accountRole === "customer" || c.accountRole === "both";
+                    return (
+                      c.accountRole === "customer" || c.accountRole === "both"
+                    );
                   })
                   .map((customer) => (
                     <option
@@ -203,8 +244,7 @@ const GenerateInvoiceModal = ({
                       value={getAccountSelectionValue(customer)}
                     >
                       {customer.accountName} (
-                      {customer.customerCode || customer.gatewayId}
-                      )
+                      {customer.customerCode || customer.gatewayId})
                     </option>
                   ))}
               </Select>
@@ -212,9 +252,7 @@ const GenerateInvoiceModal = ({
 
             {/* Billing Period */}
             <Box>
-              <FormLabel fontWeight={"bold"} color={"blue.700"}>
-                Billing Period
-              </FormLabel>
+              <FormLabel fontWeight={"bold"} color={"blue.700"}> Billing Period </FormLabel>
               <HStack spacing={4} align="flex-start">
                 <FormControl isRequired>
                   <Input
@@ -246,30 +284,39 @@ const GenerateInvoiceModal = ({
                   />
                 </FormControl>
               </HStack>
-              {isStartAfterEnd && (
-                <Alert status="error" mt={2} borderRadius="md" variant="subtle">
-                  <AlertIcon />
-                  <Box>
-                    {/* <AlertTitle fontSize="sm">Invalid Date Range</AlertTitle> */}
-                    <AlertDescription fontSize="xs">The end date must be greater then start date.</AlertDescription>
-                  </Box>
-                </Alert>
-              )}
-              {isEndDateInFuture && (
-                <Alert status="error" mt={2} borderRadius="md" variant="subtle">
-                  <AlertIcon />
-                  <Box>
-                    {/* <AlertTitle fontSize="sm">Future Date Not Allowed</AlertTitle> */}
-                    <AlertDescription fontSize="xs">The billing period end date cannot be greater than today.</AlertDescription>
-                  </Box>
-                </Alert>
+              {(isStartAfterEnd || isEndDateInFuture) && (
+                <Box
+                  mt={2}
+                  px={3}
+                  py={2}
+                  bg="red.50"
+                  borderRadius="md"
+                  border="1px solid"
+                  borderColor="red.200"
+                >
+                  {isStartAfterEnd && (
+                    <Text fontSize="sm" color="red.600">
+                      The end date must be greater than the start date.
+                    </Text>
+                  )}
+
+                  {isEndDateInFuture && (
+                    <Text fontSize="sm" color="red.600">
+                      The billing period end date cannot be later than today.
+                    </Text>
+                  )}
+                </Box>
               )}
             </Box>
-
           </VStack>
         </ModalBody>
         <ModalFooter borderTopWidth="1px">
-          <Button variant="outline" mr={3} onClick={onClose} isDisabled={isSubmitting}>
+          <Button
+            variant="outline"
+            mr={3}
+            onClick={onClose}
+            isDisabled={isSubmitting}
+          >
             Cancel
           </Button>
           <Button
