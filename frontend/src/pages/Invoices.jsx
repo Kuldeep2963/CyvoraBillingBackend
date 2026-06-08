@@ -1182,12 +1182,7 @@ const Invoices = () => {
       </Flex>
 
       {/* ── Table ───────────────────────────────────────────────────────────── */}
-      {isLoading ? (
-        <Box textAlign="center" py={10}>
-          <Spinner size="xl" color="blue.500" />
-          <Text>Loading invoices...</Text>
-        </Box>
-      ) : (
+      
         <DataTable
           columns={invoiceColumns}
           data={invoices}
@@ -1201,10 +1196,12 @@ const Invoices = () => {
             setPageSize(size);
             setPage(1);
           }}
+          isLoading={isLoading}
+          emptyMessage="No invoices found."
           striped
           height="calc(100vh - 240px)"
         />
-      )}
+      
 
       {/* ── Modals ──────────────────────────────────────────────────────────── */}
       <ViewInvoiceModal

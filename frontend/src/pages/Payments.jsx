@@ -478,6 +478,8 @@ const Payments = () => {
 
         {/* Data Table */}
         <DataTable
+          isLoading={isLoading}
+          emptyMessage={isLoading ? "Loading payments..." : "No payments found."}
           columns={columns}
           data={payments}
           onView={handleViewDetails}

@@ -15,17 +15,11 @@ const PENDING_IN_CHUNK_SIZE    = 1_000;
 const STARTUP_DELAY_MS         = 5_000;
 const MIN_POLL_GAP_MS          = 30_000;
 const SSH_TUNNEL_RESTART_DELAY = 5_000;
-const LIVE_POLL_DAYS_BACK      = 2;
 
-// ─── GLOBAL checkpoint key (no longer per-table)
-// ROOT CAUSE FIX: flowno is a single global sequence across ALL daily tables.
-// The softswitch splits rows into daily tables by call START TIME, not by
-// flowno order — so e_cdr_20260528 MIN flowno (1,058,034) can be LOWER than
-// e_cdr_20260527 MAX flowno (1,063,750). Using per-table checkpoints caused:
-//   1. The same flowno range being fetched from multiple tables.
-//   2. bulkInsertCDRs dedup failing silently (source_file mismatch) while
-//      the cursor still advanced — permanently losing rows.
-// One global checkpoint per sourceId solves both problems.
+// ─── Checkpoint key ───────────────────────────────────────────────────────────
+// flowno is a single CONTINUOUS global sequence across ALL daily tables.
+// e_cdr_YYYYMMDD(N) last flowno + 1 == e_cdr_YYYYMMDD(N+1) first flowno.
+// One global checkpoint per sourceId is sufficient and correct.
 const CHECKPOINT_KEY  = 'mysql_cdr_global_last_flowno';
 const FLOWNO_SQL_EXPR = 'CAST(flowno AS UNSIGNED)';
 
@@ -120,7 +114,6 @@ function mapRowToCDR(row, sourceTag, opts = {}) {
 }
 
 // ─── Checkpoint helpers ───────────────────────────────────────────────────────
-// Single global checkpoint — no tableName in the key.
 
 function toBigIntCheckpoint(value) {
   if (value === null || value === undefined) return 0n;
@@ -166,34 +159,58 @@ async function saveGlobalCheckpoint(sourceId, flowno) {
   await SystemSetting.upsert({ key, value: { flowno: flowno.toString() } });
 }
 
-// ─── Table name helpers ───────────────────────────────────────────────────────
+// ─── Table discovery ──────────────────────────────────────────────────────────
+// Returns all e_cdr_YYYYMMDD table names that exist in the DB, sorted
+// oldest-first (ascending by date suffix).
+// This is used instead of a fixed daysBack window — since flowno is a
+// continuous series, we simply need to find every table that has rows with
+// flowno > globalCursor, regardless of which calendar day it belongs to.
 
-function getUtcTableName(dayOffset = 0) {
-  const now     = new Date();
-  const utcDate = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() + dayOffset,
-  ));
-  const y = utcDate.getUTCFullYear();
-  const m = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(utcDate.getUTCDate()).padStart(2, '0');
-  return `e_cdr_${y}${m}${d}`;
+async function getOrderedCDRTables(pool) {
+  const [rows] = await pool.query(
+    `SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema = DATABASE()
+       AND table_name REGEXP '^e_cdr_[0-9]{8}$'
+     ORDER BY table_name ASC`   // alphabetical == chronological for YYYYMMDD
+  );
+  return rows.map(r => r.table_name || r.TABLE_NAME);
 }
 
-function getRecentTableNames(daysBack = LIVE_POLL_DAYS_BACK) {
-  // Oldest first so we process in chronological flowno order.
-  // e_cdr_20260527 (older, lower flownos) before e_cdr_20260528 (newer, higher flownos).
-  // This matters because the global cursor only moves forward — processing
-  // the older table first ensures its lower-flowno rows are not skipped by a
-  // cursor that was already advanced by the newer table.
-  return Array.from({ length: daysBack }, (_, i) => getUtcTableName(-(daysBack - 1 - i)));
+// Given the global cursor, find which tables could possibly contain
+// flowno > cursor by checking MAX(flowno) per table.
+// Tables whose MAX flowno <= cursor are fully consumed and skipped.
+// This avoids full-table scans on old tables every poll cycle.
+
+async function getActiveTables(pool, globalCursor) {
+  const allTables = await getOrderedCDRTables(pool);
+  if (!allTables.length) return [];
+
+  // Build a UNION query: SELECT 'tableName' AS t, MAX(CAST(flowno AS UNSIGNED)) AS mx FROM `tableName`
+  // Doing this in one round-trip is faster than N individual queries.
+  const unionSql = allTables
+    .map(t => `SELECT '${t}' AS t, MAX(${FLOWNO_SQL_EXPR}) AS mx FROM \`${t}\``)
+    .join(' UNION ALL ');
+
+  let maxRows;
+  try {
+    [maxRows] = await pool.query(unionSql);
+  } catch (err) {
+    // Fallback: if UNION fails (e.g. too many tables), include all tables.
+    console.warn(`[getActiveTables] UNION query failed, including all tables: ${err.message}`);
+    return allTables;
+  }
+
+  // Keep only tables where MAX(flowno) > globalCursor (i.e. they have unread rows).
+  const active = maxRows
+    .filter(r => r.mx !== null && BigInt(r.mx) > globalCursor)
+    .map(r => r.t);
+
+  // active is already in ascending (oldest-first) order because allTables is sorted.
+  return active;
 }
 
 // ─── Pending CDR helper ───────────────────────────────────────────────────────
-// FIX: pending_cdrs now stores (source_id, table_name, flowno) so Phase B
-// knows WHICH table to re-query.  The table_name is still meaningful here
-// because an ongoing call's CDR row lives in a specific daily table.
 
 async function queuePending(sourceId, tableName, flownos) {
   if (!flownos.length) return;
@@ -218,18 +235,7 @@ async function queuePending(sourceId, tableName, flownos) {
 }
 
 // ─── Bulk insert helper ───────────────────────────────────────────────────────
-// FIX: dedup check is on flowno ALONE (no source_file).
-//
-// Previously: where: { source_file: sourceTag, flowno: flownos }
-// Problem:    flowno X inserted from e_cdr_20260528 has source_file="id:e_cdr_20260528".
-//             When e_cdr_20260527 tries to insert the same flowno X, the findAll
-//             with source_file="id:e_cdr_20260527" finds nothing → dedup misses it →
-//             bulkCreate fires → DB unique constraint on flowno rejects silently →
-//             ignoreDuplicates swallows the error → cursor advances → ROW LOST.
-//
-// Fix:        Check existence by flowno only (globally unique across all tables).
-//             The source_file column is still written correctly per row for auditing,
-//             but it is not used for deduplication decisions.
+// Dedup by flowno only — flowno is globally unique across all daily tables.
 
 async function bulkInsertCDRs(mapped) {
   if (!mapped.length) return 0;
@@ -240,7 +246,7 @@ async function bulkInsertCDRs(mapped) {
   if (flownos.length) {
     const existingRows = await CDR.findAll({
       attributes: ['flowno'],
-      where:      { flowno: flownos },   // ← global dedup, no source_file filter
+      where:      { flowno: flownos },
       raw:        true,
     });
     existingFlownos = new Set(existingRows.map(r => String(r.flowno)));
@@ -256,7 +262,7 @@ async function bulkInsertCDRs(mapped) {
   for (let i = 0; i < deduped.length; i += INSERT_BATCH_SIZE) {
     const batch = deduped.slice(i, i + INSERT_BATCH_SIZE);
     await CDR.bulkCreate(batch, {
-      ignoreDuplicates: true,   // safety net for races only — dedup above handles normal cases
+      ignoreDuplicates: true,
       validate:         false,
     });
     inserted += batch.length;
@@ -266,15 +272,20 @@ async function bulkInsertCDRs(mapped) {
 }
 
 // ─── Core fetch function ──────────────────────────────────────────────────────
-// fetchAndInsertTable processes ONE daily table.
-// It receives the GLOBAL cursor (not a per-table one) and returns the highest
-// flowno it successfully processed so the caller can advance the global checkpoint.
+// fetchAndInsertTable processes ONE daily table starting from globalCursor.
 //
-// updateCheckpoint is always false here — the caller (_fetchAndInsert) owns
-// the checkpoint and saves it only after ALL tables in a poll cycle are done.
+// KEY CHANGE vs. old version:
+//   - No stall detection / force-advance. The source guarantees a strict,
+//     gapless, monotonically increasing flowno series, so a stall means we
+//     have genuinely reached the end of completed rows in this table — just stop.
+//   - MAX(flowno) of this table is fetched upfront. If the table's MAX equals
+//     highestCompletedFlowno after Phase A, we know we have drained the table
+//     completely and the next table's first row will continue the sequence.
+//   - The caller (_fetchAndInsert) threads highestSeen between tables, so the
+//     cursor for table[N+1] is always max(globalCursor, table[N] maxFlowno processed).
 
 async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
-  // ── Guard: skip silently if table doesn't exist yet ──────────────────────
+  // Guard: skip silently if table doesn't exist yet.
   try {
     await pool.query(`SELECT 1 FROM \`${tableName}\` LIMIT 1`);
   } catch {
@@ -282,25 +293,43 @@ async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
   }
 
   const PendingCDR = require('../models/PendingCDR');
+  const sourceTag  = `${sourceId}:${tableName}`;
 
-  // sourceTag is used for the source_file audit column only, not for dedup.
-  const sourceTag     = `${sourceId}:${tableName}`;
-  let   totalFetched  = 0;
-  let   totalInserted = 0;
-
-  // highestCompletedFlowno tracks the highest flowno from THIS table that was
-  // successfully inserted as a complete CDR.  The caller merges this across all
-  // tables to advance the global cursor.
+  let totalFetched  = 0;
+  let totalInserted = 0;
   let highestCompletedFlowno = globalCursor;
 
+  // ── Fetch this table's MAX(flowno) for logging / sanity only ─────────────
+  let tableMaxFlowno = 0n;
+  try {
+    const [[maxRow]] = await pool.query(
+      `SELECT MAX(${FLOWNO_SQL_EXPR}) AS mx FROM \`${tableName}\``
+    );
+    if (maxRow?.mx != null) tableMaxFlowno = BigInt(maxRow.mx);
+  } catch (err) {
+    console.warn(
+      `[MySQLCDRFetcher:${sourceId}] Could not fetch MAX(flowno) for ${tableName}: ${err.message}`
+    );
+  }
+
+  // If this table's highest flowno is already <= the global cursor, it is
+  // fully consumed. Skip all phases — nothing new to read.
+  if (tableMaxFlowno <= globalCursor) {
+    console.log(
+      `[MySQLCDRFetcher:${sourceId}] ${tableName} fully consumed ` +
+      `(MAX flowno ${tableMaxFlowno} <= cursor ${globalCursor}), skipping`
+    );
+    return { fetched: 0, inserted: 0, highestCompletedFlowno: globalCursor };
+  }
+
+  console.log(
+    `[MySQLCDRFetcher:${sourceId}] Processing ${tableName} | ` +
+    `cursor=${globalCursor} | tableMax=${tableMaxFlowno}`
+  );
+
   // ══════════════════════════════════════════════════════════════════════════
-  // PRE-SCAN — find all currently-ongoing rows in this table and queue them
-  // into pending_cdrs so Phase B can recover them once they complete.
-  //
-  // We scan from flowno > globalCursor (not from 0) because:
-  //   - Rows ≤ globalCursor were already processed in a previous poll.
-  //   - An ongoing row below globalCursor that was missed would have been
-  //     queued in a prior poll's PRE-SCAN and is handled by Phase B.
+  // PRE-SCAN — queue ongoing (stoptime=0/NULL) rows into pending_cdrs.
+  // Only scans rows above globalCursor (rows below were handled in prior polls).
   // ══════════════════════════════════════════════════════════════════════════
   {
     let pendingCursor = globalCursor;
@@ -339,22 +368,14 @@ async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // PHASE A — fetch all completed rows (stoptime > 0) after the global cursor.
+  // PHASE A — fetch all completed rows (stoptime > 0) above globalCursor.
   //
-  // The query uses the GLOBAL cursor, not a per-table cursor.  This means:
-  //   - If globalCursor = 1,063,750 (set while processing e_cdr_20260527),
-  //     and e_cdr_20260528 MIN flowno = 1,058,034 (below the cursor), then
-  //     Phase A on e_cdr_20260528 would find 0 rows above the cursor —
-  //     which is CORRECT because those lower rows were already processed.
-  //   - Only genuinely new rows (flowno > globalCursor) are fetched.
-  //
-  // Checkpoint is NOT saved here. The caller saves the global checkpoint
-  // after all tables are processed, using the highest flowno seen across
-  // all of them.
+  // Because flowno is a strict continuous series within each table AND across
+  // tables, there are NO stalls, NO gaps, NO out-of-order rows. We simply page
+  // forward until the batch is smaller than FETCH_BATCH_SIZE (end of available
+  // completed rows in this table). No force-advance logic needed.
   // ══════════════════════════════════════════════════════════════════════════
-  let consecutiveStalls = 0;
-  const MAX_CONSECUTIVE_STALLS = 3;
-  let   cursor = globalCursor;
+  let cursor = globalCursor;
 
   while (true) {
     let rows;
@@ -377,11 +398,8 @@ async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
 
     if (!rows.length) break;
 
-    // Separate mappable from unmappable rows.
-    // Unmappable = passed SQL stoptime>0 filter but JS still sees stoptime=0
-    // (data race). Queue these for Phase B recovery.
     const mapped   = [];
-    const rejected = [];
+    const rejected = [];   // passed SQL filter but JS still sees stoptime=0 (data race)
 
     for (const row of rows) {
       const cdr = mapRowToCDR(row, sourceTag, { includeIncomplete: false });
@@ -394,9 +412,8 @@ async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
 
     if (rejected.length) {
       console.warn(
-        `[MySQLCDRFetcher:${sourceId}] PHASE A: ${rejected.length} row(s) ` +
-        `in ${tableName} passed SQL filter but were rejected by mapRowToCDR ` +
-        `— queuing to pending_cdrs. ` +
+        `[MySQLCDRFetcher:${sourceId}] PHASE A: ${rejected.length} row(s) in ${tableName} ` +
+        `passed SQL filter but rejected by mapRowToCDR — queuing to pending_cdrs. ` +
         `flowno range: ${rejected[0]}..${rejected[rejected.length - 1]}`
       );
       await queuePending(sourceId, tableName, rejected);
@@ -404,7 +421,7 @@ async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
 
     try {
       if (mapped.length) {
-        const inserted = await bulkInsertCDRs(mapped);   // no sourceTag param — global dedup
+        const inserted = await bulkInsertCDRs(mapped);
         totalInserted += inserted;
       }
     } catch (err) {
@@ -417,46 +434,34 @@ async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
 
     totalFetched += rows.length;
 
-    const lastRawFlowno = BigInt(rows[rows.length - 1].flowno);
+    // Advance cursor to the last flowno in this page.
+    // Because the series is continuous and strictly ascending, the last
+    // flowno in the page is always > cursor — no stall check needed.
+    const lastFlowno = BigInt(rows[rows.length - 1].flowno);
+    cursor = lastFlowno;
 
-    if (lastRawFlowno > cursor) {
-      cursor = lastRawFlowno;
-      consecutiveStalls = 0;
-
-      // Track the highest successfully-processed flowno for this table.
-      if (cursor > highestCompletedFlowno) {
-        highestCompletedFlowno = cursor;
-      }
-    } else {
-      consecutiveStalls++;
-      console.warn(
-        `[MySQLCDRFetcher:${sourceId}] PHASE A cursor stall #${consecutiveStalls} ` +
-        `at cursor=${cursor}, lastRawFlowno=${lastRawFlowno} in ${tableName}. ` +
-        `Rows in page: ${rows.length}. Indicates duplicate/out-of-order flowno. ` +
-        `Force-advancing cursor by 1.`
-      );
-      cursor = cursor + 1n;
-
-      if (consecutiveStalls >= MAX_CONSECUTIVE_STALLS) {
-        console.error(
-          `[MySQLCDRFetcher:${sourceId}] PHASE A aborted after ` +
-          `${MAX_CONSECUTIVE_STALLS} consecutive stalls at cursor=${cursor} ` +
-          `in ${tableName}. Will resume next poll.`
-        );
-        break;
-      }
+    if (cursor > highestCompletedFlowno) {
+      highestCompletedFlowno = cursor;
     }
 
+    // Full page → more rows may follow; continue.
+    // Partial page → we've reached the end of currently-available completed
+    // rows in this table. Stop — the next poll will pick up from here.
     if (rows.length < FETCH_BATCH_SIZE) break;
   }
 
+  if (totalFetched > 0) {
+    console.log(
+      `[MySQLCDRFetcher:${sourceId}] ${tableName}: ` +
+      `fetched ${totalFetched}, inserted ${totalInserted}, ` +
+      `cursor advanced to ${highestCompletedFlowno} (tableMax=${tableMaxFlowno})`
+    );
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
-  // PHASE B — resolve pending_cdrs for this specific table.
-  //
-  // pending_cdrs rows store (source_id, table_name, flowno) so we query the
-  // correct table for each pending row.  This is independent of the global
-  // cursor — a pending row's flowno may be below the global cursor but still
-  // needs to be inserted once it completes.
+  // PHASE B — resolve previously-pending (was-ongoing) rows for this table.
+  // Pending rows may have flowno below the global cursor but weren't inserted
+  // yet because stoptime was 0 when they were first seen.
   // ══════════════════════════════════════════════════════════════════════════
   const pendingRows = await PendingCDR.findAll({
     where: { source_id: sourceId, table_name: tableName },
@@ -492,7 +497,7 @@ async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
         .filter(Boolean);
 
       if (mapped.length) {
-        const recovered = await bulkInsertCDRs(mapped);   // global dedup
+        const recovered = await bulkInsertCDRs(mapped);
         totalInserted += recovered;
         if (recovered > 0) {
           console.log(
@@ -502,7 +507,6 @@ async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
         }
       }
 
-      // Deduplicate before destroy to avoid redundant calls.
       const resolvedFlownoSet = new Set(nowResolved.map(r => r.flowno.toString()));
       const resolvedFlownos   = [...resolvedFlownoSet];
 
@@ -510,11 +514,7 @@ async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
         const chunk = resolvedFlownos.slice(i, i + PENDING_IN_CHUNK_SIZE);
         try {
           await PendingCDR.destroy({
-            where: {
-              source_id:  sourceId,
-              table_name: tableName,
-              flowno:     chunk,
-            },
+            where: { source_id: sourceId, table_name: tableName, flowno: chunk },
           });
         } catch (err) {
           console.error(
@@ -542,7 +542,7 @@ async function fetchAndInsertTable(pool, sourceId, tableName, globalCursor) {
   return {
     fetched:               totalFetched,
     inserted:              totalInserted,
-    highestCompletedFlowno,   // caller uses this to advance global checkpoint
+    highestCompletedFlowno,
   };
 }
 
@@ -834,24 +834,48 @@ class MySQLCDRFetcher {
   async _fetchAndInsert() {
     const startedAt = Date.now();
 
-    // ── ONE global checkpoint for all tables ─────────────────────────────────
-    // This is the core fix. All tables share a single cursor so a flowno
-    // already processed from ANY table is not re-attempted from another.
+    // Load the single global cursor (highest flowno already stored).
     const globalCursor = await getGlobalCheckpoint(this.sourceId);
 
-    // Tables are returned oldest-first (e_cdr_20260527 before e_cdr_20260528).
-    // This ensures that when two tables share an overlapping flowno range,
-    // the older table (whose rows have lower flownos) is processed first,
-    // advancing the global cursor naturally in ascending order.
-    const tables = getRecentTableNames(LIVE_POLL_DAYS_BACK);
+    // ── Discover which tables actually have new rows above the cursor ─────────
+    // getActiveTables:
+    //   1. Lists all e_cdr_YYYYMMDD tables from information_schema (sorted oldest-first).
+    //   2. Fetches MAX(flowno) per table in one UNION query.
+    //   3. Filters to only tables where MAX(flowno) > globalCursor.
+    //
+    // This replaces the old fixed `getRecentTableNames(daysBack)` window, which
+    // would silently skip tables if the backlog grew beyond LIVE_POLL_DAYS_BACK.
+    // With a continuous flowno series, "active" simply means "has rows we haven't
+    // processed yet", regardless of which calendar day the table covers.
+    let tables;
+    try {
+      tables = await getActiveTables(this.pool, globalCursor);
+    } catch (err) {
+      console.error(
+        `[MySQLCDRFetcher:${this.sourceId}] Failed to discover active tables: ${err.message}`
+      );
+      return;
+    }
+
+    if (!tables.length) {
+      console.log(
+        `[MySQLCDRFetcher:${this.sourceId}] No new rows above cursor ${globalCursor}`
+      );
+      return;
+    }
+
+    console.log(
+      `[MySQLCDRFetcher:${this.sourceId}] Active tables: [${tables.join(', ')}] | cursor=${globalCursor}`
+    );
 
     let highestSeen   = globalCursor;
     let totalFetched  = 0;
     let totalInserted = 0;
 
+    // Process tables oldest-first. Thread highestSeen between tables so each
+    // subsequent table starts from the cursor left by the previous one.
+    // This is safe because flowno is continuous: table[N] max + 1 == table[N+1] min.
     for (const tableName of tables) {
-      // Pass the CURRENT highestSeen (not the initial globalCursor) so that
-      // if table[0] advanced the cursor, table[1] starts from the new position.
       const result = await fetchAndInsertTable(
         this.pool, this.sourceId, tableName, highestSeen
       );
@@ -861,15 +885,12 @@ class MySQLCDRFetcher {
       totalFetched  += result.fetched;
       totalInserted += result.inserted;
 
-      // Advance the shared cursor to the highest flowno seen so far.
       if (result.highestCompletedFlowno > highestSeen) {
         highestSeen = result.highestCompletedFlowno;
       }
     }
 
-    // Save the global checkpoint ONCE after all tables are done.
-    // If a poll errors mid-way, the checkpoint only reflects what was
-    // fully committed — the next poll will re-process from there.
+    // Persist checkpoint once after all tables — reflects everything committed.
     if (highestSeen > globalCursor) {
       await saveGlobalCheckpoint(this.sourceId, highestSeen);
       console.log(
@@ -901,7 +922,7 @@ class MySQLCDRFetcher {
       );
     } else {
       console.log(
-        `[MySQLCDRFetcher:${this.sourceId}] No new rows in ${tables.join(', ')}`
+        `[MySQLCDRFetcher:${this.sourceId}] No new completed rows above cursor ${globalCursor}`
       );
     }
   }

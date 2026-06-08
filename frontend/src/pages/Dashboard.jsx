@@ -25,7 +25,7 @@ import {
   Thead,
   Tr,
   VStack,
-  
+
 } from "@chakra-ui/react";
 import useNotify from "../utils/notify";
 import { MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
@@ -215,7 +215,6 @@ const Dashboard = () => {
     timeLabel: "--:-- UTC",
   });
 
-  const [initialLoad, setInitialLoad] = useState(true);
   const [dashLoading, setDashLoading] = useState(false);
   const [topDestLoading, setTopDestLoading] = useState(false);
 
@@ -278,7 +277,6 @@ const Dashboard = () => {
         });
       } finally {
         setDashLoading(false);
-        setInitialLoad(false);
       }
     },
     [toast],
@@ -337,25 +335,7 @@ const Dashboard = () => {
   );
   const destKey = (d) => `${d.destination}__${d.trunk}`;
 
-  if (initialLoad) {
-    return (
-      <Box w="full">
-        <Center h="90vh">
-          <VStack spacing={4}>
-            <BlinkBlur color="#3182ce" />
-            <Text
-              fontSize="lg"
-              fontStyle="italic"
-              color="gray.500"
-              fontWeight="medium"
-            >
-              Loading dashboard analytics...
-            </Text>
-          </VStack>
-        </Center>
-      </Box>
-    );
-  }
+
 
   return (
     <Box w="full" maxW="100%" overflowX="clip">
@@ -433,7 +413,7 @@ const Dashboard = () => {
           />
 
           <SimpleGrid
-            columns={{ base: 1, sm: 2, lg: 4 }}
+            columns={{ base: 2, sm: 2, lg: 4 }}
             spacing={4}
             mt="-60px"
             zIndex={20}
@@ -533,13 +513,13 @@ const Dashboard = () => {
                       color="green"
                     />
                     <Divider />
-                   <MetricItem
-  label="Total Margin"
-  value={`$${Number(financialData?.totalMargin || 0).toFixed(4)}`}
-  icon={FiPercent}
-  color="purple"
-  valueColor={Number(financialData?.totalMargin || 0) < 0 ? "red.600" : "gray.600"}
-/>
+                    <MetricItem
+                      label="Total Margin"
+                      value={`$${Number(financialData?.totalMargin || 0).toFixed(4)}`}
+                      icon={FiPercent}
+                      color="purple"
+                      valueColor={Number(financialData?.totalMargin || 0) < 0 ? "red.600" : "gray.600"}
+                    />
                     <Divider />
                     <MetricItem
                       label="Failed Calls"
@@ -662,71 +642,70 @@ const Dashboard = () => {
                       ) : topDestinations.length > 0 ? (
                         topDestinations.map((d) => (
                           <Tr
-                            key={destKey(d)}
-                            _hover={{ bg: "gray.100" }}
-                            transition="background 0.15s"
-                            bg={d.margin < 0 ? "red.100" : "transparent"}
-                          >
-                            <Td
-                              fontWeight="medium"
-                              whiteSpace="nowrap"
-                              maxW="160px"
-                              overflow="hidden"
-                              textOverflow="ellipsis"
-                            >
-                              {d.destination}
-                            </Td>
-                            <Td whiteSpace="nowrap">
-                              <Badge
-                                colorScheme="purple"
-                                variant="subtle"
-                                fontSize="2xs"
-                              >
-                                {d.trunk}
-                              </Badge>
-                            </Td>
-                            <Td isNumeric>{d.totalCalls}</Td>
-                            <Td isNumeric color="green.700">
-                              {d.completedCalls}
-                            </Td>
-                            <Td isNumeric>{d.minutes}</Td>
-                            <Td isNumeric>
-                              <Badge
-                                borderRadius="full"
-        px="8px"
-        py="2px"
-        fontWeight="500"
-        fontSize="11px"
-                                colorScheme={d.ASR > 50 ? "green" : "orange"}
-                              >
-                                {d.ASR}%
-                              </Badge>
-                            </Td>
-                            <Td isNumeric>{formatACD(d.ACD)}</Td>
-                            <Td
-                              isNumeric
-                              fontWeight="semibold"
-                              color="blue.400"
-                            >
-                              ${Number(d.cost || 0).toFixed(4)}
-                            </Td>
-                            <Td
-                              isNumeric
-                              color={d.margin >= 0 ? "green.700" : "red.700"}
-                            >
-                              ${Number(d.margin || 0).toFixed(5)}
-                            </Td>
-                            <Td
-                              isNumeric
-                              color={
-                                d.marginPercentage >= 0
-                                  ? "green.700"
-                                  : "red.700"
-                              }
-                            >
-                              {Number(d.marginPercentage || 0).toFixed(4)}%
-                            </Td>
-                          </Tr>
+  key={destKey(d)}
+  _hover={{ bg: "gray.100" }}
+  transition="background 0.15s"
+  sx={
+  d.margin < 0
+    ? {
+        backgroundColor: "var(--chakra-colors-red-50) !important",
+        "&:hover": {
+          backgroundColor: "var(--chakra-colors-red-100) !important",
+        },
+      }
+    : {}
+}
+>
+  <Td
+    fontWeight="medium"
+    whiteSpace="nowrap"
+    maxW="160px"
+    overflow="hidden"
+    textOverflow="ellipsis"
+  >
+    {d.destination}
+  </Td>
+  <Td whiteSpace="nowrap">
+    <Badge
+      px="8px"
+      py="2px"
+      borderRadius={"full"}
+      fontWeight="600"
+      fontSize="11px"
+      color="blue.400"
+      variant="subtle"
+    >
+      {d.trunk}
+    </Badge>
+  </Td>
+  <Td isNumeric>{d.totalCalls}</Td>
+  <Td isNumeric color="green.700">
+    {d.completedCalls}
+  </Td>
+  <Td isNumeric>{d.minutes}</Td>
+  <Td isNumeric>
+    <Badge
+      borderRadius="full"
+      px="8px"
+      py="2px"
+      fontWeight="500"
+      fontSize="11px"
+      colorScheme={d.ASR > 50 ? "green" : "orange"}
+    >
+      {d.ASR}%
+    </Badge>
+  </Td>
+  <Td isNumeric>{formatACD(d.ACD)}</Td>
+  <Td isNumeric fontWeight="semibold" color="blue.400">
+    ${Number(d.cost || 0).toFixed(4)}
+  </Td>
+  <Td isNumeric color={d.margin >= 0 ? "green.700" : "red.700"}>
+    ${Number(d.margin || 0).toFixed(5)}
+  </Td>
+  <Td isNumeric color={d.marginPercentage >= 0 ? "green.700" : "red.700"}>
+    {Number(d.marginPercentage || 0).toFixed(4)}%
+  </Td>
+</Tr>
                         ))
                       ) : (
                         <Tr>

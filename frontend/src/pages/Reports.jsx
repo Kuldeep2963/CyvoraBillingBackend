@@ -168,14 +168,14 @@ DatePickerInput.displayName = "DatePickerInput";
 // ─── Formatters ───────────────────────────────────────────────────────────────
 // All defined outside the component — stable references, no re-creation on render.
 
-const formatCurrency = (value, fractionDigits = 2) => {
-  // FIX #9: default to 2 decimal places; callers that need rate precision pass 4
+const formatCurrency = (value, fractionDigits = 4) => {
+  // FIX #9: default to 4 decimal places; callers that need rate precision pass 4
   const parsed = parseFloat(value);
   if (value === undefined || value === null || isNaN(parsed)) return "$0.00";
   return new Intl.NumberFormat("en-US", {
     style:                 "currency",
     currency:              "USD",
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 4,
     maximumFractionDigits: fractionDigits,
   }).format(parsed);
 };

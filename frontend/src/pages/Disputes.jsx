@@ -249,6 +249,8 @@ export default function Disputes() {
       </Flex>
 
       <DataTable
+      isLoading={isLoading}
+      emptyMessage={isLoading ? "Loading disputes..." : "No disputed vendor invoices found."}
   columns={columns}
   data={rows}
   onView={(row) => setSelectedRow(row)}

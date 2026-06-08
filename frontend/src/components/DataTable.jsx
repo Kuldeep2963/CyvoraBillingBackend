@@ -19,6 +19,7 @@ import {
   useColorModeValue,
   HStack,
   VStack,
+  Spinner,
 } from '@chakra-ui/react';
 import {
   FiMoreVertical,
@@ -34,9 +35,9 @@ const DataTable = ({
   onEdit,
   onDelete,
   onView,
-  rowActions,       // function(row) => ReactNode  |  false/null to hide actions column entirely
+  rowActions,
   getRowBg,
-  actions = true,   // master toggle — set false OR pass rowActions={false} to hide actions column
+  actions = true,
   compact = false,
   striped = false,
   height = 'calc(100vh - 400px)',
@@ -47,6 +48,8 @@ const DataTable = ({
   onPageChange,
   onPageSizeChange,
   isPaginationDisabled = false,
+  isLoading = false,
+  emptyMessage = 'No results found',
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSizeLocal, setPageSizeLocal] = useState(10);
@@ -60,15 +63,11 @@ const DataTable = ({
   const actionMenuBg     = useColorModeValue('gray.100', 'gray.600');
   const headerBg         = 'gray.200';
 
-  // ── Determine whether to show the actions column at all ──────────────────
-  // Hide if:  actions=false  OR  rowActions===false  OR
-  //           (no rowActions fn AND no onEdit/onDelete/onView handlers)
   const showActionsColumn =
     actions !== false &&
     rowActions !== false &&
     (typeof rowActions === 'function' || onEdit || onDelete || onView);
 
-  // ── Pagination ────────────────────────────────────────────────────────────
   const activePage     = serverPagination ? (Number(page)             || 1)  : currentPage;
   const activePageSize = serverPagination ? (Number(externalPageSize) || 10) : pageSizeLocal;
   const totalItems     = serverPagination ? (Number(total)            || 0)  : data.length;
@@ -87,7 +86,6 @@ const DataTable = ({
     }
   };
 
-  // ── Cell renderer ─────────────────────────────────────────────────────────
   const renderCell = (item, column) => {
     if (column.render) return column.render(item[column.key], item);
 
@@ -143,7 +141,6 @@ const DataTable = ({
   const getColumnWidth = (column) =>
     column.width || column.maxWidth || column.minWidth || undefined;
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Box
       className="app-table-shell"
@@ -217,27 +214,62 @@ const DataTable = ({
           </Thead>
 
           <Tbody>
-            {paginatedData.length === 0 ? (
-              <Tr>
-                <Td
-                  colSpan={columns.length + (showActionsColumn ? 1 : 0)}
-                  textAlign="center"
-                  py={20}
-                >
-                  <VStack spacing={3}>
-                    <Box p={4} borderRadius="full" bg={emptyStateIconBg} color="gray.400">
-                      <FiEye size={24} />
-                    </Box>
-                    <Box>
-                      <Text color="gray.500" fontWeight="medium">No results found</Text>
-                      <Text color="gray.400" fontSize="xs">
-                        Try adjusting your filters or adding new items
-                      </Text>
-                    </Box>
-                  </VStack>
-                </Td>
-              </Tr>
+            {/* Loading state */}
+            {isLoading ? (
+  <Tr>
+    <Td
+      colSpan={columns.length + (showActionsColumn ? 1 : 0)}
+      border="none"
+    >
+      <Flex
+        justify="center"
+        align="center"
+        direction="column"
+        gap={3}
+        w="100%"
+        minH="300px"
+        position="sticky"
+        left={0}
+        right={0}
+      >
+        <Spinner size="lg" color="blue.500" thickness="3px" />
+        <Text color="gray.500" fontWeight="medium">Loading...</Text>
+      </Flex>
+    </Td>
+  </Tr>
+
+) : paginatedData.length === 0 ? (
+  <Tr>
+    <Td
+      colSpan={columns.length + (showActionsColumn ? 1 : 0)}
+      border="none"
+    >
+      <Flex
+        justify="center"
+        align="center"
+        direction="column"
+        gap={1}
+        w="100%"
+        minH="300px"
+        position="sticky"
+        left={0}
+        right={0}
+      >
+        <Box p={4} borderRadius="full" bg={emptyStateIconBg} color="gray.400">
+          <FiEye size={24} />
+        </Box>
+        <Box textAlign="center">
+          <Text color="gray.500" fontWeight="medium">{emptyMessage}</Text>
+          <Text color="gray.400" fontSize="xs">
+            Try adjusting your filters or adding new items
+          </Text>
+        </Box>
+      </Flex>
+    </Td>
+  </Tr>
+
             ) : (
+              /* Data rows */
               paginatedData.map((item, index) => {
                 const rowBgColor = getRowBg
                   ? getRowBg(item)
@@ -245,7 +277,6 @@ const DataTable = ({
                   ? stripedBg
                   : 'transparent';
 
-                // Stable key: prefer id, fall back to index
                 const rowKey = item.id != null ? String(item.id) : `row-${index}`;
 
                 return (
@@ -278,10 +309,8 @@ const DataTable = ({
                     {showActionsColumn && (
                       <Td className="app-table-cell" width="140px" textAlign="right">
                         <Flex justify="center" align="center">
-                          {/* Extra row actions injected by the consumer */}
                           {typeof rowActions === 'function' && rowActions(item)}
 
-                          {/* Built-in menu — only render if at least one handler exists */}
                           {(onView || onEdit || onDelete) && (
                             <Menu placement="bottom-end" isLazy>
                               <MenuButton

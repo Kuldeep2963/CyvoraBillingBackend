@@ -371,10 +371,9 @@ const AdminCDRDownload = () => {
           <Card
             borderWidth="1px"
             borderColor={borderColor}
-            shadow="md"
+            shadow="sm"
             bg={cardBg}
             transition="all 0.2s"
-            _hover={{ shadow: "lg" }}
           >
             <CardHeader
               py={3}
@@ -384,11 +383,12 @@ const AdminCDRDownload = () => {
               <Flex align="center" justify="space-between" wrap="wrap" gap={3}>
                 <HStack spacing={3}>
                   <Badge
-                    colorScheme="blue"
-                    fontSize="xs"
-                    px={2}
-                    py={1}
                     borderRadius="full"
+                    px="8px"
+                    py="2px"
+                    fontWeight="500"
+                    fontSize="11px"
+                    colorScheme="green"
                   >
                     Admin Only
                   </Badge>
@@ -409,6 +409,7 @@ const AdminCDRDownload = () => {
                   <GridItem>
                     <FormControl>
                       <FormLabel
+                        fontSize={"xs"}
                         color={"gray.600"}
                         display="flex"
                         alignItems="center"
@@ -443,6 +444,7 @@ const AdminCDRDownload = () => {
                   <GridItem>
                     <FormControl>
                       <FormLabel
+                        fontSize={"xs"}
                         color={"gray.600"}
                         display="flex"
                         alignItems="center"
@@ -494,6 +496,7 @@ const AdminCDRDownload = () => {
                   <GridItem>
                     <FormControl isRequired>
                       <FormLabel
+                        fontSize="xs"
                         color={"gray.600"}
                         display="flex"
                         alignItems="center"
@@ -517,6 +520,7 @@ const AdminCDRDownload = () => {
                   <GridItem>
                     <FormControl isRequired>
                       <FormLabel
+                        fontSize="xs"
                         color={"gray.600"}
                         display="flex"
                         alignItems="center"

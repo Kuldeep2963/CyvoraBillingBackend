@@ -21,6 +21,12 @@ import {
   Portal,
   Spinner,
   useDisclosure,
+  IconButton,
+  Drawer,
+  DrawerOverlay,
+  DrawerContent,
+  DrawerCloseButton,
+  useBreakpointValue,
 } from "@chakra-ui/react";
 import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -46,6 +52,7 @@ import {
   FiTrendingUp,
   FiShoppingBag,
   FiCheckCircle,
+  FiMenu,
 } from "react-icons/fi";
 import {
   markAllNotificationsRead,
@@ -54,7 +61,7 @@ import {
 import { NotificationsProvider, useNotifications } from "../context/NotificationsContext";
 import { formatNotificationTime } from "../utils/notificationTime";
 
-const SidebarContent = () => {
+const SidebarContent = ({ onClose }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -81,8 +88,6 @@ const SidebarContent = () => {
     }
   }, [refresh]);
 
-  // Layout returns wrapped in NotificationsProvider at the top-level below
-
   const navItems = [
     {
       path: "/dashboard",
@@ -108,7 +113,6 @@ const SidebarContent = () => {
           icon: FiFileText,
           roles: ["admin", "sales-manager", "rates-dept", "view only"],
         },
-
         {
           path: "/vendorinvoice",
           label: "Vendor Invoices",
@@ -135,12 +139,6 @@ const SidebarContent = () => {
           icon: FiUsers,
           roles: ["admin", "sales-manager", "rates-dept", "view only"],
         },
-        // {
-        //   path: "/vendor-rates",
-        //   label: "Vendor Rates",
-        //   icon: FiShoppingBag,
-        //   roles: ["admin", "sales-manager", "rates-dept", "view only"],
-        // },
       ],
     },
     {
@@ -155,7 +153,6 @@ const SidebarContent = () => {
       icon: FiAlertTriangle,
       roles: ["admin", "sales-manager", "noc-dept", "view only"],
     },
-    // Disputes route removed: disputes are derived from vendor invoices (status/disputeDetails)
     {
       path: "/reports",
       label: "Reports",
@@ -223,6 +220,12 @@ const SidebarContent = () => {
     }
   };
 
+  // Close mobile drawer on nav
+  const handleNavClick = (closesDropdown = true) => {
+    if (closesDropdown) setOpenDropdown(null);
+    onClose?.();
+  };
+
   const renderNavItem = (item) => {
     if (item.isDropdown) {
       const isActive = item.subItems.some(
@@ -272,8 +275,8 @@ const SidebarContent = () => {
                   _hover={{ textDecoration: "none" }}
                   display="flex"
                   alignItems="center"
-                  fontSize="sm"
                   transition="all 0.2s"
+                  onClick={() => handleNavClick(false)}
                 >
                   <Icon as={subItem.icon} mr={2} boxSize={3.5} />
                   {subItem.label}
@@ -299,7 +302,7 @@ const SidebarContent = () => {
         display="flex"
         alignItems="center"
         transition="all 0.2s"
-        onClick={() => setOpenDropdown(null)}
+        onClick={() => handleNavClick()}
       >
         <Icon as={item.icon} mr={3} />
         {item.label}
@@ -313,9 +316,7 @@ const SidebarContent = () => {
       borderRight="1px"
       borderColor={useColorModeValue("gray.200", "gray.700")}
       w="250px"
-      pos="fixed"
-      zIndex="sticky"
-      h="100vh"
+      h="100%"
       display="flex"
       flexDirection="column"
       overflow="hidden"
@@ -356,7 +357,6 @@ const SidebarContent = () => {
           <Text fontSize="lg" fontWeight="bold" lineHeight="short">
             CyvoraTech
           </Text>
-
           <Text fontSize="xs" color="gray.500" lineHeight="short">
             Reports & Billing Platform
           </Text>
@@ -469,8 +469,8 @@ const SidebarContent = () => {
                 <MenuList
                   bg="white"
                   color="gray.800"
-                  minW="380px"
-                  maxW="380px"
+                  minW="340px"
+                  maxW="340px"
                   boxShadow="2xl"
                   p={0}
                   zIndex="tooltip"
@@ -482,7 +482,6 @@ const SidebarContent = () => {
                     justify="space-between"
                     px={4}
                     py={2}
-                    // bg="rgb(237, 242, 247)"
                   >
                     <Text fontWeight={600} color={"gray.600"} fontSize="md">
                       Notifications
@@ -507,16 +506,13 @@ const SidebarContent = () => {
                     minH={"300px"}
                     maxH="300px"
                     overflowY="auto"
-                    ssx={{
+                    sx={{
                       scrollbarWidth: "thin",
                       scrollbarColor: "#CBD5E0 transparent",
                       "&::-webkit-scrollbar": { width: "4px" },
                       "&::-webkit-scrollbar-thumb": {
                         background: "#CBD5E0",
                         borderRadius: "4px",
-                      },
-                      "&::-webkit-scrollbar-thumb:hover": {
-                        background: "#A0AEC0",
                       },
                     }}
                   >
@@ -558,7 +554,6 @@ const SidebarContent = () => {
                             }
                           }}
                         >
-                          {/* Unread dot */}
                           <Box
                             mt="6px"
                             minW="7px"
@@ -568,7 +563,6 @@ const SidebarContent = () => {
                             flexShrink={0}
                           />
 
-                          {/* Icon */}
                           <Flex
                             w="34px"
                             h="34px"
@@ -609,7 +603,6 @@ const SidebarContent = () => {
                             />
                           </Flex>
 
-                          {/* Content */}
                           <Box flex={1} minW={0}>
                             <Text
                               fontSize="13px"
@@ -654,15 +647,84 @@ const SidebarContent = () => {
 };
 
 const Layout = ({ children }) => {
+  const { isOpen: isMobileOpen, onOpen: onMobileOpen, onClose: onMobileClose } = useDisclosure();
+  const isMobile = useBreakpointValue({ base: true, md: false });
+
   return (
     <NotificationsProvider>
       <Box minH="100%" bg="white" maxW="100%" overflowX="clip">
-        <SidebarContent />
+
+        {/* Desktop sidebar — fixed, always visible */}
+        <Box
+          display={{ base: "none", md: "block" }}
+          position="fixed"
+          zIndex="sticky"
+          h="100vh"
+          w="250px"
+        >
+          <SidebarContent />
+        </Box>
+
+        {/* Mobile drawer */}
+        <Drawer
+          isOpen={isMobileOpen}
+          placement="left"
+          onClose={onMobileClose}
+          size="xs"
+        >
+          <DrawerOverlay />
+          <DrawerContent maxW="250px" p={0}>
+            <DrawerCloseButton zIndex={10} />
+            <SidebarContent onClose={onMobileClose} />
+          </DrawerContent>
+        </Drawer>
+
+        {/* Mobile top bar with hamburger */}
+        <Flex
+          display={{ base: "flex", md: "none" }}
+          position="fixed"
+          top={0}
+          left={0}
+          right={0}
+          zIndex="banner"
+          bg="white"
+          borderBottom="1px solid"
+          borderColor="gray.200"
+          h="52px"
+          px={3}
+          align="center"
+          gap={3}
+        >
+          <IconButton
+            aria-label="Open menu"
+            icon={<FiMenu />}
+            variant="ghost"
+            size="sm"
+            onClick={onMobileOpen}
+          />
+          <Image
+            src="/Cyvora.png"
+            alt="Cyvora logo"
+            boxSize="40px"
+            objectFit="contain"
+          />
+          <Text fontWeight="bold" fontSize="md">
+            CyvoraTech
+          </Text>
+        </Flex>
 
         {/* Main Content */}
-        <Box ml="250px" p={4} pt={2} maxW="100%" minW={0} overflowX="clip">
+        <Box
+          ml={{ base: 0, md: "250px" }}
+          pt={{ base: "60px", md: 2 }}
+          p={{ base: 3, md: 4 }}
+          maxW="100%"
+          minW={0}
+          overflowX="clip"
+        >
           {children}
         </Box>
+
       </Box>
     </NotificationsProvider>
   );

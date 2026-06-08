@@ -36,93 +36,7 @@ const formatDateToYMD = (date) => {
   return `${y}-${m}-${d}`;
 };
 
-const EmptyState = () => (
-  <Box
-    border="0.5px dashed"
-    borderColor="gray.200"
-    borderRadius="12px"
-    bg="gray.50"
-    py={16}
-    px={6}
-    textAlign="center"
-  >
-    {/* Icon cluster */}
-    <Flex justify="center" mb={5} position="relative" h="56px" align="center">
-      {/* Background rings */}
-      <Box
-        position="absolute"
-        w="80px"
-        h="80px"
-        borderRadius="full"
-        border="0.5px solid"
-        borderColor="gray.200"
-        bg="transparent"
-      />
-      <Box
-        position="absolute"
-        w="56px"
-        h="56px"
-        borderRadius="full"
-        border="0.5px solid"
-        borderColor="gray.200"
-        bg="white"
-      />
-      {/* Center icon */}
-      <Box
-        position="relative"
-        w="36px"
-        h="36px"
-        borderRadius="full"
-        bg="white"
-        border="0.5px solid"
-        borderColor="gray.200"
-        display="flex"
-        alignItems="center"
-        justifyContent="center"
-        boxShadow="sm"
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#94a3b8"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M3 3h18v4H3z" />
-          <path d="M3 10h18v11H3z" />
-          <line x1="8" y1="14" x2="16" y2="14" />
-          <line x1="8" y1="17" x2="13" y2="17" />
-        </svg>
-      </Box>
-    </Flex>
 
-    {/* Text */}
-    <Text
-      fontSize="14px"
-      fontWeight="500"
-      color="gray.600"
-      mb={1}
-    >
-      No exposure data yet
-    </Text>
-    <Text
-      fontSize="12px"
-      color="gray.400"
-      maxW="280px"
-      mx="auto"
-      lineHeight="1.7"
-    >
-      Select a date range above and click{" "}
-      <Box as="span" color="blue.500" fontWeight="500">
-        Calculate Account Exposure
-      </Box>{" "}
-      to see CDR-based results for all accounts.
-    </Text>
-  </Box>
-);
 const accountRoleLabel = {
   customer: "Customer",
   vendor: "Vendor",
@@ -407,19 +321,13 @@ const AccountExposure = () => {
         </CardBody>
       </Card>
 
-      {loading ? (
-        <Flex
-          justify="center"
-          align="center"
-          mt={20}
-          direction="column"
-          gap={3}
-        >
-          <Spinner size="lg" color="blue.400" thickness="2px" />
-          <Text fontSize="13px" color="gray.500">Calculating exposure for accounts{" "} {(pagination.page - 1) * PAGE_SIZE + 1} – {Math.min(pagination.page * PAGE_SIZE,pagination.total || PAGE_SIZE,)} ...</Text>
-        </Flex>
-      ) : hasCalculated ? (
         <DataTable
+          isLoading={loading}
+          emptyMessage={
+            hasCalculated
+              ? "No accounts found for the selected date range."
+              : "Calculate account exposure to see results."
+          }
           columns={COLUMNS}
           data={data}
           serverPagination
@@ -432,9 +340,6 @@ const AccountExposure = () => {
           height="calc(100vh - 280px)"
           rowactions ={false}
         />
-      ) : (
-        <EmptyState />
-      )}
     </Box>
   );
 };

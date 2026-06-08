@@ -829,7 +829,7 @@ const Accounts = () => {
         {/* Account Stats Summary */}
         <Grid
           templateColumns={{
-            base: "1fr",
+            base: "repeat(2, 1fr)",
             md: "repeat(2, 1fr)",
             lg: "repeat(5, 1fr)",
           }}
@@ -1037,12 +1037,7 @@ const Accounts = () => {
           </Button>
         </Flex>
         {/* Data Table */}
-        {loading ? (
-          <Box textAlign="center" py={10}>
-            <Spinner size="lg" color="gray.500" />
-            <Text>Loading accounts...</Text>
-          </Box>
-        ) : (
+        
           <DataTable
             columns={columns}
             data={customers}
@@ -1076,8 +1071,10 @@ const Accounts = () => {
             }
             striped={true}
             height="calc(100vh - 350px)"
+            isLoading={loading}
+            emptyMessage="No accounts found."
           />
-        )}
+        
 
         {/* Account Modal */}
         <CreateAccountModal

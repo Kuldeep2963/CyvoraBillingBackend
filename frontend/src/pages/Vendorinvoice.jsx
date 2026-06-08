@@ -1168,31 +1168,10 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         </HStack>
       </Flex>
 
-      {error ? (
-        <Flex direction="column" align="center" py={10} color="red.400">
-          <FiAlertTriangle
-            size={32}
-            style={{ marginBottom: "8px", opacity: 0.6 }}
-          />
-          <Text fontSize="sm" fontWeight="600">
-            Failed to load invoices
-          </Text>
-          <Text fontSize="xs" color="gray.400" mt={1} mb={4}>
-            {error}
-          </Text>
-          <Button
-            size="sm"
-            leftIcon={<FiRefreshCw />}
-            colorScheme="blue"
-            variant="outline"
-            borderRadius="8px"
-            onClick={loadInvoices}
-          >
-            Try Again
-          </Button>
-        </Flex>
-      ) : (
+     
         <DataTable
+          isLoading={isLoading}
+          emptyMessage={error ? "Failed to load invoices" : "No invoices found"}
           columns={columns}
           data={isLoading ? [] : invoices}
           actions={false}
@@ -1210,7 +1189,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
           }}
           isPaginationDisabled={isLoading}
         />
-      )}
+     
 
       <Modal
         isOpen={isFilesOpen}

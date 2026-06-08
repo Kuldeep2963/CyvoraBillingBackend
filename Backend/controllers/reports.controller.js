@@ -9,6 +9,7 @@ const Payment = require('../models/Payment');
 const PaymentAllocation = require('../models/PaymentAllocation');
 const VendorInvoice = require('../models/Vendorinvoice');
 const H = require('../utils/reportHelper');
+const {getCountryFromNumber} = H;
 const { secondsToMMSS } = require('../utils/timeUtils');
 const ExcelJS = require('exceljs');
 const { Parser } = require('json2csv');
@@ -108,24 +109,24 @@ const formatTime = (date, hour, minute = 0, isEnd = false) => {
 };
 
 /* ===================== HELPER: GET COUNTRY FROM NUMBER ===================== */
-const getCountryFromNumber = (number, countryCodes, skipPrefix = false) => {
-  if (!number) return 'Unknown';
-  let cleaned = number.toString().replace(/^(\+|00)/, '');
+// const getCountryFromNumber = (number, countryCodes, skipPrefix = false) => {
+//   if (!number) return 'Unknown';
+//   let cleaned = number.toString().replace(/^(\+|00)/, '');
   
-  // Skip first 5 digits if this is a callee number (vendor destination)
-  if (skipPrefix && cleaned.length > 5) {
-    cleaned = cleaned.substring(5);
-  }
+//   // Skip first 5 digits if this is a callee number (vendor destination)
+//   if (skipPrefix && cleaned.length > 5) {
+//     cleaned = cleaned.substring(5);
+//   }
   
-  const sortedCodes = [...countryCodes].sort((a, b) => b.code.length - a.code.length);
+//   const sortedCodes = [...countryCodes].sort((a, b) => b.code.length - a.code.length);
 
-  for (const cc of sortedCodes) {
-    if (cleaned.startsWith(cc.code)) {
-      return cc.country_name;
-    }
-  }
-  return 'Unknown';
-};
+//   for (const cc of sortedCodes) {
+//     if (cleaned.startsWith(cc.code)) {
+//       return cc.country_name;
+//     }
+//   }
+//   return 'Unknown';
+// };
 
 /* ===================== HELPER: BUILD ACCOUNT CONDITIONS ===================== */
 const buildAccountConditions = (account, vendorReport) => {
@@ -558,8 +559,8 @@ exports.hourlyReport = async (req, res) => {
       endDate,
       startHour,
       endHour,
-      0,
-      59,
+      startMinute,
+      endMinute,
       accountId,
       vendorReport,
       trunk
