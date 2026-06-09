@@ -510,7 +510,7 @@ router.post('/test-email', async (req, res) => {
       smtpUser,
       host,
       port,
-      portalUrl: process.env.FRONTEND_URL || '/',
+      portalUrl: process.env.BASE_API_URL || '/',
       details: null,
     };
 

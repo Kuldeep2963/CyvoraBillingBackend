@@ -2776,7 +2776,7 @@ const Settings = () => {
           </HStack>
         }
       />
-
+      
       <TabNav active={activeTab} onChange={handleTabChange} tabs={buildTabsFromSections(sections)} />
 
       <Box>

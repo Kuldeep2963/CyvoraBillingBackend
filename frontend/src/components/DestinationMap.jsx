@@ -442,7 +442,8 @@ const DestinationMap = ({ destinations = [], loading = false }) => {
                 { label: "−", title: "Zoom out", onClick: handleZoomOut },
                 { label: "⊙", title: "Reset",    onClick: handleReset   },
               ].map(({ label, title, onClick }) => (
-                <Tooltip key={title} label={title} placement="left" hasArrow>
+                <Tooltip fontColor="gray.400" borderRadius="8px"
+              bg={"blue.200"} key={title} label={title} placement="left" hasArrow>
                   <IconButton
                     aria-label={title}
                     onClick={onClick}

@@ -336,8 +336,6 @@ class EmailService {
 
   async sendWelcomeEmail(user, password) {
     const portalUrl = (
-      process.env.PORTAL_URL ||
-      process.env.FRONTEND_URL ||
       process.env.BASE_API_URL ||
       'http://localhost:3000'
     ).replace(/\/+$/, '');

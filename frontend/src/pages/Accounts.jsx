@@ -895,6 +895,7 @@ const Accounts = () => {
           direction={{ base: "column", md: "row" }}
           gap={2}
           w="full"
+          wrap="wrap"
         >
           <Select
             // borderRadius={"md"}
@@ -1021,6 +1022,7 @@ const Accounts = () => {
 
           <Button
             colorScheme="red"
+            flexShrink={0}
             leftIcon={<FiX/>}
             size="sm"
             variant="outline"

@@ -26,6 +26,7 @@ import {
   IconButton,
   InputGroup,
   InputLeftElement,
+  InputRightElement,
   Menu,
   MenuButton,
   MenuList,
@@ -810,10 +811,10 @@ const Reports = () => {
 
   const summaryConfig = useMemo(() => ({
     0: [
-      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0",                            icon: FiBarChart2,    color: "blue"   },
-      { label: "Completed Calls", value: reportSummary.totalCompleted?.toLocaleString() ?? "0",                            icon: CheckCircleIcon, color: "green"  },
-      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),                             icon: FiTrendingUp,   color: "green"  },
-      { label: "Avg ASR",         value: formatPercentage(reportSummary.avgASR          ?? 0, 2),                          icon: StarIcon,       color: "yellow" },
+      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,    color: "blue"   },
+      { label: "Completed Calls", value: reportSummary.totalCompleted?.toLocaleString() ?? "0", icon: CheckCircleIcon, color: "green"  },
+      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,   color: "green"  },
+      { label: "Avg ASR",         value: formatPercentage(reportSummary.avgASR          ?? 0, 2), icon: StarIcon,       color: "yellow" },
     ],
     1: [
       { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0), icon: FiTrendingUp,   color: "green"  },
@@ -886,16 +887,6 @@ const Reports = () => {
         description="Generate detailed reports and insights from CDR data"
         rightContent={
           <>
-            <Button
-              size="sm"
-              leftIcon={<FiRefreshCw />}
-              variant="ghost"
-              onClick={loadAccounts}
-              isLoading={accountsLoading}
-            >
-              Refresh
-            </Button>
-
             <Menu>
               <MenuButton
                 as={Button}
@@ -1065,9 +1056,11 @@ const Reports = () => {
                     </Text>
                     <Badge
                       colorScheme={selectedTrunk === "all" ? "gray" : "blue"}
-                      fontSize="xs"
-                      px={2}
-                      py={1}
+                       borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px"
                     >
                       Trunk: {selectedTrunk === "all" ? "All Trunks" : selectedTrunk}
                     </Badge>
@@ -1085,7 +1078,11 @@ const Reports = () => {
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
                     </InputGroup>
-                    <Badge colorScheme="yellow" fontSize="xs" px={3} py={1} whiteSpace="nowrap">
+                    <Badge colorScheme="yellow" fontSize="xs"  borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px" whiteSpace="nowrap">
                       {filteredData.length} records
                     </Badge>
                   </HStack>
@@ -1302,7 +1299,7 @@ const DashboardMetrics = React.memo(({ metrics, cardBg, borderColor, mutedColor 
       <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6}>
         <Box>
           <Text fontSize="sm" color={mutedColor}>Profit Margin</Text>
-          <Heading size="md" color={metrics.totalMargin >= 0 ? "green.500" : "red.500"}>
+          <Heading size="md" color={metrics.totalMargin >= 0 ? "green.600" : "red.500"}>
             {formatCurrency(metrics.totalMargin)}
           </Heading>
           <Text fontSize="xs">{marginPct}% margin</Text>
@@ -1422,125 +1419,305 @@ HourPickerButton.displayName = "HourPickerButton";
 
 // ─── CountrySearchSelect ──────────────────────────────────────────────────────
 
-const CountrySearchSelect = React.memo(({
-  label, value, options, onChange,
-  placeholder = "All Countries", loading = false,
-}) => {
-  const wrapperRef = useRef(null);
-  const [query,  setQuery]  = useState("");
-  const [isOpen, setIsOpen] = useState(false);
+const CountrySearchSelect = React.memo(
+  ({
+    label,
+    value,
+    options,
+    onChange,
+    placeholder = "Search country...",
+    loading = false,
+  }) => {
+    const wrapperRef = useRef(null);
+    const listRef = useRef(null);
 
-  const selectedOption = useMemo(
-    () => options.find((o) => o.value === value) ?? null,
-    [options, value],
-  );
+    const [query, setQuery] = useState("");
+    const [isOpen, setIsOpen] = useState(false);
+    const [highlightedIndex, setHighlightedIndex] = useState(0);
 
-  // FIX #7: also run when `value` changes so an external reset (e.g. tab switch)
-  // clears the query text back to empty / the new selection's label.
-  useEffect(() => {
-    if (!isOpen) {
-      setQuery(value === "all" ? "" : selectedOption?.label ?? "");
-    }
-  }, [isOpen, selectedOption, value]);
+    const selectedOption = useMemo(
+      () =>
+        options.find((option) => option.value === value) || null,
+      [options, value]
+    );
 
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
-        setIsOpen(false);
+    useEffect(() => {
+      if (!isOpen) {
+        setQuery(selectedOption?.label || "");
+      }
+    }, [selectedOption, isOpen]);
+
+    useEffect(() => {
+      const handleOutsideClick = (event) => {
+        if (
+          wrapperRef.current &&
+          !wrapperRef.current.contains(event.target)
+        ) {
+          setIsOpen(false);
+        }
+      };
+
+      document.addEventListener("mousedown", handleOutsideClick);
+
+      return () => {
+        document.removeEventListener(
+          "mousedown",
+          handleOutsideClick
+        );
+      };
+    }, []);
+
+    const filteredOptions = useMemo(() => {
+      const searchTerm = query.trim().toLowerCase();
+
+      const allOptions = [
+        {
+          value: "all",
+          label: "All Countries",
+          codes: [],
+        },
+        ...options,
+      ];
+
+      if (!searchTerm) return allOptions;
+
+      return allOptions.filter((option) => {
+        const searchableText = `
+          ${option.label}
+          ${(option.codes || []).join(" ")}
+        `.toLowerCase();
+
+        return searchableText.includes(searchTerm);
+      });
+    }, [options, query]);
+
+    useEffect(() => {
+      if (!isOpen) return;
+
+      const selectedIndex = filteredOptions.findIndex(
+        (option) => option.value === value
+      );
+
+      if (selectedIndex >= 0) {
+        setHighlightedIndex(selectedIndex);
+
+        setTimeout(() => {
+          const element = document.getElementById(
+            `country-option-${selectedIndex}`
+          );
+
+          element?.scrollIntoView({
+            block: "nearest",
+          });
+        }, 0);
+      }
+    }, [isOpen, value, filteredOptions]);
+
+    const handleSelect = (option) => {
+      onChange(option.value);
+
+      setQuery(
+        option.value === "all"
+          ? ""
+          : option.label
+      );
+
+      setIsOpen(false);
+    };
+
+    const handleKeyDown = (event) => {
+      if (!isOpen) return;
+
+      switch (event.key) {
+        case "ArrowDown":
+          event.preventDefault();
+          setHighlightedIndex((prev) =>
+            Math.min(
+              prev + 1,
+              filteredOptions.length - 1
+            )
+          );
+          break;
+
+        case "ArrowUp":
+          event.preventDefault();
+          setHighlightedIndex((prev) =>
+            Math.max(prev - 1, 0)
+          );
+          break;
+
+        case "Enter":
+          event.preventDefault();
+
+          if (filteredOptions[highlightedIndex]) {
+            handleSelect(
+              filteredOptions[highlightedIndex]
+            );
+          }
+          break;
+
+        case "Escape":
+          setIsOpen(false);
+          break;
+
+        default:
+          break;
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
-  const filteredOptions = useMemo(() => {
-    const term        = query.trim().toLowerCase();
-    const baseOptions = [{ value: "all", label: "All Countries", codes: [] }, ...options];
-    if (!term) return baseOptions;
-    return baseOptions.filter((o) => {
-      const haystack = `${o.label} ${(o.codes || []).join(" ")}`.toLowerCase();
-      return haystack.includes(term);
-    });
-  }, [options, query]);
+    return (
+      <FormControl maxW={{ base: "100%", lg: "260px" }}>
+        <FormLabel>{label}</FormLabel>
 
-  return (
-    <FormControl maxW={{ base: "100%", lg: "260px" }}>
-      <FormLabel>{label}</FormLabel>
-      <Box ref={wrapperRef} position="relative">
-        <Input
-          size="sm"
-          value={query}
-          placeholder={placeholder}
-          onFocus={() => setIsOpen(true)}
-          onChange={(e) => {
-            const next = e.target.value;
-            setQuery(next);
-            setIsOpen(true);
-            if (!next.trim()) onChange("all");
-          }}
-          onClick={() => setIsOpen(true)}
-          disabled={loading}
-        />
+        <Box
+          ref={wrapperRef}
+          position="relative"
+        >
+          <InputGroup size="sm">
+            <Input
+              value={query}
+              placeholder={placeholder}
+              disabled={loading}
+              onFocus={() => setIsOpen(true)}
+              onClick={() => setIsOpen(true)}
+              onKeyDown={handleKeyDown}
+              onChange={(event) => {
+                const nextValue =
+                  event.target.value;
 
-        {isOpen && (
-          <Box
-            position="absolute"
-            top="calc(100% + 6px)"
-            left={0}
-            right={0}
-            zIndex={20}
-            bg="white"
-            borderWidth="1px"
-            borderColor="gray.200"
-            borderRadius="md"
-            boxShadow="lg"
-            maxH="260px"
-            overflowY="auto"
-          >
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((option) => (
-                <Button
-                  key={option.value}
+                setQuery(nextValue);
+                setIsOpen(true);
+
+                if (!nextValue.trim()) {
+                  onChange("all");
+                }
+              }}
+            />
+
+            <InputRightElement>
+              {loading ? (
+                <Spinner size="xs" />
+              ) : query ? (
+                <IconButton
+                  icon={<FiX />}
+                  size="xs"
                   variant="ghost"
-                  w="full"
-                  justifyContent="flex-start"
-                  borderRadius={0}
-                  px={3}
-                  py={2}
-                  h="auto"
+                  aria-label="Clear"
                   onClick={() => {
-                    onChange(option.value);
-                    setQuery(option.value === "all" ? "" : option.label);
+                    setQuery("");
+                    onChange("all");
                     setIsOpen(false);
                   }}
-                >
-                  <VStack spacing={0} align="start" w="full">
-                    <Text
-                      fontSize="sm"
-                      fontWeight={option.value === value ? "700" : "500"}
-                    >
-                      {option.label}
-                    </Text>
-                    {option.codes?.length > 0 && option.value !== "all" && (
-                      <Text fontSize="xs" color="gray.500">
-                        {option.codes.join(", ")}
-                      </Text>
-                    )}
-                  </VStack>
-                </Button>
-              ))
-            ) : (
-              <Box px={3} py={2}>
-                <Text fontSize="sm" color="gray.500">No matching countries</Text>
-              </Box>
-            )}
-          </Box>
-        )}
-      </Box>
-    </FormControl>
-  );
-});
-CountrySearchSelect.displayName = "CountrySearchSelect";
+                />
+              ) : null}
+            </InputRightElement>
+          </InputGroup>
+
+          {isOpen && (
+            <Box
+              ref={listRef}
+              position="absolute"
+              top="calc(100% + 6px)"
+              left={0}
+              right={0}
+              zIndex={999}
+              bg="white"
+              borderWidth="1px"
+              borderColor="gray.200"
+              borderRadius="md"
+              boxShadow="xl"
+              maxH="280px"
+              overflowY="auto"
+            >
+              {filteredOptions.length > 0 ? (
+                filteredOptions.map(
+                  (option, index) => {
+                    const isSelected =
+                      option.value === value;
+
+                    const isHighlighted =
+                      index === highlightedIndex;
+
+                    return (
+                      <Box
+                        id={`country-option-${index}`}
+                        key={option.value}
+                        px={3}
+                        py={2}
+                        cursor="pointer"
+                        bg={
+                          isHighlighted
+                            ? "gray.100"
+                            : isSelected
+                            ? "blue.50"
+                            : "transparent"
+                        }
+                        _hover={{
+                          bg: "gray.100",
+                        }}
+                        onMouseEnter={() =>
+                          setHighlightedIndex(
+                            index
+                          )
+                        }
+                        onClick={() =>
+                          handleSelect(option)
+                        }
+                      >
+                        <VStack
+                          spacing={0}
+                          align="start"
+                        >
+                          <Text
+                            fontSize="sm"
+                            fontWeight={
+                              isSelected
+                                ? "700"
+                                : "500"
+                            }
+                          >
+                            {option.label}
+                          </Text>
+
+                          {option.codes?.length >
+                            0 &&
+                            option.value !==
+                              "all" && (
+                              <Text
+                                fontSize="xs"
+                                color="gray.500"
+                              >
+                                {option.codes.join(
+                                  ", "
+                                )}
+                              </Text>
+                            )}
+                        </VStack>
+                      </Box>
+                    );
+                  }
+                )
+              ) : (
+                <Box px={3} py={3}>
+                  <Text
+                    fontSize="sm"
+                    color="gray.500"
+                  >
+                    No matching countries
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          )}
+        </Box>
+      </FormControl>
+    );
+  }
+);
+
+CountrySearchSelect.displayName =
+  "CountrySearchSelect";
+
 
 // ─── ReportTable ──────────────────────────────────────────────────────────────
 
@@ -1751,7 +1928,11 @@ const HourlyTableBody = React.memo(({ rows }) => (
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric>{formatNumber(row.completed)}</Td>
         <Td isNumeric>
-          <Badge colorScheme={row.asr > 50 ? "green" : row.asr > 20 ? "yellow" : "red"}>
+          <Badge  borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px" colorScheme={row.asr > 50 ? "green" : row.asr > 20 ? "yellow" : "red"}>
             {formatPercentage(row.asr)}
           </Badge>
         </Td>
@@ -1781,12 +1962,16 @@ const MarginTableBody = React.memo(({ rows }) => (
         <Td isNumeric>{formatCurrency(row.revenue)}</Td>
         <Td isNumeric>{formatCurrency(row.cost)}</Td>
         <Td isNumeric>
-          <Text color={row.margin >= 0 ? "green.500" : "red.500"} fontWeight="bold">
+          <Text color={row.margin >= 0 ? "green.600" : "red.500"} fontWeight="bold">
             {formatCurrency(row.margin)}
           </Text>
         </Td>
         <Td isNumeric>
-          <Badge colorScheme={row.marginPercent >= 0 ? "green" : "red"}>
+          <Badge  borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px" colorScheme={row.marginPercent >= 0 ? "green" : "red"}>
             {formatPercentage(row.marginPercent)}
           </Badge>
         </Td>
@@ -1810,7 +1995,11 @@ const NegativeMarginTableBody = React.memo(({ rows }) => (
         <Td isNumeric>{formatCurrency(row.cost)}</Td>
         <Td isNumeric color="red.600" fontWeight="bold">{formatCurrency(row.margin)}</Td>
         <Td isNumeric>
-          <Badge colorScheme="red">{formatPercentage(row.marginPercent)}</Badge>
+          <Badge  borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px" colorScheme="red">{formatPercentage(row.marginPercent)}</Badge>
         </Td>
       </Tr>
     ))}
@@ -1829,7 +2018,11 @@ const CustomerVendorTableBody = React.memo(({ rows, isVendorReport }) => (
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
         <Td isNumeric>
-          <Badge colorScheme={row.asr > 40 ? "green" : "orange"}>
+          <Badge  borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px" colorScheme={row.asr > 40 ? "green" : "orange"}>
             {formatPercentage(row.asr)}
           </Badge>
         </Td>
@@ -1863,7 +2056,11 @@ const CustomerOnlyTableBody = React.memo(({ rows }) => (
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
         <Td isNumeric>
-          <Badge colorScheme={row.asr > 40 ? "green" : "orange"}>
+          <Badge  borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px" colorScheme={row.asr > 40 ? "green" : "orange"}>
             {formatPercentage(row.asr)}
           </Badge>
         </Td>
@@ -1890,7 +2087,11 @@ const VendorOnlyTableBody = React.memo(({ rows }) => (
         <Td isNumeric>{formatNumber(row.attempts)}</Td>
         <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
         <Td isNumeric>
-          <Badge colorScheme={row.asr > 40 ? "green" : "orange"}>
+          <Badge  borderRadius="full"
+            px="8px"
+            py="2px"
+            fontWeight="500"
+            fontSize="11px" colorScheme={row.asr > 40 ? "green" : "orange"}>
             {formatPercentage(row.asr)}
           </Badge>
         </Td>

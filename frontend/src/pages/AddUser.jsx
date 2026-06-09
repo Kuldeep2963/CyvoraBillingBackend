@@ -174,7 +174,8 @@ const UsersTab = ({ onAddNew, refreshSignal, onEdit }) => {
                   _focus={{ borderColor: "blue.400", boxShadow: "0 0 0 1px var(--chakra-colors-blue-400)" }}
                 />
               </InputGroup>
-              <Tooltip label="Refresh" placement="top">
+              <Tooltip fontColor="gray.400" borderRadius="8px"
+              bg={"blue.200"} label="Refresh" placement="top">
                 <IconButton icon={<FiRefreshCw />} size="sm" variant="outline" borderRadius="8px"
                   borderColor={border} color="gray.500" aria-label="Refresh" isLoading={isLoading}
                   onClick={loadUsers} _hover={{ borderColor: "blue.400", color: "blue.500" }} />

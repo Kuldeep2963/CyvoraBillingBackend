@@ -57,7 +57,7 @@ const RecordPaymentModal = ({
   });
 
   const isPostpaidCustomer = String(selectedCustomer?.billingType || "").toLowerCase() === "postpaid";
-  const accountFundsLabel = "Use Account Funds";
+  const accountFundsLabel = "Use account balance";
   const postpaidLimit = Number(selectedCustomer?.originalCreditLimit ?? 0);
   const availableFunds = isPostpaidCustomer
     ? postpaidLimit + Number(selectedCustomer?.balance || 0)

@@ -972,7 +972,8 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
               </Text>
             )}
 
-            <Tooltip
+            <Tooltip fontColor="gray.400" borderRadius="8px"
+              bg={"blue.200"}
               label={isPaid ? "Cannot add files to paid invoice" : "Add files"}
             >
               <IconButton
@@ -1075,12 +1076,16 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
 
       {/* Table card */}
       <Flex align="center" justify="space-between" flexWrap="wrap" gap={3}>
-        <HStack>
+        <HStack alignItems="center" spacing={2}>
           <Box w={1} h={5} bg="blue.500" borderRadius="full" />
           <Heading size="sm" color="gray.800">
             Vendor Invoices
           </Heading>
-          <Badge colorScheme="blue" variant="subtle" fontSize="xs">
+          <Badge  borderRadius="full"
+          px="8px"
+          py="2px"
+          fontWeight="500"
+          fontSize="11px" colorScheme="blue" variant="subtle" >
             {pagination.total || invoices.length} records
           </Badge>
         </HStack>
@@ -1094,7 +1099,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
             }}
             borderColor={border}
             borderRadius="8px"
-            fontSize="13px"
+            fontSize="11px"
             minW="150px"
             _focus={{
               borderColor: "blue.400",
@@ -1131,6 +1136,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
             colorScheme="red"
             leftIcon={<FiX/>}
             size="sm"
+            flexShrink={0}
             variant="outline"
             onClick={handleClearFilters}
             isDisabled={!search && statusFilter === "all"}
@@ -1138,7 +1144,8 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
             Clear Filters
           </Button>
           {/* Refresh */}
-          <Tooltip label="Refresh" placement="top">
+          <Tooltip label="Refresh" fontColor="gray.400" borderRadius="8px"
+              bg={"blue.200"} placement="top">
             <IconButton
               icon={<FiRefreshCw />}
               size="sm"
@@ -2618,7 +2625,8 @@ const UploadTab = ({ onViewInvoices, onSuccess, vendorRefreshToken }) => {
                 <FormControl isInvalid={!!errors.totalSeconds}>
                   <FormLabel fontSize="sm" color={label} fontWeight="500">
                     Total Seconds (Usage)
-                    <Tooltip
+                    <Tooltip fontColor="gray.400" borderRadius="8px"
+              bg={"blue.200"}
                       label="Sum of all call durations in seconds as reported by the vendor"
                       placement="top"
                     >
@@ -3005,10 +3013,9 @@ const UploadTab = ({ onViewInvoices, onSuccess, vendorRefreshToken }) => {
                 >
                   Save Without Dispute
                 </Button>
-                <Tooltip
-                  bg={"white"}
-                  color={"grey.500"}
-                  fontStyle={"italic"}
+                <Tooltip 
+                  fontColor="gray.400" borderRadius="8px"
+              bg={"blue.200"}
                   label={
                     !usageComparison?.mismatchDetected
                       ? "No mismatch detected — dispute not applicable"

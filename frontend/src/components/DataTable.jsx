@@ -197,7 +197,8 @@ const DataTable = ({
                   <Flex align="center" justify={column.isNumeric ? 'flex-end' : 'flex-start'}>
                     {column.header}
                     {column.tooltip && (
-                      <Tooltip label={column.tooltip}>
+                      <Tooltip fontColor="gray.400" borderRadius="8px"
+              bg={"blue.200"} label={column.tooltip}>
                         <Box as="span" ml={1} fontSize="xs" opacity={0.6} cursor="help">ⓘ</Box>
                       </Tooltip>
                     )}

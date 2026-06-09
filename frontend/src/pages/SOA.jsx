@@ -190,7 +190,8 @@ const InvoiceTable = ({
                       <Box>
                         {inv.invoiceNumber}
                         {isMismatched && (
-                          <Tooltip label="Amount mismatch with corresponding invoice">
+                          <Tooltip fontColor="gray.400" borderRadius="8px"
+              bg={"blue.200"} label="Amount mismatch with corresponding invoice">
                             <Box as="span" ml={2}>
                               <FiAlertCircle
                                 color="red"
