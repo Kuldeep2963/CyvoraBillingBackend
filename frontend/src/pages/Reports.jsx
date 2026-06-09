@@ -44,14 +44,7 @@ import {
   Stat,
   StatLabel,
   StatNumber,
-  Table,
-  Tbody,
   Text,
-  Td,
-  Th,
-  Thead,
-  Tooltip,
-  Tr,
   useColorModeValue,
   VStack,
   Wrap,
@@ -59,14 +52,13 @@ import {
 } from "@chakra-ui/react";
 import { MemoizedInput as Input, MemoizedSelect as Select } from "../components/memoizedinput/memoizedinput";
 import PageNavBar from "../components/PageNavBar";
+import DataTable from "../components/DataTable";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   CalendarIcon,
   CheckCircleIcon,
   ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   CloseIcon,
   DownloadIcon,
   InfoIcon,
@@ -79,12 +71,9 @@ import {
   FiBarChart2,
   FiCalendar,
   FiClock,
-  FiEye,
   FiFileText,
-  FiFilter,
   FiGrid,
   FiList,
-  FiRefreshCw,
   FiTrendingDown,
   FiTrendingUp,
   FiUser,
@@ -113,7 +102,6 @@ const REPORT_TYPES = [
   { value: "6", label: "Missing Gateways" },
 ];
 
-// FIX #11: added key 6 so the title card never falls back to "Report"
 const REPORT_TITLES = {
   0: "Hourly Report",
   1: "Margin Report",
@@ -141,8 +129,6 @@ const TRUNK_OPTIONS = [
   { value: "CC",       label: "CC" },
 ];
 
-const ROWS_PER_PAGE_OPTIONS = [50, 100, 250];
-
 const pad2 = (value) => String(value).padStart(2, "0");
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
@@ -167,10 +153,8 @@ const DatePickerInput = forwardRef(({ value, onClick, size, w }, ref) => (
 DatePickerInput.displayName = "DatePickerInput";
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
-// All defined outside the component — stable references, no re-creation on render.
 
 const formatCurrency = (value, fractionDigits = 4) => {
-  // FIX #9: default to 4 decimal places; callers that need rate precision pass 4
   const parsed = parseFloat(value);
   if (value === undefined || value === null || isNaN(parsed)) return "$0.00";
   return new Intl.NumberFormat("en-US", {
@@ -189,7 +173,6 @@ const formatNumber = (value) => {
   return new Intl.NumberFormat("en-US").format(parsed);
 };
 
-// FIX #22: single canonical formatter — all table cells use this; never raw `{val}%`
 const formatPercentage = (value, decimals = 3) => {
   const parsed = parseFloat(value);
   if (value === undefined || value === null || isNaN(parsed)) return "0.000%";
@@ -221,106 +204,546 @@ const utcSelectionToBackendPayload = (date, hour, minute) => {
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
 
-const SortIcon = ({ sortConfig, columnKey }) => {
-  if (sortConfig.key !== columnKey) return null;
-  return sortConfig.direction === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />;
-};
+// const LoadingState = () => (
+//   <Center py={20}>
+//     <VStack spacing={4}>
+//       <Spinner size="xl" color="blue.500" thickness="4px" />
+//       <VStack spacing={1}>
+//         <Text fontWeight="medium">Generating Report</Text>
+//         <Text fontSize="sm" color="gray.500">Processing your data…</Text>
+//       </VStack>
+//       <Progress size="xs" width="200px" isIndeterminate colorScheme="blue" />
+//     </VStack>
+//   </Center>
+// );
 
-const SortableTh = ({ label, sortKey, sortConfig, onSort, isNumeric }) => (
-  <Th
-    color="gray.800"
-    isNumeric={isNumeric}
-    cursor="pointer"
-    onClick={() => onSort(sortKey)}
-    userSelect="none"
-  >
-    <HStack justify={isNumeric ? "flex-end" : "flex-start"} spacing={1}>
-      <Text>{label}</Text>
-      <SortIcon sortConfig={sortConfig} columnKey={sortKey} />
-    </HStack>
-  </Th>
-);
+// ─── Column definitions (for DataTable) ──────────────────────────────────────
 
-const LoadingState = () => (
-  <Center py={20}>
-    <VStack spacing={4}>
-      <Spinner size="xl" color="blue.500" thickness="4px" />
-      <VStack spacing={1}>
-        <Text fontWeight="medium">Generating Report</Text>
-        <Text fontSize="sm" color="gray.500">Processing your data…</Text>
-      </VStack>
-      <Progress size="xs" width="200px" isIndeterminate colorScheme="blue" />
-    </VStack>
-  </Center>
-);
-
-const EmptyState = () => (
-  <VStack
-    spacing={5}
-    p={12}
-    bg="gray.50"
-    border="2px dashed"
-    borderColor="gray.300"
-    borderRadius="xl"
-    textAlign="center"
-    w="full"
-  >
-    <VStack spacing={2}>
-      <Heading size="md" color="gray.700">No Report Data Yet</Heading>
-      <Text color="gray.500" maxW="md" fontSize="sm">
-        You haven't generated any reports yet. Create your first report to start
-        viewing analytics and insights from your CDR data.
+const buildHourlyColumns = () => [
+  {
+    key: "hour",
+    header: "Hour",
+    minWidth: "80px",
+  },
+  {
+    key: "attempts",
+    header: "Attempts",
+    isNumeric: true,
+    minWidth: "100px",
+    render: (value) => formatNumber(value),
+  },
+  {
+    key: "completed",
+    header: "Completed",
+    isNumeric: true,
+    minWidth: "110px",
+    render: (value) => formatNumber(value),
+  },
+  {
+    key: "asr",
+    header: "ASR %",
+    isNumeric: true,
+    minWidth: "100px",
+    render: (value) => (
+      <Badge
+        borderRadius="full"
+        px="8px"
+        py="2px"
+        fontWeight="500"
+        fontSize="11px"
+        colorScheme={value > 50 ? "green" : value > 20 ? "yellow" : "red"}
+      >
+        {formatPercentage(value)}
+      </Badge>
+    ),
+  },
+  {
+    key: "acd",
+    header: "ACD (sec)",
+    isNumeric: true,
+    minWidth: "110px",
+  },
+  {
+    key: "duration",
+    header: "Duration (sec)",
+    isNumeric: true,
+    minWidth: "130px",
+    render: (value) => formatNumber(value),
+  },
+  {
+    key: "revenue",
+    header: "Revenue",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => formatCurrency(value),
+  },
+  {
+    key: "cost",
+    header: "Cost",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => formatCurrency(value),
+  },
+  {
+    key: "margin",
+    header: "Margin",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => (
+      <Text fontWeight="semibold" color={value >= 0 ? "green.600" : "red.500"}>
+        {formatCurrency(value)}
       </Text>
-    </VStack>
-  </VStack>
-);
-
-// ─── Column definitions ───────────────────────────────────────────────────────
-
-const HOURLY_COLUMNS = [
-  { label: "Hour",          key: "hour" },
-  { label: "Attempts",      key: "attempts",  isNumeric: true },
-  { label: "Completed",     key: "completed", isNumeric: true },
-  { label: "ASR %",         key: "asr",       isNumeric: true },
-  { label: "ACD (sec)",     key: "acd",       isNumeric: true },
-  { label: "Duration (sec)",key: "duration",  isNumeric: true },
-  { label: "Revenue",       key: "revenue",   isNumeric: true },
-  { label: "Cost",          key: "cost",      isNumeric: true },
-  { label: "Margin",        key: "margin",    isNumeric: true },
+    ),
+  },
 ];
 
-const MARGIN_COLUMNS = [
-  { label: "Customer",       key: "accountName",    },
-  { label: "Account Owner",  key: "accountOwner",   },
-  { label: "Destination",    key: "destination",    },
-  { label: "Attempts",       key: "attempts",       isNumeric: true },
-  { label: "Revenue",        key: "revenue",        isNumeric: true },
-  { label: "Cost",           key: "cost",           isNumeric: true },
-  { label: "Margin",         key: "margin",         isNumeric: true },
-  { label: "Margin %",       key: "marginPercent",  isNumeric: true },
-  { label: "Duration (Sec)", key: "duration",       isNumeric: true },
+const buildMarginColumns = () => [
+  {
+    key: "accountName",
+    header: "Customer",
+    minWidth: "160px",
+  },
+  {
+    key: "accountOwner",
+    header: "Account Owner",
+    minWidth: "140px",
+    render: (value) => value ?? "—",
+  },
+  {
+    key: "destination",
+    header: "Destination",
+    minWidth: "140px",
+  },
+  {
+    key: "attempts",
+    header: "Attempts",
+    isNumeric: true,
+    minWidth: "100px",
+    render: (value) => formatNumber(value),
+  },
+  {
+    key: "revenue",
+    header: "Revenue",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => formatCurrency(value),
+  },
+  {
+    key: "cost",
+    header: "Cost",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => formatCurrency(value),
+  },
+  {
+    key: "margin",
+    header: "Margin",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => (
+      <Text color={value >= 0 ? "green.600" : "red.500"} fontWeight="bold">
+        {formatCurrency(value)}
+      </Text>
+    ),
+  },
+  {
+    key: "marginPercent",
+    header: "Margin %",
+    isNumeric: true,
+    minWidth: "110px",
+    render: (value) => (
+      <Badge
+        borderRadius="full"
+        px="8px"
+        py="2px"
+        fontWeight="500"
+        fontSize="11px"
+        colorScheme={value >= 0 ? "green" : "red"}
+      >
+        {formatPercentage(value)}
+      </Badge>
+    ),
+  },
+  {
+    key: "duration",
+    header: "Duration (Sec)",
+    isNumeric: true,
+    minWidth: "130px",
+    render: (value) => formatNumber(value),
+  },
 ];
 
-const NEGATIVE_MARGIN_COLUMNS = [
-  { label: "Account ID",    key: "accountCode",   },
-  { label: "Customer",      key: "accountName",   },
-  { label: "Account Owner", key: "accountOwner",  },
-  { label: "Destination",   key: "destination",   },
-  { label: "Attempts",      key: "attempts",      isNumeric: true },
-  { label: "Revenue",       key: "revenue",       isNumeric: true },
-  { label: "Cost",          key: "cost",          isNumeric: true },
-  { label: "Margin",        key: "margin",        isNumeric: true },
-  { label: "Margin %",      key: "marginPercent", isNumeric: true },
+const buildNegativeMarginColumns = () => [
+  {
+    key: "accountCode",
+    header: "Account ID",
+    minWidth: "120px",
+  },
+  {
+    key: "accountName",
+    header: "Customer",
+    minWidth: "160px",
+  },
+  {
+    key: "accountOwner",
+    header: "Account Owner",
+    minWidth: "140px",
+    render: (value) => value ?? "—",
+  },
+  {
+    key: "destination",
+    header: "Destination",
+    minWidth: "140px",
+  },
+  {
+    key: "attempts",
+    header: "Attempts",
+    isNumeric: true,
+    minWidth: "100px",
+    render: (value) => formatNumber(value),
+  },
+  {
+    key: "revenue",
+    header: "Revenue",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => formatCurrency(value),
+  },
+  {
+    key: "cost",
+    header: "Cost",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => formatCurrency(value),
+  },
+  {
+    key: "margin",
+    header: "Margin",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => (
+      <Text color="red.600" fontWeight="bold">{formatCurrency(value)}</Text>
+    ),
+  },
+  {
+    key: "marginPercent",
+    header: "Margin %",
+    isNumeric: true,
+    minWidth: "110px",
+    render: (value) => (
+      <Badge
+        borderRadius="full"
+        px="8px"
+        py="2px"
+        fontWeight="500"
+        fontSize="11px"
+        colorScheme="red"
+      >
+        {formatPercentage(value)}
+      </Badge>
+    ),
+  },
 ];
 
-// ─── Pagination helper ────────────────────────────────────────────────────────
+const buildCustomerVendorColumns = (isVendorReport) => [
+  {
+    key: "accountOwner",
+    header: "Account Owner",
+    minWidth: "130px",
+    // render: (value) => <Text fontSize="xs">{value ?? "—"}</Text>,
+  },
+  {
+    key: "customer",
+    header: "Customer",
+    minWidth: "130px",
+    render: (value) => <Text fontSize="xs">{value}</Text>,
+  },
+  {
+    key: "vendDestination",
+    header: "Destination",
+    minWidth: "130px",
+  },
+  {
+    key: "vendor",
+    header: "Vendor",
+    minWidth: "130px",
+    render: (value) => <Text fontSize="xs">{value}</Text>,
+  },
+  {
+    key: "attempts",
+    header: "Attempts",
+    isNumeric: true,
+    minWidth: "100px",
+    render: (value) => formatNumber(value),
+  },
+  {
+    key: "completed",
+    header: "Comp",
+    isNumeric: true,
+    minWidth: "80px",
+    render: (value) => (
+      <Text color="green.600">{formatNumber(value)}</Text>
+    ),
+  },
+  {
+    key: "asr",
+    header: "ASR%",
+    isNumeric: true,
+    minWidth: "90px",
+    render: (value) => (
+      <Badge
+        borderRadius="full"
+        px="8px"
+        py="2px"
+        fontWeight="500"
+        fontSize="11px"
+        colorScheme={value > 40 ? "green" : "orange"}
+      >
+        {formatPercentage(value)}
+      </Badge>
+    ),
+  },
+  {
+    key: "acd",
+    header: "ACD",
+    isNumeric: true,
+    minWidth: "80px",
+  },
+  {
+    key: "revenue",
+    header: "Revenue",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => formatCurrency(value),
+  },
+  {
+    key: "revenuePerMin",
+    header: "Rev/min",
+    isNumeric: true,
+    minWidth: "110px",
+    render: (value) => formatCurrencyRate(value),
+  },
+  ...(isVendorReport
+    ? [
+        {
+          key: "cost",
+          header: "Cost",
+          isNumeric: true,
+          minWidth: "120px",
+          render: (value) => formatCurrency(value),
+        },
+        {
+          key: "costPerMin",
+          header: "Cost/min",
+          isNumeric: true,
+          minWidth: "110px",
+          render: (value) => formatCurrencyRate(value),
+        },
+      ]
+    : []),
+  {
+    key: "margin",
+    header: "Margin",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => (
+      <Text color={value >= 0 ? "green.600" : "red.500"}>
+        {formatCurrency(value)}
+      </Text>
+    ),
+  },
+  {
+    key: "marginPercent",
+    header: "Margin %",
+    isNumeric: true,
+    minWidth: "110px",
+    render: (value) => formatPercentage(value),
+  },
+];
 
-function buildPageNumbers(current, total) {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  if (current <= 4) return [1, 2, 3, 4, 5, "…", total];
-  if (current >= total - 3) return [1, "…", total - 4, total - 3, total - 2, total - 1, total];
-  return [1, "…", current - 1, current, current + 1, "…", total];
-}
+const buildCustomerOnlyColumns = () => [
+  {
+    key: "customer",
+    header: "Customer",
+    minWidth: "150px",
+    render: (value) => <Text fontSize="xs">{value}</Text>,
+  },
+  {
+    key: "accountOwner",
+    header: "Account Owner",
+    minWidth: "140px",
+    render: (value) => <Text fontSize="xs">{value ?? "—"}</Text>,
+  },
+  {
+    key: "vendDestination",
+    header: "Destination",
+    minWidth: "130px",
+  },
+  {
+    key: "attempts",
+    header: "Attempts",
+    isNumeric: true,
+    minWidth: "100px",
+    render: (value) => formatNumber(value),
+  },
+  {
+    key: "completed",
+    header: "Comp",
+    isNumeric: true,
+    minWidth: "80px",
+    render: (value) => (
+      <Text color="green.600">{formatNumber(value)}</Text>
+    ),
+  },
+  {
+    key: "asr",
+    header: "ASR%",
+    isNumeric: true,
+    minWidth: "90px",
+    render: (value) => (
+      <Badge
+        borderRadius="full"
+        px="8px"
+        py="2px"
+        fontWeight="500"
+        fontSize="11px"
+        colorScheme={value > 40 ? "green" : "orange"}
+      >
+        {formatPercentage(value)}
+      </Badge>
+    ),
+  },
+  {
+    key: "acd",
+    header: "ACD",
+    isNumeric: true,
+    minWidth: "80px",
+  },
+  {
+    key: "revenue",
+    header: "Revenue",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => formatCurrency(value),
+  },
+  {
+    key: "revenuePerMin",
+    header: "Rev/min",
+    isNumeric: true,
+    minWidth: "110px",
+    render: (value) => formatCurrencyRate(value),
+  },
+  {
+    key: "margin",
+    header: "Margin",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => (
+      <Text color={value >= 0 ? "green.600" : "red.500"}>
+        {formatCurrency(value)}
+      </Text>
+    ),
+  },
+  {
+    key: "marginPercent",
+    header: "Margin %",
+    isNumeric: true,
+    minWidth: "110px",
+    render: (value) => formatPercentage(value),
+  },
+];
+
+const buildVendorOnlyColumns = () => [
+  {
+    key: "accountOwner",
+    header: "Account Owner",
+    minWidth: "140px",
+    render: (value) => <Text fontSize="xs">{value ?? "—"}</Text>,
+  },
+  {
+    key: "vendor",
+    header: "Vendor",
+    minWidth: "140px",
+    render: (value) => <Text fontSize="xs">{value}</Text>,
+  },
+  {
+    key: "vendDestination",
+    header: "Destination Country",
+    minWidth: "160px",
+  },
+  {
+    key: "attempts",
+    header: "Attempts",
+    isNumeric: true,
+    minWidth: "100px",
+    render: (value) => formatNumber(value),
+  },
+  {
+    key: "completed",
+    header: "Comp",
+    isNumeric: true,
+    minWidth: "80px",
+    render: (value) => (
+      <Text color="green.600">{formatNumber(value)}</Text>
+    ),
+  },
+  {
+    key: "asr",
+    header: "ASR%",
+    isNumeric: true,
+    minWidth: "90px",
+    render: (value) => (
+      <Badge
+        borderRadius="full"
+        px="8px"
+        py="2px"
+        fontWeight="500"
+        fontSize="11px"
+        colorScheme={value > 40 ? "green" : "orange"}
+      >
+        {formatPercentage(value)}
+      </Badge>
+    ),
+  },
+  {
+    key: "acd",
+    header: "ACD (Sec)",
+    isNumeric: true,
+    minWidth: "100px",
+  },
+  {
+    key: "cost",
+    header: "Cost",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => formatCurrency(value),
+  },
+  {
+    key: "costPerMin",
+    header: "Cost/min",
+    isNumeric: true,
+    minWidth: "110px",
+    render: (value) => formatCurrencyRate(value),
+  },
+  {
+    key: "margin",
+    header: "Margin",
+    isNumeric: true,
+    minWidth: "120px",
+    render: (value) => (
+      <Text color={value >= 0 ? "green.600" : "red.500"}>
+        {formatCurrency(value)}
+      </Text>
+    ),
+  },
+  {
+    key: "marginPercent",
+    header: "Margin %",
+    isNumeric: true,
+    minWidth: "110px",
+    render: (value) => formatPercentage(value),
+  },
+];
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -362,9 +785,8 @@ const Reports = () => {
   const borderColor = useColorModeValue("gray.200", "gray.700");
   const mutedColor  = useColorModeValue("gray.600", "gray.400");
 
-  // FIX #1 & #4: use a ref so handleExport always reads the latest filteredData
-  // without needing filteredData in its own dependency array (which would cause
-  // the export callback to be re-created on every search/sort change).
+  // Keep a ref so handleExport always reads the latest filteredData
+  // without needing filteredData in its own dependency array.
   const filteredDataRef = useRef([]);
 
   const hasActiveFilters =
@@ -394,9 +816,6 @@ const Reports = () => {
   useEffect(() => { loadAccounts();       }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadCountryOptions(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // FIX #2: replace the fragile ref-comparison pattern with a straightforward
-  // dependency-array effect. Page resets whenever search term, sort config,
-  // or the underlying report data changes.
   useEffect(() => { setPage(1); }, [searchTerm, sortConfig, reportData]);
 
   // ── Data loaders ───────────────────────────────────────────────────────────
@@ -416,8 +835,8 @@ const Reports = () => {
   const loadCountryOptions = useCallback(async () => {
     setCountryLoading(true);
     try {
-      const allRows   = [];
-      let pageNumber  = 1;
+      const allRows  = [];
+      let pageNumber = 1;
 
       while (true) {
         const result = await fetchCountryCodes({ page: pageNumber, limit: 100 });
@@ -438,9 +857,9 @@ const Reports = () => {
 
       const options = Array.from(countryMap.values())
         .map((item) => ({
-          value:  item.value,
-          label:  item.label,
-          codes:  Array.from(item.codes).sort((a, b) =>
+          value: item.value,
+          label: item.label,
+          codes: Array.from(item.codes).sort((a, b) =>
             a.localeCompare(b, undefined, { numeric: true })
           ),
         }))
@@ -480,10 +899,6 @@ const Reports = () => {
     }));
   }, []);
 
-  // FIX #8: hour setters are intentionally one-directional — setStartHour only
-  // clamps endHour (never startHour), and setEndHour only clamps startHour (never
-  // endHour).  This prevents the two callbacks from fighting each other when
-  // TimePickerButton fires both in sequence.
   const setStartHour = useCallback((hour) => {
     setDateRange((prev) => ({
       ...prev,
@@ -526,9 +941,6 @@ const Reports = () => {
     setSearchTerm("");
     setSortConfig({ key: null, direction: "asc" });
     setSelectedOwner("all");
-    // Tab 4 = Customer-only → force customer mode
-    // Tab 5 = Vendor-only  → force vendor mode
-    // All other tabs keep the user's current choice
     if (index === 4) setIsVendorReport(false);
     else if (index === 5) setIsVendorReport(true);
   }, []);
@@ -570,7 +982,7 @@ const Reports = () => {
 
     setLoading(true);
     try {
-      const accountsList      = isVendorReport ? accounts.vendors : accounts.customers;
+      const accountsList       = isVendorReport ? accounts.vendors : accounts.customers;
       const selectedAccountObj = selectedAccount !== "all"
         ? accountsList.find((acc) =>
             (isVendorReport ? acc.vendorCode : acc.customerCode) === selectedAccount
@@ -673,9 +1085,8 @@ const Reports = () => {
     }
   }, [activeTab, accounts, dateRange, isVendorReport, selectedAccount, selectedCountry, selectedTrunk, toast]);
 
-  // FIX #1 & #4: reads filteredDataRef.current so it always gets the latest
-  // filtered/sorted data without filteredData appearing in the dependency array
-  // (which would cause the callback to be re-created on every keystroke).
+  // Reads filteredDataRef.current so it always gets the latest
+  // filtered/sorted data without filteredData in its dependency array.
   const handleExport = useCallback(async (format) => {
     const data = filteredDataRef.current;
     if (!data.length) {
@@ -686,22 +1097,21 @@ const Reports = () => {
     try {
       const fileName = `report_${Date.now()}_${formatDateAsYmd(dateRange.startDate)}_to_${formatDateAsYmd(dateRange.endDate)}`;
 
-      // build meta information for header/footer in exported file
-      const accountsList = isVendorReport ? accounts.vendors : accounts.customers;
+      const accountsList       = isVendorReport ? accounts.vendors : accounts.customers;
       const selectedAccountObj = selectedAccount !== "all"
         ? accountsList.find((acc) => (isVendorReport ? acc.vendorCode : acc.customerCode) === selectedAccount)
         : null;
 
       const meta = {
-        title: REPORT_TITLES[activeTab] ?? "Report",
-        startDate: formatDateAsYmd(dateRange.startDate),
-        endDate: formatDateAsYmd(dateRange.endDate),
-        periodLabel: `${dateRange.startDate.toLocaleDateString()} - ${dateRange.endDate.toLocaleDateString()}`,
-        account: selectedAccountObj ? selectedAccountObj.accountName : 'All Accounts',
-        accountCode: selectedAccountObj ? (isVendorReport ? selectedAccountObj.vendorCode : selectedAccountObj.customerCode) : 'all',
-        trunk: selectedTrunk,
-        generatedAt: new Date().toISOString(),
-        summary: reportSummary,
+        title:        REPORT_TITLES[activeTab] ?? "Report",
+        startDate:    formatDateAsYmd(dateRange.startDate),
+        endDate:      formatDateAsYmd(dateRange.endDate),
+        periodLabel:  `${dateRange.startDate.toLocaleDateString()} - ${dateRange.endDate.toLocaleDateString()}`,
+        account:      selectedAccountObj ? selectedAccountObj.accountName : "All Accounts",
+        accountCode:  selectedAccountObj ? (isVendorReport ? selectedAccountObj.vendorCode : selectedAccountObj.customerCode) : "all",
+        trunk:        selectedTrunk,
+        generatedAt:  new Date().toISOString(),
+        summary:      reportSummary,
         totalRecords: data.length,
       };
 
@@ -712,7 +1122,7 @@ const Reports = () => {
     } finally {
       setExporting(false);
     }
-  }, [dateRange.endDate, dateRange.startDate, toast]);
+  }, [dateRange.endDate, dateRange.startDate, activeTab, accounts, isVendorReport, selectedAccount, selectedTrunk, reportSummary, toast]);
 
   // ── Derived data ───────────────────────────────────────────────────────────
 
@@ -728,7 +1138,6 @@ const Reports = () => {
       );
     }
 
-    // FIX #BUG-original: normalise field name variants before comparing
     data = data.filter((row) => {
       const asr    = parseFloat(row.asr    ?? row.ASR           ?? 0);
       const margin = parseFloat(row.marginPercent ?? row.MarginPercent ?? 0);
@@ -753,7 +1162,6 @@ const Reports = () => {
       });
     }
 
-    // FIX #1/#4: keep ref in sync so handleExport always reads current value
     filteredDataRef.current = data;
     return data;
   }, [reportData, searchTerm, sortConfig, filters]);
@@ -781,7 +1189,7 @@ const Reports = () => {
       sumASR       += parseFloat(row.asr          ?? row.ASR          ?? 0);
       sumACD       += parseFloat(row.acd          ?? row.ACD          ?? 0);
 
-      const customer    = row.customer    ?? row.Customer    ?? row.accountName ?? row.customername;
+      const customer = row.customer ?? row.Customer ?? row.accountName ?? row.customername;
       if (customer) customerMap[customer] = (customerMap[customer] ?? 0) + parseFloat(row.revenue ?? row.Revenue ?? 0);
 
       const destination = row.destination ?? row.Destination ?? row.custDestination ?? row.calleeareacode;
@@ -794,8 +1202,8 @@ const Reports = () => {
       totalCost,
       totalCalls,
       totalMargin,
-      avgASR:   n > 0 ? sumASR / n : 0,
-      avgACD:   n > 0 ? sumACD / n : 0,
+      avgASR:  n > 0 ? sumASR / n : 0,
+      avgACD:  n > 0 ? sumACD / n : 0,
       topCustomers: Object.entries(customerMap)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
@@ -814,7 +1222,7 @@ const Reports = () => {
       { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,    color: "blue"   },
       { label: "Completed Calls", value: reportSummary.totalCompleted?.toLocaleString() ?? "0", icon: CheckCircleIcon, color: "green"  },
       { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,   color: "green"  },
-      { label: "Avg ASR",         value: formatPercentage(reportSummary.avgASR          ?? 0, 2), icon: StarIcon,       color: "yellow" },
+      { label: "Avg ASR",         value: formatPercentage(reportSummary.avgASR          ?? 0, 2), icon: StarIcon,     color: "yellow" },
     ],
     1: [
       { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0), icon: FiTrendingUp,   color: "green"  },
@@ -823,10 +1231,10 @@ const Reports = () => {
       { label: "Avg Margin %",    value: formatPercentage(reportSummary.avgMarginPercent ?? 0, 2), icon: StarIcon,   color: "purple" },
     ],
     2: [
-      { label: "Total Loss",          value: formatCurrency(Math.abs(reportSummary.totalLoss             ?? 0)), icon: WarningIcon,    color: "red"    },
-      { label: "Negative Calls",      value: reportSummary.negativeMarginCalls?.toLocaleString()          ?? "0",  icon: CloseIcon,      color: "orange" },
-      { label: "Affected Customers",  value: reportSummary.affectedCustomers?.toLocaleString()            ?? "0",  icon: InfoIcon,       color: "yellow" },
-      { label: "Destinations",        value: reportSummary.affectedDestinations?.toLocaleString()         ?? "0",  icon: FiGrid,         color: "cyan"   },
+      { label: "Total Loss",          value: formatCurrency(Math.abs(reportSummary.totalLoss            ?? 0)), icon: WarningIcon,  color: "red"    },
+      { label: "Negative Calls",      value: reportSummary.negativeMarginCalls?.toLocaleString()         ?? "0", icon: CloseIcon,   color: "orange" },
+      { label: "Affected Customers",  value: reportSummary.affectedCustomers?.toLocaleString()           ?? "0", icon: InfoIcon,    color: "yellow" },
+      { label: "Destinations",        value: reportSummary.affectedDestinations?.toLocaleString()        ?? "0", icon: FiGrid,      color: "cyan"   },
     ],
     3: [
       { label: "Total Customers", value: reportSummary.totalCustomers?.toLocaleString() ?? "0", icon: FiList,        color: "blue"   },
@@ -878,6 +1286,20 @@ const Reports = () => {
       }),
   [currentAccounts, selectedOwner]);
 
+  // ── Active columns for DataTable ───────────────────────────────────────────
+
+  const tableColumns = useMemo(() => {
+    switch (activeTab) {
+      case 0: return buildHourlyColumns();
+      case 1: return buildMarginColumns();
+      case 2: return buildNegativeMarginColumns();
+      case 3: return buildCustomerVendorColumns(isVendorReport);
+      case 4: return buildCustomerOnlyColumns();
+      case 5: return buildVendorOnlyColumns();
+      default: return [];
+    }
+  }, [activeTab, isVendorReport]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -886,26 +1308,24 @@ const Reports = () => {
         title="CDR Analytics Reports"
         description="Generate detailed reports and insights from CDR data"
         rightContent={
-          <>
-            <Menu>
-              <MenuButton
-                as={Button}
-                size="sm"
-                rightIcon={<ChevronDownIcon />}
-                colorScheme="green"
-                isLoading={exporting}
-                isDisabled={!filteredData.length}
-              >
-                <DownloadIcon mr={2} />Export
-              </MenuButton>
-              <MenuList>
-                <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("csv")}>Export as CSV</MenuItem>
-                <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("excel")}>Export as Excel</MenuItem>
-                <Divider />
-                <MenuItem icon={<SettingsIcon />} onClick={() => window.print()}>Print Report</MenuItem>
-              </MenuList>
-            </Menu>
-          </>
+          <Menu>
+            <MenuButton
+              as={Button}
+              size="sm"
+              rightIcon={<ChevronDownIcon />}
+              colorScheme="green"
+              isLoading={exporting}
+              isDisabled={!filteredData.length}
+            >
+              <DownloadIcon mr={2} />Export
+            </MenuButton>
+            <MenuList>
+              <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("csv")}>Export as CSV</MenuItem>
+              <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("excel")}>Export as Excel</MenuItem>
+              <Divider />
+              <MenuItem icon={<SettingsIcon />} onClick={() => window.print()}>Print Report</MenuItem>
+            </MenuList>
+          </Menu>
         }
       />
 
@@ -970,7 +1390,7 @@ const Reports = () => {
                 </Box>
               </WrapItem>
 
-              {/* Time pickers — hour-only for Hourly report, full time for rest */}
+              {/* Time pickers */}
               {activeTab === 0 ? (
                 <>
                   <HourPickerButton label="From (UTC)" hour={dateRange.startHour} onHourChange={setStartHour} />
@@ -989,7 +1409,6 @@ const Reports = () => {
         {activeTab !== 6 ? (
           <>
             {/* ── Filters + generate button ─────────────────────────────── */}
-            {/* FIX #14: pass only startDate/endDate — not the whole dateRange object */}
             <ReportControls
               activeTab={activeTab}
               isVendorReport={isVendorReport}
@@ -1038,7 +1457,7 @@ const Reports = () => {
               />
             )}
 
-            {/* ── Data table ────────────────────────────────────────────── */}
+            {/* ── Data table (header + search) ──────────────────────────── */}
             <Card bg={cardBg} border="1px" borderColor={borderColor}>
               <CardHeader>
                 <Flex
@@ -1048,7 +1467,6 @@ const Reports = () => {
                   direction={{ base: "column", md: "row" }}
                 >
                   <VStack align="start" spacing={1}>
-                    {/* FIX #11: REPORT_TITLES now has key 6; this never falls back */}
                     <Heading size="md">{REPORT_TITLES[activeTab] ?? "Report"}</Heading>
                     <Text fontSize="sm" color={mutedColor}>
                       Generated on {new Date().toLocaleDateString()} | Data range:{" "}
@@ -1056,11 +1474,11 @@ const Reports = () => {
                     </Text>
                     <Badge
                       colorScheme={selectedTrunk === "all" ? "gray" : "blue"}
-                       borderRadius="full"
-            px="8px"
-            py="2px"
-            fontWeight="500"
-            fontSize="11px"
+                      borderRadius="full"
+                      px="8px"
+                      py="2px"
+                      fontWeight="500"
+                      fontSize="11px"
                     >
                       Trunk: {selectedTrunk === "all" ? "All Trunks" : selectedTrunk}
                     </Badge>
@@ -1078,39 +1496,48 @@ const Reports = () => {
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
                     </InputGroup>
-                    <Badge colorScheme="yellow" fontSize="xs"  borderRadius="full"
-            px="8px"
-            py="2px"
-            fontWeight="500"
-            fontSize="11px" whiteSpace="nowrap">
+                    <Badge
+                      colorScheme="yellow"
+                      borderRadius="full"
+                      px="8px"
+                      py="2px"
+                      fontWeight="500"
+                      fontSize="11px"
+                      whiteSpace="nowrap"
+                    >
                       {filteredData.length} records
                     </Badge>
                   </HStack>
                 </Flex>
               </CardHeader>
 
-              <CardBody overflowX="auto">
-                {loading ? (
-                  <LoadingState />
-                ) : !reportData.length ? (
-                  <EmptyState />
-                ) : (
-                  <ReportTable
-                    activeTab={activeTab}
-                    paginatedData={paginatedData}
-                    filteredData={filteredData}
-                    sortConfig={sortConfig}
-                    onSort={handleSort}
-                    isVendorReport={isVendorReport}
+              <CardBody px={2}>
+               
+                  <DataTable
+                    isLoading={loading}
+                    columns={tableColumns}
+                    data={paginatedData}
+                    actions={false}
+                    emptyMessage={
+                      reportData.length === 0
+                        ? "No report data yet."
+                        : "No records match your search criteria."
+                    }
+                    striped
+                    height="500px"
+                    // Client-side pagination — pass page/pageSize/total so
+                    // DataTable renders its own pagination controls consistently
+                    // with the Invoices page, but we manage slicing ourselves.
                     page={page}
-                    setPage={setPage}
-                    totalPages={totalPages}
-                    rowsPerPage={rowsPerPage}
-                    setRowsPerPage={setRowsPerPage}
-                    borderColor={borderColor}
-                    mutedColor={mutedColor}
+                    pageSize={rowsPerPage}
+                    total={filteredData.length}
+                    onPageChange={setPage}
+                    onPageSizeChange={(size) => {
+                      setRowsPerPage(size);
+                      setPage(1);
+                    }}
                   />
-                )}
+                
               </CardBody>
             </Card>
           </>
@@ -1123,8 +1550,6 @@ const Reports = () => {
 };
 
 // ─── ReportControls ───────────────────────────────────────────────────────────
-// FIX #14: receives startDate/endDate directly instead of the full dateRange
-// object, so hour/minute changes don't trigger needless re-renders of this subtree.
 
 const ReportControls = React.memo(({
   activeTab, isVendorReport, setIsVendorReport,
@@ -1140,7 +1565,7 @@ const ReportControls = React.memo(({
     <VStack spacing={6} align="stretch">
       <Flex direction={{ base: "column", lg: "row" }} gap={6} align={{ base: "stretch", lg: "flex-end" }}>
 
-        {/* Report side (Customer / Vendor) — only for tabs that support the toggle */}
+        {/* Report side — only for tabs that support the toggle */}
         {[0, 1, 3].includes(activeTab) && (
           <FormControl>
             <FormLabel display="flex" alignItems="center" gap={2}>
@@ -1181,7 +1606,6 @@ const ReportControls = React.memo(({
         </FormControl>
 
         {/* Account selector */}
-        {/* FIX #5: use customerCode/vendorCode as key — id/_id can be undefined */}
         <FormControl>
           <FormLabel display="flex" alignItems="center" gap={2}>
             <FiUser />{isVendorReport ? "Vendor Account" : "Customer Account"}
@@ -1289,7 +1713,6 @@ ReportControls.displayName = "ReportControls";
 // ─── DashboardMetrics ─────────────────────────────────────────────────────────
 
 const DashboardMetrics = React.memo(({ metrics, cardBg, borderColor, mutedColor }) => {
-  // FIX #12: guard against division by zero producing Infinity/NaN
   const marginPct = metrics.totalRevenue > 0
     ? ((metrics.totalMargin / metrics.totalRevenue) * 100).toFixed(6)
     : "0.000000";
@@ -1329,7 +1752,6 @@ DashboardMetrics.displayName = "DashboardMetrics";
 
 const ReportSummaryCards = React.memo(({ stats, cardBg, borderColor, mutedColor }) => (
   <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4} mb={4}>
-    {/* FIX #15: use stat.label as key — stable and semantically meaningful */}
     {stats.map((stat) => (
       <Card
         key={stat.label}
@@ -1382,8 +1804,6 @@ const TimePickerButton = React.memo(({ label, hour, minute, onHourChange, onMinu
               .map((v) => Number(v));
             if (!Number.isInteger(nextHour)   || !Number.isInteger(nextMinute))  return;
             if (nextHour < 0 || nextHour > 23 || nextMinute < 0 || nextMinute > 59) return;
-            // FIX #8: call both change handlers with the same values; the parent's
-            // hour setters (setStartHour / setEndHour) handle clamping independently.
             onHourChange(nextHour);
             onMinuteChange(nextMinute);
           }}
@@ -1419,693 +1839,176 @@ HourPickerButton.displayName = "HourPickerButton";
 
 // ─── CountrySearchSelect ──────────────────────────────────────────────────────
 
-const CountrySearchSelect = React.memo(
-  ({
-    label,
-    value,
-    options,
-    onChange,
-    placeholder = "Search country...",
-    loading = false,
-  }) => {
-    const wrapperRef = useRef(null);
-    const listRef = useRef(null);
-
-    const [query, setQuery] = useState("");
-    const [isOpen, setIsOpen] = useState(false);
-    const [highlightedIndex, setHighlightedIndex] = useState(0);
-
-    const selectedOption = useMemo(
-      () =>
-        options.find((option) => option.value === value) || null,
-      [options, value]
-    );
-
-    useEffect(() => {
-      if (!isOpen) {
-        setQuery(selectedOption?.label || "");
-      }
-    }, [selectedOption, isOpen]);
-
-    useEffect(() => {
-      const handleOutsideClick = (event) => {
-        if (
-          wrapperRef.current &&
-          !wrapperRef.current.contains(event.target)
-        ) {
-          setIsOpen(false);
-        }
-      };
-
-      document.addEventListener("mousedown", handleOutsideClick);
-
-      return () => {
-        document.removeEventListener(
-          "mousedown",
-          handleOutsideClick
-        );
-      };
-    }, []);
-
-    const filteredOptions = useMemo(() => {
-      const searchTerm = query.trim().toLowerCase();
-
-      const allOptions = [
-        {
-          value: "all",
-          label: "All Countries",
-          codes: [],
-        },
-        ...options,
-      ];
-
-      if (!searchTerm) return allOptions;
-
-      return allOptions.filter((option) => {
-        const searchableText = `
-          ${option.label}
-          ${(option.codes || []).join(" ")}
-        `.toLowerCase();
-
-        return searchableText.includes(searchTerm);
-      });
-    }, [options, query]);
-
-    useEffect(() => {
-      if (!isOpen) return;
-
-      const selectedIndex = filteredOptions.findIndex(
-        (option) => option.value === value
-      );
-
-      if (selectedIndex >= 0) {
-        setHighlightedIndex(selectedIndex);
-
-        setTimeout(() => {
-          const element = document.getElementById(
-            `country-option-${selectedIndex}`
-          );
-
-          element?.scrollIntoView({
-            block: "nearest",
-          });
-        }, 0);
-      }
-    }, [isOpen, value, filteredOptions]);
-
-    const handleSelect = (option) => {
-      onChange(option.value);
-
-      setQuery(
-        option.value === "all"
-          ? ""
-          : option.label
-      );
-
-      setIsOpen(false);
-    };
-
-    const handleKeyDown = (event) => {
-      if (!isOpen) return;
-
-      switch (event.key) {
-        case "ArrowDown":
-          event.preventDefault();
-          setHighlightedIndex((prev) =>
-            Math.min(
-              prev + 1,
-              filteredOptions.length - 1
-            )
-          );
-          break;
-
-        case "ArrowUp":
-          event.preventDefault();
-          setHighlightedIndex((prev) =>
-            Math.max(prev - 1, 0)
-          );
-          break;
-
-        case "Enter":
-          event.preventDefault();
-
-          if (filteredOptions[highlightedIndex]) {
-            handleSelect(
-              filteredOptions[highlightedIndex]
-            );
-          }
-          break;
-
-        case "Escape":
-          setIsOpen(false);
-          break;
-
-        default:
-          break;
-      }
-    };
-
-    return (
-      <FormControl maxW={{ base: "100%", lg: "260px" }}>
-        <FormLabel>{label}</FormLabel>
-
-        <Box
-          ref={wrapperRef}
-          position="relative"
-        >
-          <InputGroup size="sm">
-            <Input
-              value={query}
-              placeholder={placeholder}
-              disabled={loading}
-              onFocus={() => setIsOpen(true)}
-              onClick={() => setIsOpen(true)}
-              onKeyDown={handleKeyDown}
-              onChange={(event) => {
-                const nextValue =
-                  event.target.value;
-
-                setQuery(nextValue);
-                setIsOpen(true);
-
-                if (!nextValue.trim()) {
-                  onChange("all");
-                }
-              }}
-            />
-
-            <InputRightElement>
-              {loading ? (
-                <Spinner size="xs" />
-              ) : query ? (
-                <IconButton
-                  icon={<FiX />}
-                  size="xs"
-                  variant="ghost"
-                  aria-label="Clear"
-                  onClick={() => {
-                    setQuery("");
-                    onChange("all");
-                    setIsOpen(false);
-                  }}
-                />
-              ) : null}
-            </InputRightElement>
-          </InputGroup>
-
-          {isOpen && (
-            <Box
-              ref={listRef}
-              position="absolute"
-              top="calc(100% + 6px)"
-              left={0}
-              right={0}
-              zIndex={999}
-              bg="white"
-              borderWidth="1px"
-              borderColor="gray.200"
-              borderRadius="md"
-              boxShadow="xl"
-              maxH="280px"
-              overflowY="auto"
-            >
-              {filteredOptions.length > 0 ? (
-                filteredOptions.map(
-                  (option, index) => {
-                    const isSelected =
-                      option.value === value;
-
-                    const isHighlighted =
-                      index === highlightedIndex;
-
-                    return (
-                      <Box
-                        id={`country-option-${index}`}
-                        key={option.value}
-                        px={3}
-                        py={2}
-                        cursor="pointer"
-                        bg={
-                          isHighlighted
-                            ? "gray.100"
-                            : isSelected
-                            ? "blue.50"
-                            : "transparent"
-                        }
-                        _hover={{
-                          bg: "gray.100",
-                        }}
-                        onMouseEnter={() =>
-                          setHighlightedIndex(
-                            index
-                          )
-                        }
-                        onClick={() =>
-                          handleSelect(option)
-                        }
-                      >
-                        <VStack
-                          spacing={0}
-                          align="start"
-                        >
-                          <Text
-                            fontSize="sm"
-                            fontWeight={
-                              isSelected
-                                ? "700"
-                                : "500"
-                            }
-                          >
-                            {option.label}
-                          </Text>
-
-                          {option.codes?.length >
-                            0 &&
-                            option.value !==
-                              "all" && (
-                              <Text
-                                fontSize="xs"
-                                color="gray.500"
-                              >
-                                {option.codes.join(
-                                  ", "
-                                )}
-                              </Text>
-                            )}
-                        </VStack>
-                      </Box>
-                    );
-                  }
-                )
-              ) : (
-                <Box px={3} py={3}>
-                  <Text
-                    fontSize="sm"
-                    color="gray.500"
-                  >
-                    No matching countries
-                  </Text>
-                </Box>
-              )}
-            </Box>
-          )}
-        </Box>
-      </FormControl>
-    );
-  }
-);
-
-CountrySearchSelect.displayName =
-  "CountrySearchSelect";
-
-
-// ─── ReportTable ──────────────────────────────────────────────────────────────
-
-const ReportTable = React.memo(({
-  activeTab, paginatedData, filteredData, sortConfig, onSort,
-  isVendorReport, page, setPage, totalPages, rowsPerPage, setRowsPerPage,
-  borderColor, mutedColor,
+const CountrySearchSelect = React.memo(({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder = "Search country...",
+  loading = false,
 }) => {
-  const tableBody = useMemo(() => {
-    switch (activeTab) {
-      case 0: return <HourlyTableBody            rows={paginatedData} />;
-      case 1: return <MarginTableBody            rows={paginatedData} />;
-      case 2: return <NegativeMarginTableBody    rows={paginatedData} />;
-      case 3: return <CustomerVendorTableBody    rows={paginatedData} isVendorReport={isVendorReport} />;
-      case 4: return <CustomerOnlyTableBody      rows={paginatedData} />;
-      case 5: return <VendorOnlyTableBody        rows={paginatedData} />;
-      default: return null;
-    }
-  }, [activeTab, paginatedData, isVendorReport]);
+  const wrapperRef = useRef(null);
 
-  const tableHead = useMemo(() => {
-    switch (activeTab) {
-      case 0: return <HourlyTableHead            sortConfig={sortConfig} onSort={onSort} />;
-      case 1: return <MarginTableHead            sortConfig={sortConfig} onSort={onSort} />;
-      case 2: return <NegativeMarginTableHead    sortConfig={sortConfig} onSort={onSort} />;
-      case 3: return <CustomerVendorTableHead    sortConfig={sortConfig} onSort={onSort} isVendorReport={isVendorReport} />;
-      case 4: return <CustomerOnlyTableHead      sortConfig={sortConfig} onSort={onSort} />;
-      case 5: return <VendorOnlyTableHead        sortConfig={sortConfig} onSort={onSort} />;
-      default: return null;
-    }
-  }, [activeTab, sortConfig, onSort, isVendorReport]);
+  const [query,            setQuery]            = useState("");
+  const [isOpen,           setIsOpen]           = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
 
-  const headBg          = activeTab === 2 ? "red.50"    : "gray.200";
-  const tableBorderColor = activeTab === 2 ? "red.200"  : borderColor;
+  const selectedOption = useMemo(
+    () => options.find((o) => o.value === value) || null,
+    [options, value],
+  );
+
+  useEffect(() => {
+    if (!isOpen) setQuery(selectedOption?.label || "");
+  }, [selectedOption, isOpen]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  const filteredOptions = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    const all  = [{ value: "all", label: "All Countries", codes: [] }, ...options];
+    if (!term) return all;
+    return all.filter((o) =>
+      `${o.label} ${(o.codes || []).join(" ")}`.toLowerCase().includes(term)
+    );
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const idx = filteredOptions.findIndex((o) => o.value === value);
+    if (idx >= 0) {
+      setHighlightedIndex(idx);
+      setTimeout(() => {
+        document.getElementById(`country-option-${idx}`)?.scrollIntoView({ block: "nearest" });
+      }, 0);
+    }
+  }, [isOpen, value, filteredOptions]);
+
+  const handleSelect = (option) => {
+    onChange(option.value);
+    setQuery(option.value === "all" ? "" : option.label);
+    setIsOpen(false);
+  };
+
+  const handleKeyDown = (event) => {
+    if (!isOpen) return;
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        setHighlightedIndex((prev) => Math.min(prev + 1, filteredOptions.length - 1));
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        setHighlightedIndex((prev) => Math.max(prev - 1, 0));
+        break;
+      case "Enter":
+        event.preventDefault();
+        if (filteredOptions[highlightedIndex]) handleSelect(filteredOptions[highlightedIndex]);
+        break;
+      case "Escape":
+        setIsOpen(false);
+        break;
+      default:
+        break;
+    }
+  };
 
   return (
-    <>
-      <Box
-        maxH="580px"
-        overflowY="auto"
-        overflowX="hidden"
-        border="1px solid"
-        borderColor={tableBorderColor}
-        borderRadius="md"
-      >
-        <Table variant="simple" size="sm" sx={{ tableLayout: "fixed", width: "100%" }}>
-          <Thead h="30px" position="sticky" top={0} zIndex={10} bg={headBg}>
-            {tableHead}
-          </Thead>
-          <Tbody>{tableBody}</Tbody>
-        </Table>
-      </Box>
-
-      {/* Pagination */}
-      <Flex justify="space-between" align="center" mt={4} py={2}>
-        <HStack spacing={3}>
-          <Menu>
-            <MenuButton as={Button} size="sm" variant="outline">
-              <HStack spacing={2}>
-                <FiEye />
-                <Text>{rowsPerPage}</Text>
-                <ChevronDownIcon ml={1} />
-              </HStack>
-            </MenuButton>
-            <MenuList>
-              {ROWS_PER_PAGE_OPTIONS.map((n) => (
-                <MenuItem key={n} onClick={() => { setRowsPerPage(n); setPage(1); }}>
-                  {n} per page
-                </MenuItem>
-              ))}
-            </MenuList>
-          </Menu>
-          <Text fontSize="sm" color={mutedColor}>
-            Showing {Math.min((page - 1) * rowsPerPage + 1, filteredData.length)}–
-            {Math.min(page * rowsPerPage, filteredData.length)} of {filteredData.length} entries
-          </Text>
-        </HStack>
-
-        <HStack spacing={2}>
-          <IconButton
-            icon={<ChevronLeftIcon />}
-            size="sm"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            isDisabled={page === 1}
-            aria-label="Previous page"
+    <FormControl maxW={{ base: "100%", lg: "260px" }}>
+      <FormLabel>{label}</FormLabel>
+      <Box ref={wrapperRef} position="relative">
+        <InputGroup size="sm">
+          <Input
+            value={query}
+            placeholder={placeholder}
+            disabled={loading}
+            onFocus={() => setIsOpen(true)}
+            onClick={() => setIsOpen(true)}
+            onKeyDown={handleKeyDown}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setIsOpen(true);
+              if (!e.target.value.trim()) onChange("all");
+            }}
           />
-          {buildPageNumbers(page, totalPages).map((pageNum, i) =>
-            pageNum === "…" ? (
-              <Text key={`ellipsis-${i}`} px={2}>…</Text>
+          <InputRightElement>
+            {loading ? (
+              <Spinner size="xs" />
+            ) : query ? (
+              <IconButton
+                icon={<FiX />}
+                size="xs"
+                variant="ghost"
+                aria-label="Clear"
+                onClick={() => { setQuery(""); onChange("all"); setIsOpen(false); }}
+              />
+            ) : null}
+          </InputRightElement>
+        </InputGroup>
+
+        {isOpen && (
+          <Box
+            position="absolute"
+            top="calc(100% + 6px)"
+            left={0}
+            right={0}
+            zIndex={999}
+            bg="white"
+            borderWidth="1px"
+            borderColor="gray.200"
+            borderRadius="md"
+            boxShadow="xl"
+            maxH="280px"
+            overflowY="auto"
+          >
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option, index) => {
+                const isSelected    = option.value === value;
+                const isHighlighted = index === highlightedIndex;
+                return (
+                  <Box
+                    id={`country-option-${index}`}
+                    key={option.value}
+                    px={3}
+                    py={2}
+                    cursor="pointer"
+                    bg={isHighlighted ? "gray.100" : isSelected ? "blue.50" : "transparent"}
+                    _hover={{ bg: "gray.100" }}
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                    onClick={() => handleSelect(option)}
+                  >
+                    <VStack spacing={0} align="start">
+                      <Text fontSize="sm" fontWeight={isSelected ? "700" : "500"}>
+                        {option.label}
+                      </Text>
+                      {option.codes?.length > 0 && option.value !== "all" && (
+                        <Text fontSize="xs" color="gray.500">
+                          {option.codes.join(", ")}
+                        </Text>
+                      )}
+                    </VStack>
+                  </Box>
+                );
+              })
             ) : (
-              <Button
-                key={pageNum}
-                size="sm"
-                variant={page === pageNum ? "solid"   : "outline"}
-                colorScheme={page === pageNum ? "blue" : "gray"}
-                onClick={() => setPage(pageNum)}
-              >
-                {pageNum}
-              </Button>
-            ),
-          )}
-          <IconButton
-            icon={<ChevronRightIcon />}
-            size="sm"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            isDisabled={page === totalPages || totalPages === 0}
-            aria-label="Next page"
-          />
-        </HStack>
-      </Flex>
-    </>
+              <Box px={3} py={3}>
+                <Text fontSize="sm" color="gray.500">No matching countries</Text>
+              </Box>
+            )}
+          </Box>
+        )}
+      </Box>
+    </FormControl>
   );
 });
-ReportTable.displayName = "ReportTable";
-
-// ─── Table Heads ──────────────────────────────────────────────────────────────
-
-const HourlyTableHead = ({ sortConfig, onSort }) => (
-  <Tr>
-    {HOURLY_COLUMNS.map((col) => (
-      <SortableTh key={col.key} label={col.label} sortKey={col.key} sortConfig={sortConfig} onSort={onSort} isNumeric={col.isNumeric} />
-    ))}
-  </Tr>
-);
-
-const MarginTableHead = ({ sortConfig, onSort }) => (
-  <Tr>
-    {MARGIN_COLUMNS.map((col) => (
-      <SortableTh key={col.key} label={col.label} sortKey={col.key} sortConfig={sortConfig} onSort={onSort} isNumeric={col.isNumeric} />
-    ))}
-  </Tr>
-);
-
-const NegativeMarginTableHead = ({ sortConfig, onSort }) => (
-  <Tr>
-    {NEGATIVE_MARGIN_COLUMNS.map((col) => (
-      <SortableTh key={col.key} label={col.label} sortKey={col.key} sortConfig={sortConfig} onSort={onSort} isNumeric={col.isNumeric} />
-    ))}
-  </Tr>
-);
-
-// FIX #19: sortKey was "venDestination" (missing 'd') — now "vendDestination"
-// to match the field name used in CustomerVendorTableBody
-const CustomerVendorTableHead = ({ sortConfig, onSort, isVendorReport }) => (
-  <Tr>
-    <SortableTh label="Account Owner" sortKey="accountOwner"    sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Customer"      sortKey="customer"        sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Destination"   sortKey="vendDestination" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Vendor"        sortKey="vendor"          sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Attempts"      sortKey="attempts"        sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Comp"          sortKey="completed"       sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ASR%"          sortKey="asr"             sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ACD"           sortKey="acd"             sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Revenue"       sortKey="revenue"         sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Rev/min"       sortKey="revenuePerMin"   sortConfig={sortConfig} onSort={onSort} isNumeric />
-    {isVendorReport && (
-      <>
-        <SortableTh label="Cost"      sortKey="cost"            sortConfig={sortConfig} onSort={onSort} isNumeric />
-        <SortableTh label="Cost/min"  sortKey="costPerMin"      sortConfig={sortConfig} onSort={onSort} isNumeric />
-      </>
-    )}
-    <SortableTh label="Margin"        sortKey="margin"          sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Margin %"      sortKey="marginPercent"   sortConfig={sortConfig} onSort={onSort} isNumeric />
-  </Tr>
-);
-
-const CustomerOnlyTableHead = ({ sortConfig, onSort }) => (
-  <Tr>
-    <SortableTh label="Customer"       sortKey="customer"       sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Account Owner"  sortKey="accountOwner"  sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Destination"    sortKey="vendDestination" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Attempts"       sortKey="attempts"       sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Comp"           sortKey="completed"      sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ASR%"           sortKey="asr"            sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ACD"            sortKey="acd"            sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Revenue"        sortKey="revenue"        sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Rev/min"        sortKey="revenuePerMin"  sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Margin"         sortKey="margin"         sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Margin %"       sortKey="marginPercent"  sortConfig={sortConfig} onSort={onSort} isNumeric />
-  </Tr>
-);
-
-const VendorOnlyTableHead = ({ sortConfig, onSort }) => (
-  <Tr>
-    <SortableTh label="Account Owner"      sortKey="accountOwner"   sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Vendor"             sortKey="vendor"         sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Destination Country"sortKey="vendDestination" sortConfig={sortConfig} onSort={onSort} />
-    <SortableTh label="Attempts"           sortKey="attempts"       sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Comp"               sortKey="completed"      sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ASR%"               sortKey="asr"            sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="ACD (Sec)"          sortKey="acd"            sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Cost"               sortKey="cost"           sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Cost/min"           sortKey="costPerMin"     sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Margin"             sortKey="margin"         sortConfig={sortConfig} onSort={onSort} isNumeric />
-    <SortableTh label="Margin %"           sortKey="marginPercent"  sortConfig={sortConfig} onSort={onSort} isNumeric />
-  </Tr>
-);
-
-// ─── Table Bodies ─────────────────────────────────────────────────────────────
-// FIX #10: replaced key={i} (index) with stable composite keys derived from row data.
-// FIX #17 & #22: all margin/ASR percentage cells now use formatPercentage().
-
-const HourlyTableBody = React.memo(({ rows }) => (
-  <>
-    {rows.map((row) => (
-      <Tr key={`hourly-${row.hour}`}>
-        <Td>{row.hour}</Td>
-        <Td isNumeric>{formatNumber(row.attempts)}</Td>
-        <Td isNumeric>{formatNumber(row.completed)}</Td>
-        <Td isNumeric>
-          <Badge  borderRadius="full"
-            px="8px"
-            py="2px"
-            fontWeight="500"
-            fontSize="11px" colorScheme={row.asr > 50 ? "green" : row.asr > 20 ? "yellow" : "red"}>
-            {formatPercentage(row.asr)}
-          </Badge>
-        </Td>
-        <Td isNumeric>{row.acd}</Td>
-        <Td isNumeric>{formatNumber(row.duration)}</Td>
-        <Td isNumeric>{formatCurrency(row.revenue)}</Td>
-        <Td isNumeric>{formatCurrency(row.cost)}</Td>
-        <Td isNumeric>
-          <Text fontWeight="semibold" color={row.margin >= 0 ? "green.600" : "red.500"}>
-            {formatCurrency(row.margin)}
-          </Text>
-        </Td>
-      </Tr>
-    ))}
-  </>
-));
-HourlyTableBody.displayName = "HourlyTableBody";
-
-const MarginTableBody = React.memo(({ rows }) => (
-  <>
-    {rows.map((row) => (
-      <Tr key={`margin-${row.accountName}-${row.destination}`}>
-        <Td>{row.accountName}</Td>
-        <Td>{row.accountOwner ?? "—"}</Td>
-        <Td>{row.destination}</Td>
-        <Td isNumeric>{formatNumber(row.attempts)}</Td>
-        <Td isNumeric>{formatCurrency(row.revenue)}</Td>
-        <Td isNumeric>{formatCurrency(row.cost)}</Td>
-        <Td isNumeric>
-          <Text color={row.margin >= 0 ? "green.600" : "red.500"} fontWeight="bold">
-            {formatCurrency(row.margin)}
-          </Text>
-        </Td>
-        <Td isNumeric>
-          <Badge  borderRadius="full"
-            px="8px"
-            py="2px"
-            fontWeight="500"
-            fontSize="11px" colorScheme={row.marginPercent >= 0 ? "green" : "red"}>
-            {formatPercentage(row.marginPercent)}
-          </Badge>
-        </Td>
-        <Td isNumeric>{formatNumber(row.duration)}</Td>
-      </Tr>
-    ))}
-  </>
-));
-MarginTableBody.displayName = "MarginTableBody";
-
-const NegativeMarginTableBody = React.memo(({ rows }) => (
-  <>
-    {rows.map((row) => (
-      <Tr key={`negmargin-${row.accountCode}-${row.destination}`} bg="red.50">
-        <Td>{row.accountCode}</Td>
-        <Td>{row.accountName}</Td>
-        <Td>{row.accountOwner ?? "—"}</Td>
-        <Td>{row.destination}</Td>
-        <Td isNumeric>{formatNumber(row.attempts)}</Td>
-        <Td isNumeric>{formatCurrency(row.revenue)}</Td>
-        <Td isNumeric>{formatCurrency(row.cost)}</Td>
-        <Td isNumeric color="red.600" fontWeight="bold">{formatCurrency(row.margin)}</Td>
-        <Td isNumeric>
-          <Badge  borderRadius="full"
-            px="8px"
-            py="2px"
-            fontWeight="500"
-            fontSize="11px" colorScheme="red">{formatPercentage(row.marginPercent)}</Badge>
-        </Td>
-      </Tr>
-    ))}
-  </>
-));
-NegativeMarginTableBody.displayName = "NegativeMarginTableBody";
-
-const CustomerVendorTableBody = React.memo(({ rows, isVendorReport }) => (
-  <>
-    {rows.map((row) => (
-      <Tr key={`cv-${row.customer}-${row.vendor}-${row.vendDestination}`}>
-        <Td fontSize="xs">{row.accountOwner ?? "—"}</Td>
-        <Td fontSize="xs">{row.customer}</Td>
-        <Td>{row.vendDestination}</Td>
-        <Td fontSize="xs">{row.vendor}</Td>
-        <Td isNumeric>{formatNumber(row.attempts)}</Td>
-        <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
-        <Td isNumeric>
-          <Badge  borderRadius="full"
-            px="8px"
-            py="2px"
-            fontWeight="500"
-            fontSize="11px" colorScheme={row.asr > 40 ? "green" : "orange"}>
-            {formatPercentage(row.asr)}
-          </Badge>
-        </Td>
-        <Td isNumeric>{row.acd}</Td>
-        <Td isNumeric>{formatCurrency(row.revenue)}</Td>
-        {/* FIX #9: rate columns use 6 decimal places */}
-        <Td isNumeric>{formatCurrencyRate(row.revenuePerMin)}</Td>
-        {isVendorReport && (
-          <>
-            <Td isNumeric>{formatCurrency(row.cost)}</Td>
-            <Td isNumeric>{formatCurrencyRate(row.costPerMin)}</Td>
-          </>
-        )}
-        <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>
-          {formatCurrency(row.margin)}
-        </Td>
-        <Td isNumeric>{formatPercentage(row.marginPercent)}</Td>
-      </Tr>
-    ))}
-  </>
-));
-CustomerVendorTableBody.displayName = "CustomerVendorTableBody";
-
-const CustomerOnlyTableBody = React.memo(({ rows }) => (
-  <>
-    {rows.map((row) => (
-      <Tr key={`custonly-${row.customer}-${row.vendDestination}`}>
-        <Td fontSize="xs">{row.customer}</Td>
-        <Td fontSize="xs">{row.accountOwner ?? "—"}</Td>
-        <Td>{row.vendDestination}</Td>
-        <Td isNumeric>{formatNumber(row.attempts)}</Td>
-        <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
-        <Td isNumeric>
-          <Badge  borderRadius="full"
-            px="8px"
-            py="2px"
-            fontWeight="500"
-            fontSize="11px" colorScheme={row.asr > 40 ? "green" : "orange"}>
-            {formatPercentage(row.asr)}
-          </Badge>
-        </Td>
-        <Td isNumeric>{row.acd}</Td>
-        <Td isNumeric>{formatCurrency(row.revenue)}</Td>
-        <Td isNumeric>{formatCurrencyRate(row.revenuePerMin)}</Td>
-        <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>
-          {formatCurrency(row.margin)}
-        </Td>
-        <Td isNumeric>{formatPercentage(row.marginPercent)}</Td>
-      </Tr>
-    ))}
-  </>
-));
-CustomerOnlyTableBody.displayName = "CustomerOnlyTableBody";
-
-const VendorOnlyTableBody = React.memo(({ rows }) => (
-  <>
-    {rows.map((row) => (
-      <Tr key={`vendonly-${row.vendor}-${row.vendDestination}`}>
-        <Td fontSize="xs">{row.accountOwner ?? "—"}</Td>
-        <Td fontSize="xs">{row.vendor}</Td>
-        <Td>{row.vendDestination}</Td>
-        <Td isNumeric>{formatNumber(row.attempts)}</Td>
-        <Td isNumeric color="green.600">{formatNumber(row.completed)}</Td>
-        <Td isNumeric>
-          <Badge  borderRadius="full"
-            px="8px"
-            py="2px"
-            fontWeight="500"
-            fontSize="11px" colorScheme={row.asr > 40 ? "green" : "orange"}>
-            {formatPercentage(row.asr)}
-          </Badge>
-        </Td>
-        <Td isNumeric>{row.acd}</Td>
-        <Td isNumeric>{formatCurrency(row.cost)}</Td>
-        <Td isNumeric>{formatCurrencyRate(row.costPerMin)}</Td>
-        <Td isNumeric color={row.margin >= 0 ? "green.600" : "red.500"}>
-          {formatCurrency(row.margin)}
-        </Td>
-        <Td isNumeric>{formatPercentage(row.marginPercent)}</Td>
-      </Tr>
-    ))}
-  </>
-));
-VendorOnlyTableBody.displayName = "VendorOnlyTableBody";
+CountrySearchSelect.displayName = "CountrySearchSelect";
 
 export default Reports;
