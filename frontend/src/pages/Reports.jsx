@@ -165,7 +165,7 @@ const formatCurrency = (value, fractionDigits = 4) => {
   }).format(parsed);
 };
 
-const formatCurrencyRate = (value) => formatCurrency(value, 6);
+const formatCurrencyRate = (value) => formatCurrency(value, 4);
 
 const formatNumber = (value) => {
   const parsed = parseFloat(value);
@@ -202,55 +202,38 @@ const utcSelectionToBackendPayload = (date, hour, minute) => {
   return { date: formatDateAsYmd(date), hour, minute };
 };
 
-// ─── Shared sub-components ────────────────────────────────────────────────────
-
-// const LoadingState = () => (
-//   <Center py={20}>
-//     <VStack spacing={4}>
-//       <Spinner size="xl" color="blue.500" thickness="4px" />
-//       <VStack spacing={1}>
-//         <Text fontWeight="medium">Generating Report</Text>
-//         <Text fontSize="sm" color="gray.500">Processing your data…</Text>
-//       </VStack>
-//       <Progress size="xs" width="200px" isIndeterminate colorScheme="blue" />
-//     </VStack>
-//   </Center>
-// );
-
-// ─── Column definitions (for DataTable) ──────────────────────────────────────
+// ─── Column definitions ───────────────────────────────────────────────────────
 
 const buildHourlyColumns = () => [
   {
-    key: "hour",
-    header: "Hour",
+    key:      "hour",
+    header:   "Hour",
     minWidth: "80px",
   },
   {
-    key: "attempts",
-    header: "Attempts",
+    key:       "attempts",
+    header:    "Attempts",
     isNumeric: true,
-    minWidth: "100px",
-    render: (value) => formatNumber(value),
+    minWidth:  "100px",
+    render:    (value) => formatNumber(value),
   },
   {
-    key: "completed",
-    header: "Completed",
+    key:       "completed",
+    header:    "Completed",
     isNumeric: true,
-    minWidth: "110px",
-    render: (value) => formatNumber(value),
+    minWidth:  "110px",
+    render:    (value) => formatNumber(value),
   },
   {
-    key: "asr",
-    header: "ASR %",
+    key:       "asr",
+    header:    "ASR %",
     isNumeric: true,
-    minWidth: "100px",
-    render: (value) => (
+    minWidth:  "100px",
+    render:    (value) => (
       <Badge
         borderRadius="full"
-        px="8px"
-        py="2px"
-        fontWeight="500"
-        fontSize="11px"
+        px="8px" py="2px"
+        fontWeight="500" fontSize="11px"
         colorScheme={value > 50 ? "green" : value > 20 ? "yellow" : "red"}
       >
         {formatPercentage(value)}
@@ -258,38 +241,38 @@ const buildHourlyColumns = () => [
     ),
   },
   {
-    key: "acd",
-    header: "ACD (sec)",
+    key:       "acd",
+    header:    "ACD (sec)",
     isNumeric: true,
-    minWidth: "110px",
+    minWidth:  "110px",
   },
   {
-    key: "duration",
-    header: "Duration (sec)",
+    key:       "duration",
+    header:    "Duration (sec)",
     isNumeric: true,
-    minWidth: "130px",
-    render: (value) => formatNumber(value),
+    minWidth:  "130px",
+    render:    (value) => formatNumber(value),
   },
   {
-    key: "revenue",
-    header: "Revenue",
+    key:       "revenue",
+    header:    "Revenue",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => formatCurrency(value),
+    minWidth:  "120px",
+    render:    (value) => formatCurrency(value),
   },
   {
-    key: "cost",
-    header: "Cost",
+    key:       "cost",
+    header:    "Cost",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => formatCurrency(value),
+    minWidth:  "120px",
+    render:    (value) => formatCurrency(value),
   },
   {
-    key: "margin",
-    header: "Margin",
+    key:       "margin",
+    header:    "Margin",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => (
+    minWidth:  "120px",
+    render:    (value) => (
       <Text fontWeight="semibold" color={value >= 0 ? "green.600" : "red.500"}>
         {formatCurrency(value)}
       </Text>
@@ -299,65 +282,63 @@ const buildHourlyColumns = () => [
 
 const buildMarginColumns = () => [
   {
-    key: "accountName",
-    header: "Customer",
+    key:      "accountName",
+    header:   "Customer",
     minWidth: "160px",
   },
   {
-    key: "accountOwner",
-    header: "Account Owner",
+    key:      "accountOwner",
+    header:   "Account Owner",
     minWidth: "140px",
-    render: (value) => value ?? "—",
+    render:   (value) => value ?? "—",
   },
   {
-    key: "destination",
-    header: "Destination",
+    key:      "destination",
+    header:   "Destination",
     minWidth: "140px",
   },
   {
-    key: "attempts",
-    header: "Attempts",
+    key:       "attempts",
+    header:    "Attempts",
     isNumeric: true,
-    minWidth: "100px",
-    render: (value) => formatNumber(value),
+    minWidth:  "100px",
+    render:    (value) => formatNumber(value),
   },
   {
-    key: "revenue",
-    header: "Revenue",
+    key:       "revenue",
+    header:    "Revenue",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => formatCurrency(value),
+    minWidth:  "120px",
+    render:    (value) => formatCurrency(value),
   },
   {
-    key: "cost",
-    header: "Cost",
+    key:       "cost",
+    header:    "Cost",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => formatCurrency(value),
+    minWidth:  "120px",
+    render:    (value) => formatCurrency(value),
   },
   {
-    key: "margin",
-    header: "Margin",
+    key:       "margin",
+    header:    "Margin",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => (
+    minWidth:  "120px",
+    render:    (value) => (
       <Text color={value >= 0 ? "green.600" : "red.500"} fontWeight="bold">
         {formatCurrency(value)}
       </Text>
     ),
   },
   {
-    key: "marginPercent",
-    header: "Margin %",
+    key:       "marginPercent",
+    header:    "Margin %",
     isNumeric: true,
-    minWidth: "110px",
-    render: (value) => (
+    minWidth:  "110px",
+    render:    (value) => (
       <Badge
         borderRadius="full"
-        px="8px"
-        py="2px"
-        fontWeight="500"
-        fontSize="11px"
+        px="8px" py="2px"
+        fontWeight="500" fontSize="11px"
         colorScheme={value >= 0 ? "green" : "red"}
       >
         {formatPercentage(value)}
@@ -365,78 +346,76 @@ const buildMarginColumns = () => [
     ),
   },
   {
-    key: "duration",
-    header: "Duration (Sec)",
+    key:       "duration",
+    header:    "Duration (Sec)",
     isNumeric: true,
-    minWidth: "130px",
-    render: (value) => formatNumber(value),
+    minWidth:  "130px",
+    render:    (value) => formatNumber(value),
   },
 ];
 
 const buildNegativeMarginColumns = () => [
   {
-    key: "accountCode",
-    header: "Account ID",
+    key:      "accountCode",
+    header:   "Account ID",
     minWidth: "120px",
   },
   {
-    key: "accountName",
-    header: "Customer",
+    key:      "accountName",
+    header:   "Customer",
     minWidth: "160px",
   },
   {
-    key: "accountOwner",
-    header: "Account Owner",
+    key:      "accountOwner",
+    header:   "Account Owner",
     minWidth: "140px",
-    render: (value) => value ?? "—",
+    render:   (value) => value ?? "—",
   },
   {
-    key: "destination",
-    header: "Destination",
+    key:      "destination",
+    header:   "Destination",
     minWidth: "140px",
   },
   {
-    key: "attempts",
-    header: "Attempts",
+    key:       "attempts",
+    header:    "Attempts",
     isNumeric: true,
-    minWidth: "100px",
-    render: (value) => formatNumber(value),
+    minWidth:  "100px",
+    render:    (value) => formatNumber(value),
   },
   {
-    key: "revenue",
-    header: "Revenue",
+    key:       "revenue",
+    header:    "Revenue",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => formatCurrency(value),
+    minWidth:  "120px",
+    render:    (value) => formatCurrency(value),
   },
   {
-    key: "cost",
-    header: "Cost",
+    key:       "cost",
+    header:    "Cost",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => formatCurrency(value),
+    minWidth:  "120px",
+    render:    (value) => formatCurrency(value),
   },
   {
-    key: "margin",
-    header: "Margin",
+    key:       "margin",
+    header:    "Margin",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => (
+    minWidth:  "120px",
+    render:    (value) => (
       <Text color="red.600" fontWeight="bold">{formatCurrency(value)}</Text>
     ),
   },
   {
-    key: "marginPercent",
-    header: "Margin %",
+    key:       "marginPercent",
+    header:    "Margin %",
     isNumeric: true,
-    minWidth: "110px",
-    render: (value) => (
+    minWidth:  "110px",
+    render:    (value) => (
       <Badge
         borderRadius="full"
-        px="8px"
-        py="2px"
-        fontWeight="500"
-        fontSize="11px"
+        px="8px" py="2px"
+        fontWeight="500" fontSize="11px"
         colorScheme="red"
       >
         {formatPercentage(value)}
@@ -447,56 +426,51 @@ const buildNegativeMarginColumns = () => [
 
 const buildCustomerVendorColumns = (isVendorReport) => [
   {
-    key: "accountOwner",
-    header: "Account Owner",
-    minWidth: "130px",
-    // render: (value) => <Text fontSize="xs">{value ?? "—"}</Text>,
-  },
-  {
-    key: "customer",
-    header: "Customer",
-    minWidth: "130px",
-    render: (value) => <Text fontSize="xs">{value}</Text>,
-  },
-  {
-    key: "vendDestination",
-    header: "Destination",
+    key:      "accountOwner",
+    header:   "Account Owner",
     minWidth: "130px",
   },
   {
-    key: "vendor",
-    header: "Vendor",
+    key:      "customer",
+    header:   "Customer",
     minWidth: "130px",
-    render: (value) => <Text fontSize="xs">{value}</Text>,
+    render:   (value) => <Text fontSize="xs">{value}</Text>,
   },
   {
-    key: "attempts",
-    header: "Attempts",
+    key:      "vendDestination",
+    header:   "Destination",
+    minWidth: "130px",
+  },
+  {
+    key:      "vendor",
+    header:   "Vendor",
+    minWidth: "130px",
+    render:   (value) => <Text fontSize="xs">{value}</Text>,
+  },
+  {
+    key:       "attempts",
+    header:    "Attempts",
     isNumeric: true,
-    minWidth: "100px",
-    render: (value) => formatNumber(value),
+    minWidth:  "100px",
+    render:    (value) => formatNumber(value),
   },
   {
-    key: "completed",
-    header: "Comp",
+    key:       "completed",
+    header:    "Comp",
     isNumeric: true,
-    minWidth: "80px",
-    render: (value) => (
-      <Text color="green.600">{formatNumber(value)}</Text>
-    ),
+    minWidth:  "80px",
+    render:    (value) => <Text color="green.600">{formatNumber(value)}</Text>,
   },
   {
-    key: "asr",
-    header: "ASR%",
+    key:       "asr",
+    header:    "ASR%",
     isNumeric: true,
-    minWidth: "90px",
-    render: (value) => (
+    minWidth:  "90px",
+    render:    (value) => (
       <Badge
         borderRadius="full"
-        px="8px"
-        py="2px"
-        fontWeight="500"
-        fontSize="11px"
+        px="8px" py="2px"
+        fontWeight="500" fontSize="11px"
         colorScheme={value > 40 ? "green" : "orange"}
       >
         {formatPercentage(value)}
@@ -504,109 +478,103 @@ const buildCustomerVendorColumns = (isVendorReport) => [
     ),
   },
   {
-    key: "acd",
-    header: "ACD",
+    key:       "acd",
+    header:    "ACD",
     isNumeric: true,
-    minWidth: "80px",
+    minWidth:  "80px",
   },
   {
-    key: "revenue",
-    header: "Revenue",
+    key:       "revenue",
+    header:    "Revenue",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => formatCurrency(value),
+    minWidth:  "120px",
+    render:    (value) => formatCurrency(value),
   },
   {
-    key: "revenuePerMin",
-    header: "Rev/min",
+    key:       "revenuePerMin",
+    header:    "Rev/min",
     isNumeric: true,
-    minWidth: "110px",
-    render: (value) => formatCurrencyRate(value),
+    minWidth:  "110px",
+    render:    (value) => formatCurrencyRate(value),
   },
   ...(isVendorReport
     ? [
         {
-          key: "cost",
-          header: "Cost",
+          key:       "cost",
+          header:    "Cost",
           isNumeric: true,
-          minWidth: "120px",
-          render: (value) => formatCurrency(value),
+          minWidth:  "120px",
+          render:    (value) => formatCurrency(value),
         },
         {
-          key: "costPerMin",
-          header: "Cost/min",
+          key:       "costPerMin",
+          header:    "Cost/min",
           isNumeric: true,
-          minWidth: "110px",
-          render: (value) => formatCurrencyRate(value),
+          minWidth:  "110px",
+          render:    (value) => formatCurrencyRate(value),
         },
       ]
     : []),
   {
-    key: "margin",
-    header: "Margin",
+    key:       "margin",
+    header:    "Margin",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => (
-      <Text color={value >= 0 ? "green.600" : "red.500"}>
-        {formatCurrency(value)}
-      </Text>
+    minWidth:  "120px",
+    render:    (value) => (
+      <Text color={value >= 0 ? "green.600" : "red.500"}>{formatCurrency(value)}</Text>
     ),
   },
   {
-    key: "marginPercent",
-    header: "Margin %",
+    key:       "marginPercent",
+    header:    "Margin %",
     isNumeric: true,
-    minWidth: "110px",
-    render: (value) => formatPercentage(value),
+    minWidth:  "110px",
+    render:    (value) => formatPercentage(value),
   },
 ];
 
 const buildCustomerOnlyColumns = () => [
   {
-    key: "customer",
-    header: "Customer",
+    key:      "customer",
+    header:   "Customer",
     minWidth: "150px",
-    render: (value) => <Text fontSize="xs">{value}</Text>,
+    render:   (value) => <Text fontSize="xs">{value}</Text>,
   },
   {
-    key: "accountOwner",
-    header: "Account Owner",
+    key:      "accountOwner",
+    header:   "Account Owner",
     minWidth: "140px",
-    render: (value) => <Text fontSize="xs">{value ?? "—"}</Text>,
+    render:   (value) => <Text fontSize="xs">{value ?? "—"}</Text>,
   },
   {
-    key: "vendDestination",
-    header: "Destination",
+    key:      "vendDestination",
+    header:   "Destination",
     minWidth: "130px",
   },
   {
-    key: "attempts",
-    header: "Attempts",
+    key:       "attempts",
+    header:    "Attempts",
     isNumeric: true,
-    minWidth: "100px",
-    render: (value) => formatNumber(value),
+    minWidth:  "100px",
+    render:    (value) => formatNumber(value),
   },
   {
-    key: "completed",
-    header: "Comp",
+    key:       "completed",
+    header:    "Comp",
     isNumeric: true,
-    minWidth: "80px",
-    render: (value) => (
-      <Text color="green.600">{formatNumber(value)}</Text>
-    ),
+    minWidth:  "80px",
+    render:    (value) => <Text color="green.600">{formatNumber(value)}</Text>,
   },
   {
-    key: "asr",
-    header: "ASR%",
+    key:       "asr",
+    header:    "ASR%",
     isNumeric: true,
-    minWidth: "90px",
-    render: (value) => (
+    minWidth:  "90px",
+    render:    (value) => (
       <Badge
         borderRadius="full"
-        px="8px"
-        py="2px"
-        fontWeight="500"
-        fontSize="11px"
+        px="8px" py="2px"
+        fontWeight="500" fontSize="11px"
         colorScheme={value > 40 ? "green" : "orange"}
       >
         {formatPercentage(value)}
@@ -614,91 +582,85 @@ const buildCustomerOnlyColumns = () => [
     ),
   },
   {
-    key: "acd",
-    header: "ACD",
+    key:       "acd",
+    header:    "ACD",
     isNumeric: true,
-    minWidth: "80px",
+    minWidth:  "80px",
   },
   {
-    key: "revenue",
-    header: "Revenue",
+    key:       "revenue",
+    header:    "Revenue",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => formatCurrency(value),
+    minWidth:  "120px",
+    render:    (value) => formatCurrency(value),
   },
   {
-    key: "revenuePerMin",
-    header: "Rev/min",
+    key:       "revenuePerMin",
+    header:    "Rev/min",
     isNumeric: true,
-    minWidth: "110px",
-    render: (value) => formatCurrencyRate(value),
+    minWidth:  "110px",
+    render:    (value) => formatCurrencyRate(value),
   },
   {
-    key: "margin",
-    header: "Margin",
+    key:       "margin",
+    header:    "Margin",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => (
-      <Text color={value >= 0 ? "green.600" : "red.500"}>
-        {formatCurrency(value)}
-      </Text>
+    minWidth:  "120px",
+    render:    (value) => (
+      <Text color={value >= 0 ? "green.600" : "red.500"}>{formatCurrency(value)}</Text>
     ),
   },
   {
-    key: "marginPercent",
-    header: "Margin %",
+    key:       "marginPercent",
+    header:    "Margin %",
     isNumeric: true,
-    minWidth: "110px",
-    render: (value) => formatPercentage(value),
+    minWidth:  "110px",
+    render:    (value) => formatPercentage(value),
   },
 ];
 
 const buildVendorOnlyColumns = () => [
   {
-    key: "accountOwner",
-    header: "Account Owner",
+    key:      "accountOwner",
+    header:   "Account Owner",
     minWidth: "140px",
-    render: (value) => <Text fontSize="xs">{value ?? "—"}</Text>,
+    render:   (value) => <Text fontSize="xs">{value ?? "—"}</Text>,
   },
   {
-    key: "vendor",
-    header: "Vendor",
+    key:      "vendor",
+    header:   "Vendor",
     minWidth: "140px",
-    render: (value) => <Text fontSize="xs">{value}</Text>,
+    render:   (value) => <Text fontSize="xs">{value}</Text>,
   },
   {
-    key: "vendDestination",
-    header: "Destination Country",
+    key:      "vendDestination",
+    header:   "Destination Country",
     minWidth: "160px",
   },
   {
-    key: "attempts",
-    header: "Attempts",
+    key:       "attempts",
+    header:    "Attempts",
     isNumeric: true,
-    minWidth: "100px",
-    render: (value) => formatNumber(value),
+    minWidth:  "100px",
+    render:    (value) => formatNumber(value),
   },
   {
-    key: "completed",
-    header: "Comp",
+    key:       "completed",
+    header:    "Comp",
     isNumeric: true,
-    minWidth: "80px",
-    render: (value) => (
-      <Text color="green.600">{formatNumber(value)}</Text>
-    ),
+    minWidth:  "80px",
+    render:    (value) => <Text color="green.600">{formatNumber(value)}</Text>,
   },
   {
-    key: "asr",
-    header: "ASR%",
+    key:       "asr",
+    header:    "ASR%",
     isNumeric: true,
-    minWidth: "90px",
-    render: (value) => (
+    minWidth:  "90px",
+    render:    (value) => (
       <Badge
         borderRadius="full"
-        px="8px"
-        py="2px"
-        fontWeight="500"
-        fontSize="11px"
+        px="8px" py="2px"
+        fontWeight="500" fontSize="11px"
         colorScheme={value > 40 ? "green" : "orange"}
       >
         {formatPercentage(value)}
@@ -706,42 +668,40 @@ const buildVendorOnlyColumns = () => [
     ),
   },
   {
-    key: "acd",
-    header: "ACD (Sec)",
+    key:       "acd",
+    header:    "ACD (Sec)",
     isNumeric: true,
-    minWidth: "100px",
+    minWidth:  "100px",
   },
   {
-    key: "cost",
-    header: "Cost",
+    key:       "cost",
+    header:    "Cost",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => formatCurrency(value),
+    minWidth:  "120px",
+    render:    (value) => formatCurrency(value),
   },
   {
-    key: "costPerMin",
-    header: "Cost/min",
+    key:       "costPerMin",
+    header:    "Cost/min",
     isNumeric: true,
-    minWidth: "110px",
-    render: (value) => formatCurrencyRate(value),
+    minWidth:  "110px",
+    render:    (value) => formatCurrencyRate(value),
   },
   {
-    key: "margin",
-    header: "Margin",
+    key:       "margin",
+    header:    "Margin",
     isNumeric: true,
-    minWidth: "120px",
-    render: (value) => (
-      <Text color={value >= 0 ? "green.600" : "red.500"}>
-        {formatCurrency(value)}
-      </Text>
+    minWidth:  "120px",
+    render:    (value) => (
+      <Text color={value >= 0 ? "green.600" : "red.500"}>{formatCurrency(value)}</Text>
     ),
   },
   {
-    key: "marginPercent",
-    header: "Margin %",
+    key:       "marginPercent",
+    header:    "Margin %",
     isNumeric: true,
-    minWidth: "110px",
-    render: (value) => formatPercentage(value),
+    minWidth:  "110px",
+    render:    (value) => formatPercentage(value),
   },
 ];
 
@@ -759,34 +719,34 @@ const Reports = () => {
     endHour:     23,
     endMinute:   59,
   });
-  const [activeTab,        setActiveTab]        = useState(0);
-  const [selectedAccount,  setSelectedAccount]  = useState("all");
-  const [accounts,         setAccounts]         = useState({ customers: [], vendors: [] });
-  const [accountsLoading,  setAccountsLoading]  = useState(false);
-  const [isVendorReport,   setIsVendorReport]   = useState(false);
-  const [reportData,       setReportData]       = useState([]);
-  const [reportSummary,    setReportSummary]    = useState({});
-  const [loading,          setLoading]          = useState(false);
-  const [exporting,        setExporting]        = useState(false);
-  const [marginThreshold,  setMarginThreshold]  = useState(0);
-  const [searchTerm,       setSearchTerm]       = useState("");
-  const [sortConfig,       setSortConfig]       = useState({ key: null, direction: "asc" });
-  const [page,             setPage]             = useState(1);
-  const [rowsPerPage,      setRowsPerPage]      = useState(50);
-  const [selectedTrunk,    setSelectedTrunk]    = useState("all");
-  const [selectedOwner,    setSelectedOwner]    = useState("all");
-  const [selectedCountry,  setSelectedCountry]  = useState("all");
-  const [countryOptions,   setCountryOptions]   = useState([]);
-  const [countryLoading,   setCountryLoading]   = useState(false);
-  const [filters]                               = useState({ minASR: 0, maxASR: 100, minMargin: -100, maxMargin: 100 });
+  const [activeTab,             setActiveTab]             = useState(0);
+  const [selectedAccount,       setSelectedAccount]       = useState("all");
+  const [accounts,              setAccounts]              = useState({ customers: [], vendors: [] });
+  const [accountsLoading,       setAccountsLoading]       = useState(false);
+  const [isVendorReport,        setIsVendorReport]        = useState(false);
+  const [reportData,            setReportData]            = useState([]);
+  const [reportSummary,         setReportSummary]         = useState({});
+  const [loading,               setLoading]               = useState(false);
+  const [exporting,             setExporting]             = useState(false);
+  const [marginThreshold,       setMarginThreshold]       = useState(0);
+  const [searchTerm,            setSearchTerm]            = useState("");
+  const [sortConfig,            setSortConfig]            = useState({ key: null, direction: "asc" });
+  const [page,                  setPage]                  = useState(1);
+  const [rowsPerPage,           setRowsPerPage]           = useState(50);
+  const [selectedTrunk,         setSelectedTrunk]         = useState("all");
+  const [selectedOwner,         setSelectedOwner]         = useState("all");
+  const [selectedCountry,       setSelectedCountry]       = useState("all");
+  const [countryOptions,        setCountryOptions]        = useState([]);
+  const [countryLoading,        setCountryLoading]        = useState(false);
+  const [missingGatewayTrigger, setMissingGatewayTrigger] = useState(0);
+  const [filters]                                         = useState({ minASR: 0, maxASR: 100, minMargin: -100, maxMargin: 100 });
+  const [missingGatewayRows, setMissingGatewayRows] = useState([]);
 
   const toast       = useNotify();
   const cardBg      = useColorModeValue("white", "gray.800");
   const borderColor = useColorModeValue("gray.200", "gray.700");
   const mutedColor  = useColorModeValue("gray.600", "gray.400");
 
-  // Keep a ref so handleExport always reads the latest filteredData
-  // without needing filteredData in its own dependency array.
   const filteredDataRef = useRef([]);
 
   const hasActiveFilters =
@@ -815,7 +775,6 @@ const Reports = () => {
 
   useEffect(() => { loadAccounts();       }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadCountryOptions(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => { setPage(1); }, [searchTerm, sortConfig, reportData]);
 
   // ── Data loaders ───────────────────────────────────────────────────────────
@@ -859,9 +818,7 @@ const Reports = () => {
         .map((item) => ({
           value: item.value,
           label: item.label,
-          codes: Array.from(item.codes).sort((a, b) =>
-            a.localeCompare(b, undefined, { numeric: true })
-          ),
+          codes: Array.from(item.codes).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
         }))
         .sort((a, b) => a.label.localeCompare(b.label));
 
@@ -935,15 +892,19 @@ const Reports = () => {
   }, []);
 
   const handleTabChange = useCallback((index) => {
-    setActiveTab(index);
-    setReportData([]);
-    setReportSummary({});
-    setSearchTerm("");
-    setSortConfig({ key: null, direction: "asc" });
-    setSelectedOwner("all");
-    if (index === 4) setIsVendorReport(false);
-    else if (index === 5) setIsVendorReport(true);
-  }, []);
+  setActiveTab(index);
+  setReportData([]);
+  setReportSummary({});
+  setSearchTerm("");
+  setSortConfig({ key: null, direction: "asc" });
+  setSelectedOwner("all");
+  if (index === 4)      setIsVendorReport(false);
+  else if (index === 5) setIsVendorReport(true);
+  if (index !== 6) {
+    setMissingGatewayTrigger(0);
+    setMissingGatewayRows([]);
+  }
+}, []);
 
   // ── Report generation ──────────────────────────────────────────────────────
 
@@ -973,13 +934,18 @@ const Reports = () => {
       return;
     }
 
-    const daysDiff = Math.ceil(
-      (dateRange.endDate - dateRange.startDate) / (1000 * 60 * 60 * 24)
-    );
+    const daysDiff = Math.ceil((dateRange.endDate - dateRange.startDate) / (1000 * 60 * 60 * 24));
     if (daysDiff > 62) {
       toast({ title: "Large date range", description: "For better performance, please select a date range under 2 months", status: "warning", duration: 5000, isClosable: true });
     }
 
+    // ── Tab 6: delegate to MissingGateways via trigger ──────────────────────
+    if (activeTab === 6) {
+      setMissingGatewayTrigger((prev) => prev + 1);
+      return;
+    }
+
+    // ── Tabs 0-5: standard report generation ───────────────────────────────
     setLoading(true);
     try {
       const accountsList       = isVendorReport ? accounts.vendors : accounts.customers;
@@ -1035,27 +1001,14 @@ const Reports = () => {
             totalRevenue:         data.reduce((s, r) => s + (r.revenue       ?? 0), 0),
             totalCost:            data.reduce((s, r) => s + (r.cost          ?? 0), 0),
             totalMargin:          data.reduce((s, r) => s + (r.margin        ?? 0), 0),
-            avgASR:               data.length > 0
-                                    ? data.reduce((s, r) => s + (r.asr ?? 0), 0) / data.length
-                                    : 0,
-            avgMarginPercent:     data.length > 0
-                                    ? data.reduce((s, r) => s + (r.marginPercent ?? 0), 0) / data.length
-                                    : 0,
+            avgASR:               data.length > 0 ? data.reduce((s, r) => s + (r.asr ?? 0), 0) / data.length : 0,
+            avgMarginPercent:     data.length > 0 ? data.reduce((s, r) => s + (r.marginPercent ?? 0), 0) / data.length : 0,
             totalCustomers:       uniqueArr(data.map((r) => r.customer ?? r.accountName)).length,
             totalVendors:         uniqueArr(data.map((r) => r.vendor   ?? r.vendAccountCode)).length,
             negativeMarginCalls:  data.filter((r) => (r.margin ?? 0) < 0).length,
-            totalLoss:            data.filter((r) => (r.margin ?? 0) < 0)
-                                    .reduce((s, r) => s + r.margin, 0),
-            affectedCustomers:    uniqueArr(
-                                    data
-                                      .filter((r) => (r.margin ?? 0) < 0)
-                                      .map((r) => r.customer ?? r.accountName ?? r.accountCode)
-                                  ).length,
-            affectedDestinations: uniqueArr(
-                                    data
-                                      .filter((r) => (r.margin ?? 0) < 0)
-                                      .map((r) => r.destination)
-                                  ).length,
+            totalLoss:            data.filter((r) => (r.margin ?? 0) < 0).reduce((s, r) => s + r.margin, 0),
+            affectedCustomers:    uniqueArr(data.filter((r) => (r.margin ?? 0) < 0).map((r) => r.customer ?? r.accountName ?? r.accountCode)).length,
+            affectedDestinations: uniqueArr(data.filter((r) => (r.margin ?? 0) < 0).map((r) => r.destination)).length,
           });
         }
 
@@ -1085,44 +1038,43 @@ const Reports = () => {
     }
   }, [activeTab, accounts, dateRange, isVendorReport, selectedAccount, selectedCountry, selectedTrunk, toast]);
 
-  // Reads filteredDataRef.current so it always gets the latest
-  // filtered/sorted data without filteredData in its dependency array.
   const handleExport = useCallback(async (format) => {
-    const data = filteredDataRef.current;
-    if (!data.length) {
-      toast({ title: "No data to export", description: "Please generate a report first", status: "warning", duration: 3000, isClosable: true });
-      return;
-    }
-    setExporting(true);
-    try {
-      const fileName = `report_${Date.now()}_${formatDateAsYmd(dateRange.startDate)}_to_${formatDateAsYmd(dateRange.endDate)}`;
+  const data = activeTab === 6 ? missingGatewayRows : filteredDataRef.current;
 
-      const accountsList       = isVendorReport ? accounts.vendors : accounts.customers;
-      const selectedAccountObj = selectedAccount !== "all"
-        ? accountsList.find((acc) => (isVendorReport ? acc.vendorCode : acc.customerCode) === selectedAccount)
-        : null;
+  if (!data.length) {
+    toast({ title: "No data to export", description: "Please generate a report first", status: "warning", duration: 3000, isClosable: true });
+    return;
+  }
+  setExporting(true);
+  try {
+    const fileName = `report_${Date.now()}_${formatDateAsYmd(dateRange.startDate)}_to_${formatDateAsYmd(dateRange.endDate)}`;
 
-      const meta = {
-        title:        REPORT_TITLES[activeTab] ?? "Report",
-        startDate:    formatDateAsYmd(dateRange.startDate),
-        endDate:      formatDateAsYmd(dateRange.endDate),
-        periodLabel:  `${dateRange.startDate.toLocaleDateString()} - ${dateRange.endDate.toLocaleDateString()}`,
-        account:      selectedAccountObj ? selectedAccountObj.accountName : "All Accounts",
-        accountCode:  selectedAccountObj ? (isVendorReport ? selectedAccountObj.vendorCode : selectedAccountObj.customerCode) : "all",
-        trunk:        selectedTrunk,
-        generatedAt:  new Date().toISOString(),
-        summary:      reportSummary,
-        totalRecords: data.length,
-      };
+    const accountsList       = isVendorReport ? accounts.vendors : accounts.customers;
+    const selectedAccountObj = selectedAccount !== "all"
+      ? accountsList.find((acc) => (isVendorReport ? acc.vendorCode : acc.customerCode) === selectedAccount)
+      : null;
 
-      await exportReport(data, format, fileName, meta);
-      toast({ title: "Export Complete", description: `Exported as ${format.toUpperCase()}`, status: "success", duration: 3000, isClosable: true });
-    } catch (error) {
-      toast({ title: "Export Failed", description: error.message, status: "error", duration: 5000, isClosable: true });
-    } finally {
-      setExporting(false);
-    }
-  }, [dateRange.endDate, dateRange.startDate, activeTab, accounts, isVendorReport, selectedAccount, selectedTrunk, reportSummary, toast]);
+    const meta = {
+      title:        REPORT_TITLES[activeTab] ?? "Report",
+      startDate:    formatDateAsYmd(dateRange.startDate),
+      endDate:      formatDateAsYmd(dateRange.endDate),
+      periodLabel:  `${dateRange.startDate.toLocaleDateString()} - ${dateRange.endDate.toLocaleDateString()}`,
+      account:      selectedAccountObj ? selectedAccountObj.accountName : "All Accounts",
+      accountCode:  selectedAccountObj ? (isVendorReport ? selectedAccountObj.vendorCode : selectedAccountObj.customerCode) : "all",
+      trunk:        selectedTrunk,
+      generatedAt:  new Date().toISOString(),
+      summary:      reportSummary,
+      totalRecords: data.length,
+    };
+
+    await exportReport(data, format, fileName, meta);
+    toast({ title: "Export Complete", description: `Exported as ${format.toUpperCase()}`, status: "success", duration: 3000, isClosable: true });
+  } catch (error) {
+    toast({ title: "Export Failed", description: error.message, status: "error", duration: 5000, isClosable: true });
+  } finally {
+    setExporting(false);
+  }
+}, [activeTab, missingGatewayRows, dateRange.endDate, dateRange.startDate, accounts, isVendorReport, selectedAccount, selectedTrunk, reportSummary, toast]);
 
   // ── Derived data ───────────────────────────────────────────────────────────
 
@@ -1132,15 +1084,13 @@ const Reports = () => {
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       data = data.filter((row) =>
-        Object.values(row).some(
-          (v) => v != null && v.toString().toLowerCase().includes(term),
-        ),
+        Object.values(row).some((v) => v != null && v.toString().toLowerCase().includes(term)),
       );
     }
 
     data = data.filter((row) => {
-      const asr    = parseFloat(row.asr    ?? row.ASR           ?? 0);
-      const margin = parseFloat(row.marginPercent ?? row.MarginPercent ?? 0);
+      const asr    = parseFloat(row.asr            ?? row.ASR           ?? 0);
+      const margin = parseFloat(row.marginPercent   ?? row.MarginPercent ?? 0);
       return (
         asr    >= filters.minASR    &&
         asr    <= filters.maxASR    &&
@@ -1189,7 +1139,7 @@ const Reports = () => {
       sumASR       += parseFloat(row.asr          ?? row.ASR          ?? 0);
       sumACD       += parseFloat(row.acd          ?? row.ACD          ?? 0);
 
-      const customer = row.customer ?? row.Customer ?? row.accountName ?? row.customername;
+      const customer    = row.customer ?? row.Customer ?? row.accountName ?? row.customername;
       if (customer) customerMap[customer] = (customerMap[customer] ?? 0) + parseFloat(row.revenue ?? row.Revenue ?? 0);
 
       const destination = row.destination ?? row.Destination ?? row.custDestination ?? row.calleeareacode;
@@ -1231,28 +1181,28 @@ const Reports = () => {
       { label: "Avg Margin %",    value: formatPercentage(reportSummary.avgMarginPercent ?? 0, 2), icon: StarIcon,   color: "purple" },
     ],
     2: [
-      { label: "Total Loss",          value: formatCurrency(Math.abs(reportSummary.totalLoss            ?? 0)), icon: WarningIcon,  color: "red"    },
-      { label: "Negative Calls",      value: reportSummary.negativeMarginCalls?.toLocaleString()         ?? "0", icon: CloseIcon,   color: "orange" },
-      { label: "Affected Customers",  value: reportSummary.affectedCustomers?.toLocaleString()           ?? "0", icon: InfoIcon,    color: "yellow" },
-      { label: "Destinations",        value: reportSummary.affectedDestinations?.toLocaleString()        ?? "0", icon: FiGrid,      color: "cyan"   },
+      { label: "Total Loss",         value: formatCurrency(Math.abs(reportSummary.totalLoss            ?? 0)), icon: WarningIcon,  color: "red"    },
+      { label: "Negative Calls",     value: reportSummary.negativeMarginCalls?.toLocaleString()         ?? "0", icon: CloseIcon,   color: "orange" },
+      { label: "Affected Customers", value: reportSummary.affectedCustomers?.toLocaleString()           ?? "0", icon: InfoIcon,    color: "yellow" },
+      { label: "Destinations",       value: reportSummary.affectedDestinations?.toLocaleString()        ?? "0", icon: FiGrid,      color: "cyan"   },
     ],
     3: [
-      { label: "Total Customers", value: reportSummary.totalCustomers?.toLocaleString() ?? "0", icon: FiList,        color: "blue"   },
-      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,   color: "green"  },
-      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,  color: "purple" },
-      { label: "Total Cost",      value: formatCurrency(reportSummary.totalCost         ?? 0),  icon: FiTrendingDown,color: "red"    },
+      { label: "Total Customers", value: reportSummary.totalCustomers?.toLocaleString() ?? "0", icon: FiList,         color: "blue"   },
+      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,    color: "green"  },
+      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,   color: "purple" },
+      { label: "Total Cost",      value: formatCurrency(reportSummary.totalCost         ?? 0),  icon: FiTrendingDown, color: "red"    },
     ],
     4: [
-      { label: "Total Customers", value: String(reportSummary.totalCustomers            ?? 0),  icon: FiGrid,        color: "purple" },
-      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,   color: "blue"   },
-      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,  color: "green"  },
-      { label: "Avg ASR",         value: formatPercentage(reportSummary.avgASR          ?? 0, 2), icon: StarIcon,    color: "yellow" },
+      { label: "Total Customers", value: String(reportSummary.totalCustomers            ?? 0),  icon: FiGrid,         color: "purple" },
+      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,    color: "blue"   },
+      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,   color: "green"  },
+      { label: "Avg ASR",         value: formatPercentage(reportSummary.avgASR          ?? 0, 2), icon: StarIcon,     color: "yellow" },
     ],
     5: [
-      { label: "Total Vendors",   value: String(reportSummary.totalVendors              ?? 0),  icon: FiGrid,        color: "purple" },
-      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,   color: "blue"   },
-      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,  color: "green"  },
-      { label: "Total Cost",      value: formatCurrency(reportSummary.totalCost         ?? 0),  icon: FiTrendingDown,color: "red"    },
+      { label: "Total Vendors",   value: String(reportSummary.totalVendors              ?? 0),  icon: FiGrid,         color: "purple" },
+      { label: "Total Attempts",  value: reportSummary.totalAttempts?.toLocaleString()  ?? "0", icon: FiBarChart2,    color: "blue"   },
+      { label: "Total Revenue",   value: formatCurrency(reportSummary.totalRevenue      ?? 0),  icon: FiTrendingUp,   color: "green"  },
+      { label: "Total Cost",      value: formatCurrency(reportSummary.totalCost         ?? 0),  icon: FiTrendingDown, color: "red"    },
     ],
   }), [reportSummary]);
 
@@ -1286,16 +1236,16 @@ const Reports = () => {
       }),
   [currentAccounts, selectedOwner]);
 
-  // ── Active columns for DataTable ───────────────────────────────────────────
+  // ── Active columns ─────────────────────────────────────────────────────────
 
   const tableColumns = useMemo(() => {
     switch (activeTab) {
-      case 0: return buildHourlyColumns();
-      case 1: return buildMarginColumns();
-      case 2: return buildNegativeMarginColumns();
-      case 3: return buildCustomerVendorColumns(isVendorReport);
-      case 4: return buildCustomerOnlyColumns();
-      case 5: return buildVendorOnlyColumns();
+      case 0:  return buildHourlyColumns();
+      case 1:  return buildMarginColumns();
+      case 2:  return buildNegativeMarginColumns();
+      case 3:  return buildCustomerVendorColumns(isVendorReport);
+      case 4:  return buildCustomerOnlyColumns();
+      case 5:  return buildVendorOnlyColumns();
       default: return [];
     }
   }, [activeTab, isVendorReport]);
@@ -1308,29 +1258,30 @@ const Reports = () => {
         title="CDR Analytics Reports"
         description="Generate detailed reports and insights from CDR data"
         rightContent={
-          <Menu>
-            <MenuButton
-              as={Button}
-              size="sm"
-              rightIcon={<ChevronDownIcon />}
-              colorScheme="green"
-              isLoading={exporting}
-              isDisabled={!filteredData.length}
-            >
-              <DownloadIcon mr={2} />Export
-            </MenuButton>
-            <MenuList>
-              <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("csv")}>Export as CSV</MenuItem>
-              <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("excel")}>Export as Excel</MenuItem>
-              <Divider />
-              <MenuItem icon={<SettingsIcon />} onClick={() => window.print()}>Print Report</MenuItem>
-            </MenuList>
-          </Menu>
-        }
+  <Menu>
+    <MenuButton
+      as={Button}
+      size="sm"
+      rightIcon={<ChevronDownIcon />}
+      colorScheme="green"
+      isLoading={exporting}
+      isDisabled={activeTab === 6 ? !missingGatewayRows.length : !filteredData.length}
+    >
+      <DownloadIcon mr={2} />Export
+    </MenuButton>
+    <MenuList>
+      <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("csv")}>Export as CSV</MenuItem>
+      <MenuItem icon={<DownloadIcon />} onClick={() => handleExport("excel")}>Export as Excel</MenuItem>
+      <Divider />
+      <MenuItem icon={<SettingsIcon />} onClick={() => window.print()}>Print Report</MenuItem>
+    </MenuList>
+  </Menu>
+}
       />
 
       <Box mt={6} px={2}>
-        {/* ── Report type selector + date controls ─────────────────────── */}
+
+        {/* ── Report type selector + date / time controls ───────────────────── */}
         <Flex
           direction={{ base: "column", lg: "row" }}
           gap={4}
@@ -1349,95 +1300,107 @@ const Reports = () => {
             </Select>
           </FormControl>
 
-          {activeTab !== 6 && (
-            <Wrap spacing={4} justify="flex-start" align="flex-end">
-              {/* Start date */}
-              <WrapItem>
-                <Box>
-                  <FormLabel fontSize="sm" display="flex" alignItems="center" gap={2} mb={2}>
-                    <FiCalendar />Start Date
-                  </FormLabel>
-                  <DatePicker
-                    selected={dateRange.startDate}
-                    onChange={handleStartDateChange}
-                    selectsStart
-                    startDate={dateRange.startDate}
-                    endDate={dateRange.endDate}
-                    minDate={getMinimumStartDate(dateRange.endDate)}
-                    maxDate={dateRange.endDate}
-                    dateFormat="dd-MM-yyyy"
-                    customInput={<DatePickerInput size="sm" w="130px" />}
-                  />
-                </Box>
-              </WrapItem>
+          <Wrap spacing={4} justify="flex-start" align="flex-end">
+            {/* Start date */}
+            <WrapItem>
+              <Box>
+                <FormLabel fontSize="sm" display="flex" alignItems="center" gap={2} mb={2}>
+                  <FiCalendar />Start Date
+                </FormLabel>
+                <DatePicker
+                  selected={dateRange.startDate}
+                  onChange={handleStartDateChange}
+                  selectsStart
+                  startDate={dateRange.startDate}
+                  endDate={dateRange.endDate}
+                  minDate={getMinimumStartDate(dateRange.endDate)}
+                  maxDate={dateRange.endDate}
+                  dateFormat="dd-MM-yyyy"
+                  customInput={<DatePickerInput size="sm" w="130px" />}
+                />
+              </Box>
+            </WrapItem>
 
-              {/* End date */}
-              <WrapItem>
-                <Box>
-                  <FormLabel fontSize="sm" display="flex" alignItems="center" gap={2} mb={2}>
-                    <FiCalendar />End Date
-                  </FormLabel>
-                  <DatePicker
-                    selected={dateRange.endDate}
-                    onChange={handleEndDateChange}
-                    selectsEnd
-                    startDate={dateRange.startDate}
-                    endDate={dateRange.endDate}
-                    minDate={dateRange.startDate}
-                    dateFormat="dd-MM-yyyy"
-                    customInput={<DatePickerInput size="sm" w="130px" />}
-                  />
-                </Box>
-              </WrapItem>
+            {/* End date */}
+            <WrapItem>
+              <Box>
+                <FormLabel fontSize="sm" display="flex" alignItems="center" gap={2} mb={2}>
+                  <FiCalendar />End Date
+                </FormLabel>
+                <DatePicker
+                  selected={dateRange.endDate}
+                  onChange={handleEndDateChange}
+                  selectsEnd
+                  startDate={dateRange.startDate}
+                  endDate={dateRange.endDate}
+                  minDate={dateRange.startDate}
+                  dateFormat="dd-MM-yyyy"
+                  customInput={<DatePickerInput size="sm" w="130px" />}
+                />
+              </Box>
+            </WrapItem>
 
-              {/* Time pickers */}
-              {activeTab === 0 ? (
-                <>
-                  <HourPickerButton label="From (UTC)" hour={dateRange.startHour} onHourChange={setStartHour} />
-                  <HourPickerButton label="To (UTC)"   hour={dateRange.endHour}   onHourChange={setEndHour} />
-                </>
-              ) : (
-                <>
-                  <TimePickerButton label="From Time (UTC)" hour={dateRange.startHour} minute={dateRange.startMinute} onHourChange={setStartHour} onMinuteChange={setStartMinute} />
-                  <TimePickerButton label="To Time (UTC)"   hour={dateRange.endHour}   minute={dateRange.endMinute}   onHourChange={setEndHour}   onMinuteChange={setEndMinute} />
-                </>
-              )}
-            </Wrap>
-          )}
+            {/* Time pickers — shown for all tabs including 6 */}
+            {activeTab === 0 ? (
+              <>
+                <HourPickerButton label="From (UTC)" hour={dateRange.startHour} onHourChange={setStartHour} />
+                <HourPickerButton label="To (UTC)"   hour={dateRange.endHour}   onHourChange={setEndHour} />
+              </>
+            ) : (
+              <>
+                <TimePickerButton label="From Time (UTC)" hour={dateRange.startHour} minute={dateRange.startMinute} onHourChange={setStartHour} onMinuteChange={setStartMinute} />
+                <TimePickerButton label="To Time (UTC)"   hour={dateRange.endHour}   minute={dateRange.endMinute}   onHourChange={setEndHour}   onMinuteChange={setEndMinute} />
+              </>
+            )}
+          </Wrap>
         </Flex>
 
-        {activeTab !== 6 ? (
-          <>
-            {/* ── Filters + generate button ─────────────────────────────── */}
-            <ReportControls
-              activeTab={activeTab}
-              isVendorReport={isVendorReport}
-              setIsVendorReport={setIsVendorReport}
-              selectedAccount={selectedAccount}
-              setSelectedAccount={setSelectedAccount}
-              selectedOwner={selectedOwner}
-              setSelectedOwner={setSelectedOwner}
-              ownerOptions={ownerOptions}
-              selectedCountry={selectedCountry}
-              setSelectedCountry={setSelectedCountry}
-              countryOptions={countryOptions}
-              countryLoading={countryLoading}
-              selectedTrunk={selectedTrunk}
-              setSelectedTrunk={setSelectedTrunk}
-              accounts={ownerFilteredAccounts}
-              accountsLoading={accountsLoading}
-              marginThreshold={marginThreshold}
-              setMarginThreshold={setMarginThreshold}
-              hasActiveFilters={hasActiveFilters}
-              onClearFilters={handleClearFilters}
-              loading={loading}
-              startDate={dateRange.startDate}
-              endDate={dateRange.endDate}
-              onGenerate={handleGenerateReport}
-              cardBg={cardBg}
-            />
+        {/* ── Controls + content (shared for all tabs) ──────────────────────── */}
+        <ReportControls
+          activeTab={activeTab}
+          isVendorReport={isVendorReport}
+          setIsVendorReport={setIsVendorReport}
+          selectedAccount={selectedAccount}
+          setSelectedAccount={setSelectedAccount}
+          selectedOwner={selectedOwner}
+          setSelectedOwner={setSelectedOwner}
+          ownerOptions={ownerOptions}
+          selectedCountry={selectedCountry}
+          setSelectedCountry={setSelectedCountry}
+          countryOptions={countryOptions}
+          countryLoading={countryLoading}
+          selectedTrunk={selectedTrunk}
+          setSelectedTrunk={setSelectedTrunk}
+          accounts={ownerFilteredAccounts}
+          accountsLoading={accountsLoading}
+          marginThreshold={marginThreshold}
+          setMarginThreshold={setMarginThreshold}
+          hasActiveFilters={hasActiveFilters}
+          onClearFilters={handleClearFilters}
+          loading={loading}
+          startDate={dateRange.startDate}
+          endDate={dateRange.endDate}
+          onGenerate={handleGenerateReport}
+          cardBg={cardBg}
+        />
 
-            {/* ── Dashboard overview ────────────────────────────────────── */}
+        {activeTab === 6 ? (
+          /* ── Missing Gateways ─────────────────────────────────────────────── */
+          <MissingGateways
+    startDate={formatDateAsYmd(dateRange.startDate)}
+    endDate={formatDateAsYmd(dateRange.endDate)}
+    startHour={dateRange.startHour}
+    startMinute={dateRange.startMinute}
+    endHour={dateRange.endHour}
+    endMinute={dateRange.endMinute}
+    vendorReport={isVendorReport}
+    searchTerm={searchTerm}
+    triggerLoad={missingGatewayTrigger}
+    onDataReady={setMissingGatewayRows}
+  />
+        ) : (
+          /* ── Standard report tabs 0-5 ─────────────────────────────────────── */
+          <>
             {dashboardMetrics && (
               <DashboardMetrics
                 metrics={dashboardMetrics}
@@ -1447,7 +1410,6 @@ const Reports = () => {
               />
             )}
 
-            {/* ── Summary stat cards ────────────────────────────────────── */}
             {reportSummary && Object.keys(reportSummary).length > 0 && summaryConfig[activeTab] && (
               <ReportSummaryCards
                 stats={summaryConfig[activeTab]}
@@ -1457,7 +1419,6 @@ const Reports = () => {
               />
             )}
 
-            {/* ── Data table (header + search) ──────────────────────────── */}
             <Card bg={cardBg} border="1px" borderColor={borderColor}>
               <CardHeader>
                 <Flex
@@ -1475,10 +1436,8 @@ const Reports = () => {
                     <Badge
                       colorScheme={selectedTrunk === "all" ? "gray" : "blue"}
                       borderRadius="full"
-                      px="8px"
-                      py="2px"
-                      fontWeight="500"
-                      fontSize="11px"
+                      px="8px" py="2px"
+                      fontWeight="500" fontSize="11px"
                     >
                       Trunk: {selectedTrunk === "all" ? "All Trunks" : selectedTrunk}
                     </Badge>
@@ -1499,10 +1458,8 @@ const Reports = () => {
                     <Badge
                       colorScheme="yellow"
                       borderRadius="full"
-                      px="8px"
-                      py="2px"
-                      fontWeight="500"
-                      fontSize="11px"
+                      px="8px" py="2px"
+                      fontWeight="500" fontSize="11px"
                       whiteSpace="nowrap"
                     >
                       {filteredData.length} records
@@ -1512,37 +1469,27 @@ const Reports = () => {
               </CardHeader>
 
               <CardBody px={2}>
-               
-                  <DataTable
-                    isLoading={loading}
-                    columns={tableColumns}
-                    data={paginatedData}
-                    actions={false}
-                    emptyMessage={
-                      reportData.length === 0
-                        ? "No report data yet."
-                        : "No records match your search criteria."
-                    }
-                    striped
-                    height="500px"
-                    // Client-side pagination — pass page/pageSize/total so
-                    // DataTable renders its own pagination controls consistently
-                    // with the Invoices page, but we manage slicing ourselves.
-                    page={page}
-                    pageSize={rowsPerPage}
-                    total={filteredData.length}
-                    onPageChange={setPage}
-                    onPageSizeChange={(size) => {
-                      setRowsPerPage(size);
-                      setPage(1);
-                    }}
-                  />
-                
+                <DataTable
+                  isLoading={loading}
+                  columns={tableColumns}
+                  data={paginatedData}
+                  actions={false}
+                  emptyMessage={
+                    reportData.length === 0
+                      ? "No report data yet."
+                      : "No records match your search criteria."
+                  }
+                  striped
+                  height="500px"
+                  page={page}
+                  pageSize={rowsPerPage}
+                  total={filteredData.length}
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => { setRowsPerPage(size); setPage(1); }}
+                />
               </CardBody>
             </Card>
           </>
-        ) : (
-          <MissingGateways />
         )}
       </Box>
     </Box>
@@ -1565,8 +1512,8 @@ const ReportControls = React.memo(({
     <VStack spacing={6} align="stretch">
       <Flex direction={{ base: "column", lg: "row" }} gap={6} align={{ base: "stretch", lg: "flex-end" }}>
 
-        {/* Report side — only for tabs that support the toggle */}
-        {[0, 1, 3].includes(activeTab) && (
+        {/* Report side — tabs 0, 1, 3, 6 */}
+        {[0, 1, 3, 6].includes(activeTab) && (
           <FormControl>
             <FormLabel display="flex" alignItems="center" gap={2}>
               <FiFileText />Report Side
@@ -1587,74 +1534,82 @@ const ReportControls = React.memo(({
           </FormControl>
         )}
 
-        {/* Account Owner filter */}
-        <FormControl maxW={{ base: "100%", lg: "220px" }}>
-          <FormLabel>Account Owner</FormLabel>
-          <Select
-            size="sm"
-            value={selectedOwner}
-            onChange={(e) => {
-              setSelectedOwner(e.target.value);
-              setSelectedAccount("all");
-            }}
-            isDisabled={accountsLoading}
-          >
-            {ownerOptions.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </Select>
-        </FormControl>
+        {/* Account Owner — hidden for tab 6 */}
+        {activeTab !== 6 && (
+          <FormControl maxW={{ base: "100%", lg: "220px" }}>
+            <FormLabel>Account Owner</FormLabel>
+            <Select
+              size="sm"
+              value={selectedOwner}
+              onChange={(e) => {
+                setSelectedOwner(e.target.value);
+                setSelectedAccount("all");
+              }}
+              isDisabled={accountsLoading}
+            >
+              {ownerOptions.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </Select>
+          </FormControl>
+        )}
 
-        {/* Account selector */}
-        <FormControl>
-          <FormLabel display="flex" alignItems="center" gap={2}>
-            <FiUser />{isVendorReport ? "Vendor Account" : "Customer Account"}
-          </FormLabel>
-          <Select
-            size="sm"
-            value={selectedAccount}
-            onChange={(e) => setSelectedAccount(e.target.value)}
-            isDisabled={accountsLoading}
-            placeholder={accountsLoading ? "Loading accounts…" : undefined}
-          >
-            <option value="all">All Accounts</option>
-            {accounts.map((account) => {
-              const code = isVendorReport ? account.vendorCode : account.customerCode;
-              return (
-                <option key={code} value={code}>
-                  {account.accountName} ({code})
-                </option>
-              );
-            })}
-          </Select>
-        </FormControl>
+        {/* Account selector — hidden for tab 6 */}
+        {activeTab !== 6 && (
+          <FormControl>
+            <FormLabel display="flex" alignItems="center" gap={2}>
+              <FiUser />{isVendorReport ? "Vendor Account" : "Customer Account"}
+            </FormLabel>
+            <Select
+              size="sm"
+              value={selectedAccount}
+              onChange={(e) => setSelectedAccount(e.target.value)}
+              isDisabled={accountsLoading}
+              placeholder={accountsLoading ? "Loading accounts…" : undefined}
+            >
+              <option value="all">All Accounts</option>
+              {accounts.map((account) => {
+                const code = isVendorReport ? account.vendorCode : account.customerCode;
+                return (
+                  <option key={code} value={code}>
+                    {account.accountName} ({code})
+                  </option>
+                );
+              })}
+            </Select>
+          </FormControl>
+        )}
 
-        {/* Trunk */}
-        <FormControl maxW={{ base: "100%", lg: "180px" }}>
-          <FormLabel>Trunk</FormLabel>
-          <Select
-            size="sm"
-            value={selectedTrunk}
-            onChange={(e) => setSelectedTrunk(e.target.value)}
-            isDisabled={loading}
-          >
-            {TRUNK_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </Select>
-        </FormControl>
+        {/* Trunk — hidden for tab 6 */}
+        {activeTab !== 6 && (
+          <FormControl maxW={{ base: "100%", lg: "180px" }}>
+            <FormLabel>Trunk</FormLabel>
+            <Select
+              size="sm"
+              value={selectedTrunk}
+              onChange={(e) => setSelectedTrunk(e.target.value)}
+              isDisabled={loading}
+            >
+              {TRUNK_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </Select>
+          </FormControl>
+        )}
 
-        {/* Country search */}
-        <CountrySearchSelect
-          label="Country"
-          value={selectedCountry}
-          options={countryOptions}
-          onChange={setSelectedCountry}
-          placeholder={countryLoading ? "Loading countries…" : "All Countries"}
-          loading={countryLoading || loading}
-        />
+        {/* Country — hidden for tab 6 */}
+        {activeTab !== 6 && (
+          <CountrySearchSelect
+            label="Country"
+            value={selectedCountry}
+            options={countryOptions}
+            onChange={setSelectedCountry}
+            placeholder={countryLoading ? "Loading countries…" : "All Countries"}
+            loading={countryLoading || loading}
+          />
+        )}
 
-        {/* Negative margin threshold (tab 2 only) */}
+        {/* Negative margin threshold — tab 2 only */}
         {activeTab === 2 && (
           <FormControl>
             <FormLabel fontWeight="medium" display="flex" alignItems="center" gap={2}>
@@ -1977,8 +1932,7 @@ const CountrySearchSelect = React.memo(({
                   <Box
                     id={`country-option-${index}`}
                     key={option.value}
-                    px={3}
-                    py={2}
+                    px={3} py={2}
                     cursor="pointer"
                     bg={isHighlighted ? "gray.100" : isSelected ? "blue.50" : "transparent"}
                     _hover={{ bg: "gray.100" }}

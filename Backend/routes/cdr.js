@@ -6,6 +6,8 @@ const CDR = require('../models/CDR');
 const Account = require('../models/Account');
 const { createNotification } = require('../services/notification-service');
 
+// ─── Auth helpers ─────────────────────────────────────────────────────────────
+
 const trimmedEq = (column, value) =>
   sequelize.where(sequelize.fn('TRIM', sequelize.col(column)), { [Op.eq]: String(value).trim() });
 
@@ -18,11 +20,9 @@ const normalizeAuthValues = (value) => {
   if (Array.isArray(value)) {
     return [...new Set(value.map((v) => String(v || '').trim()).filter(Boolean))];
   }
-
   if (typeof value === 'string') {
     const trimmed = value.trim();
     if (!trimmed) return [];
-
     if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
       try {
         const parsed = JSON.parse(trimmed);
@@ -33,24 +33,20 @@ const normalizeAuthValues = (value) => {
         // Fall through to comma-delimited parsing.
       }
     }
-
     return [...new Set(trimmed.split(',').map((v) => v.trim()).filter(Boolean))];
   }
-
   if (value == null) return [];
-
   const single = String(value).trim();
   return single ? [single] : [];
 };
 
 const buildConditionsFromAuth = (account, vendorSide = false) => {
   const or = [];
-
   const authType = normalizeAuthType(
-    vendorSide ? account.vendorauthenticationType : account.customerauthenticationType
+    vendorSide ? account.vendorauthenticationType : account.customerauthenticationType,
   );
   const authValues = normalizeAuthValues(
-    vendorSide ? account.vendorauthenticationValue : account.customerauthenticationValue
+    vendorSide ? account.vendorauthenticationValue : account.customerauthenticationValue,
   );
 
   if (authType === 'ip' && authValues.length > 0) {
@@ -103,69 +99,111 @@ const toCsvValue = (value) => {
   return str;
 };
 
-const unknownCustomerConditionSql = (alias) => `
-  NOT EXISTS (
-    SELECT 1
-    FROM accounts a
-    WHERE a.active = true
-      AND COALESCE(a."accountRole", 'customer') IN ('customer', 'both')
-      AND (
-        (
-          a."customerauthenticationType" = 'ip'
-          AND EXISTS (
-            SELECT 1
-            FROM regexp_split_to_table(
-              regexp_replace(
-                COALESCE(a."customerauthenticationValue"::text, ''),
-                '(^\\s*\\[|\\]\\s*$)',
-                '',
-                'g'
-              ),
-              '\\s*,\\s*'
-            ) AS auth(v)
-            WHERE NULLIF(BTRIM(auth.v, ' "'), '') IS NOT NULL
-              AND TRIM(COALESCE(${alias}."callerip"::text, '')) = BTRIM(auth.v, ' "')
+// ─── Missing-gateway SQL conditions ──────────────────────────────────────────
+//
+// A CDR row is "unmatched on the customer side" when no active account with
+// role customer/both claims the callerip / customeraccount via its auth config.
+//
+// A CDR row is "unmatched on the vendor side" when no active account with
+// role vendor/both claims the calleeip / agentaccount via its auth config.
+//
+// We surface a row only when BOTH sides are unmatched — i.e. neither the
+// originating IP nor the terminating IP belongs to a known account.
+// This mirrors the same dual-side logic used in reportController.js
+// (buildAccountConditions / fetchCDRsForAccounts).
+
+/**
+ * Generates a NOT EXISTS sub-query that returns TRUE when the CDR row is NOT
+ * claimed by any active account on the given side.
+ *
+ * @param {string} alias      - SQL alias for the CDR table, e.g. '"CDR"'
+ * @param {'customer'|'vendor'} side
+ */
+const buildUnmatchedConditionSql = (alias, side) => {
+  const isVendor = side === 'vendor';
+
+  // Which CDR columns identify this side?
+  const ipCol      = isVendor ? `${alias}."calleeip"`      : `${alias}."callerip"`;
+  const accountCol = isVendor ? `${alias}."agentaccount"`  : `${alias}."customeraccount"`;
+  const nameCol    = isVendor ? `${alias}."agentname"`      : `${alias}."customername"`;
+
+  // Which account columns hold auth config for this side?
+  const authTypeCol  = isVendor ? 'a."vendorauthenticationType"'  : 'a."customerauthenticationType"';
+  const authValueCol = isVendor ? 'a."vendorauthenticationValue"' : 'a."customerauthenticationValue"';
+  const codeCol      = isVendor ? 'a."vendorCode"'                : 'a."customerCode"';
+
+  // Roles that are relevant to this side
+  const roles = isVendor ? `'vendor', 'both'` : `'customer', 'both'`;
+
+  return `
+    NOT EXISTS (
+      SELECT 1
+      FROM accounts a
+      WHERE a.active = true
+        AND COALESCE(a."accountRole", 'customer') IN (${roles})
+        AND (
+          /* ── IP auth ── */
+          (
+            ${authTypeCol} = 'ip'
+            AND EXISTS (
+              SELECT 1
+              FROM regexp_split_to_table(
+                regexp_replace(
+                  COALESCE(${authValueCol}::text, ''),
+                  '(^\\s*\\[|\\]\\s*$)',
+                  '',
+                  'g'
+                ),
+                '\\s*,\\s*'
+              ) AS auth(v)
+              WHERE NULLIF(BTRIM(auth.v, ' "'), '') IS NOT NULL
+                AND TRIM(COALESCE(${ipCol}::text, '')) = BTRIM(auth.v, ' "')
+            )
           )
-        )
-        OR
-        (
-          a."customerauthenticationType" = 'custom'
-          AND EXISTS (
-            SELECT 1
-            FROM regexp_split_to_table(
-              regexp_replace(
-                COALESCE(a."customerauthenticationValue"::text, ''),
-                '(^\\s*\\[|\\]\\s*$)',
-                '',
-                'g'
-              ),
-              '\\s*,\\s*'
-            ) AS auth(v)
-            WHERE NULLIF(BTRIM(auth.v, ' "'), '') IS NOT NULL
-              AND (
-                TRIM(COALESCE(${alias}."customeraccount"::text, '')) = BTRIM(auth.v, ' "')
-                OR TRIM(COALESCE(${alias}."customername"::text, '')) = BTRIM(auth.v, ' "')
+          OR
+          /* ── Custom auth ── */
+          (
+            ${authTypeCol} = 'custom'
+            AND EXISTS (
+              SELECT 1
+              FROM regexp_split_to_table(
+                regexp_replace(
+                  COALESCE(${authValueCol}::text, ''),
+                  '(^\\s*\\[|\\]\\s*$)',
+                  '',
+                  'g'
+                ),
+                '\\s*,\\s*'
+              ) AS auth(v)
+              WHERE NULLIF(BTRIM(auth.v, ' "'), '') IS NOT NULL
+                AND (
+                  TRIM(COALESCE(${accountCol}::text, '')) = BTRIM(auth.v, ' "')
+                  OR TRIM(COALESCE(${nameCol}::text, ''))  = BTRIM(auth.v, ' "')
+                )
+            )
+          )
+          OR
+          /* ── Legacy code fallback (no auth type set) ── */
+          (
+            COALESCE(${authTypeCol}::text, '') NOT IN ('ip', 'custom')
+            AND (
+              (
+                NULLIF(TRIM(COALESCE(${codeCol}::text, '')), '') IS NOT NULL
+                AND TRIM(COALESCE(${accountCol}::text, '')) = TRIM(${codeCol}::text)
               )
-          )
-        )
-        OR
-        (
-          COALESCE(a."customerauthenticationType"::text, '') NOT IN ('ip', 'custom')
-          AND (
-            (
-              NULLIF(TRIM(COALESCE(a."customerCode"::text, '')), '') IS NOT NULL
-              AND TRIM(COALESCE(${alias}."customeraccount"::text, '')) = TRIM(a."customerCode"::text)
-            )
-            OR
-            (
-              NULLIF(TRIM(COALESCE(a."gatewayId"::text, '')), '') IS NOT NULL
-              AND TRIM(COALESCE(${alias}."customeraccount"::text, '')) = TRIM(a."gatewayId"::text)
+              OR
+              (
+                NULLIF(TRIM(COALESCE(a."gatewayId"::text, '')), '') IS NOT NULL
+                AND TRIM(COALESCE(${accountCol}::text, '')) = TRIM(a."gatewayId"::text)
+              )
             )
           )
         )
-      )
-  )
-`;
+    )
+  `;
+};
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
 
 // Get CDR total count (fast and memory-safe for dashboards/settings)
 router.get('/count', async (_req, res) => {
@@ -174,7 +212,6 @@ router.get('/count', async (_req, res) => {
     res.json({ count });
   } catch (err) {
     console.error('CDR stats query failed:', err.message);
-    // Fail-safe for dashboard/account UI: malformed legacy CDR values should not break stats cards.
     return res.json({
       totalCalls: 0,
       totalDuration: 0,
@@ -189,9 +226,9 @@ router.get('/count', async (_req, res) => {
 // Get aggregate CDR stats for a customer/vendor mapping without returning full row sets
 router.get('/stats', async (req, res) => {
   try {
-    const accountId = String(req.query.accountId || '').trim();
+    const accountId    = String(req.query.accountId    || '').trim();
     const customerCode = String(req.query.customerCode || '').trim();
-    const vendorCode = String(req.query.vendorCode || '').trim();
+    const vendorCode   = String(req.query.vendorCode   || '').trim();
 
     if (!accountId && !customerCode && !vendorCode) {
       return res.status(400).json({ error: 'accountId, customerCode, or vendorCode is required' });
@@ -203,14 +240,13 @@ router.get('/stats', async (req, res) => {
       if (!Number.isNaN(Number(accountId))) {
         account = await Account.findByPk(Number(accountId));
       }
-
       if (!account) {
         account = await Account.findOne({
           where: {
             [Op.or]: [
               { accountId },
               { customerCode: accountId },
-              { vendorCode: accountId },
+              { vendorCode:   accountId },
             ],
           },
         });
@@ -222,43 +258,25 @@ router.get('/stats', async (req, res) => {
         where: {
           [Op.or]: [
             customerCode ? { customerCode } : null,
-            vendorCode ? { vendorCode } : null,
+            vendorCode   ? { vendorCode   } : null,
           ].filter(Boolean),
         },
       });
     }
 
-    const where = {
-      [Op.or]: [],
-    };
+    const where = { [Op.or]: [] };
 
     if (account) {
       const role = account.accountRole || 'customer';
-
-      if (role === 'customer' || role === 'both') {
-        where[Op.or].push(...buildConditionsFromAuth(account, false));
-      }
-      if (role === 'vendor' || role === 'both') {
-        where[Op.or].push(...buildConditionsFromAuth(account, true));
-      }
+      if (role === 'customer' || role === 'both') where[Op.or].push(...buildConditionsFromAuth(account, false));
+      if (role === 'vendor'   || role === 'both') where[Op.or].push(...buildConditionsFromAuth(account, true));
     } else {
-      // Backward-compatible fallback if account cannot be resolved.
-      if (customerCode) {
-        where[Op.or].push(trimmedEq('customeraccount', customerCode));
-      }
-      if (vendorCode) {
-        where[Op.or].push(trimmedEq('agentaccount', vendorCode));
-      }
+      if (customerCode) where[Op.or].push(trimmedEq('customeraccount', customerCode));
+      if (vendorCode)   where[Op.or].push(trimmedEq('agentaccount',    vendorCode));
     }
 
     if (where[Op.or].length === 0) {
-      return res.json({
-        totalCalls: 0,
-        totalDuration: 0,
-        totalRevenue: 0,
-        totalTax: 0,
-        answeredCalls: 0,
-      });
+      return res.json({ totalCalls: 0, totalDuration: 0, totalRevenue: 0, totalTax: 0, answeredCalls: 0 });
     }
 
     const [result] = await CDR.findAll({
@@ -307,10 +325,10 @@ router.get('/stats', async (req, res) => {
     });
 
     res.json({
-      totalCalls: Number(result?.totalCalls || 0),
+      totalCalls:    Number(result?.totalCalls    || 0),
       totalDuration: Number(result?.totalDuration || 0),
-      totalRevenue: Number(result?.totalRevenue || 0),
-      totalTax: Number(result?.totalTax || 0),
+      totalRevenue:  Number(result?.totalRevenue  || 0),
+      totalTax:      Number(result?.totalTax      || 0),
       answeredCalls: Number(result?.answeredCalls || 0),
     });
   } catch (err) {
@@ -325,29 +343,19 @@ router.get('/export', async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const accountId = String(req.query.accountId || '').trim();
-    const cdrSide = normalizeCdrSide(req.query.cdrSide);
-    const startTime = String(req.query.startTime || '').trim();
-    const endTime = String(req.query.endTime || '').trim();
+    const accountId  = String(req.query.accountId  || '').trim();
+    const cdrSide    = normalizeCdrSide(req.query.cdrSide);
+    const startTime  = String(req.query.startTime  || '').trim();
+    const endTime    = String(req.query.endTime    || '').trim();
 
-    if (!cdrSide) {
-      return res.status(400).json({ error: 'cdrSide must be one of: all, customer, vendor' });
-    }
-
-    if (!startTime || !endTime) {
-      return res.status(400).json({ error: 'startTime and endTime are required' });
-    }
+    if (!cdrSide)              return res.status(400).json({ error: 'cdrSide must be one of: all, customer, vendor' });
+    if (!startTime || !endTime) return res.status(400).json({ error: 'startTime and endTime are required' });
 
     const startTs = Number(new Date(startTime).getTime());
-    const endTs = Number(new Date(endTime).getTime());
+    const endTs   = Number(new Date(endTime).getTime());
 
-    if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) {
-      return res.status(400).json({ error: 'Invalid startTime or endTime' });
-    }
-
-    if (startTs > endTs) {
-      return res.status(400).json({ error: 'startTime cannot be greater than endTime' });
-    }
+    if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) return res.status(400).json({ error: 'Invalid startTime or endTime' });
+    if (startTs > endTs) return res.status(400).json({ error: 'startTime cannot be greater than endTime' });
 
     const where = {
       [Op.and]: [
@@ -358,143 +366,112 @@ router.get('/export', async (req, res) => {
     };
 
     if (cdrSide === 'customer') {
-      where[Op.and].push(
-        sequelize.literal("NULLIF(TRIM(COALESCE(\"CDR\".\"customeraccount\", '')), '') IS NOT NULL")
-      );
+      where[Op.and].push(sequelize.literal("NULLIF(TRIM(COALESCE(\"CDR\".\"customeraccount\", '')), '') IS NOT NULL"));
     }
-
     if (cdrSide === 'vendor') {
-      where[Op.and].push(
-        sequelize.literal("NULLIF(TRIM(COALESCE(\"CDR\".\"agentaccount\", '')), '') IS NOT NULL")
-      );
+      where[Op.and].push(sequelize.literal("NULLIF(TRIM(COALESCE(\"CDR\".\"agentaccount\", '')), '') IS NOT NULL"));
     }
 
     if (accountId && accountId !== 'all') {
       let account = null;
-
-      if (!Number.isNaN(Number(accountId))) {
-        account = await Account.findByPk(Number(accountId));
-      }
-
+      if (!Number.isNaN(Number(accountId))) account = await Account.findByPk(Number(accountId));
       if (!account) {
         account = await Account.findOne({
-          where: {
-            [Op.or]: [
-              { accountId },
-              { customerCode: accountId },
-              { vendorCode: accountId },
-            ],
-          },
+          where: { [Op.or]: [{ accountId }, { customerCode: accountId }, { vendorCode: accountId }] },
         });
       }
-
-      if (!account) {
-        return res.status(404).json({ error: 'Account not found for accountId' });
-      }
+      if (!account) return res.status(404).json({ error: 'Account not found for accountId' });
 
       const accountConditions = [];
       const role = account.accountRole || 'customer';
-
-      if ((role === 'customer' || role === 'both') && cdrSide !== 'vendor') {
-        accountConditions.push(...buildConditionsFromAuth(account, false));
-      }
-      if ((role === 'vendor' || role === 'both') && cdrSide !== 'customer') {
-        accountConditions.push(...buildConditionsFromAuth(account, true));
-      }
-
-      if (accountConditions.length === 0) {
-        return res.status(400).json({ error: 'No valid CDR mapping found for selected account' });
-      }
-
+      if ((role === 'customer' || role === 'both') && cdrSide !== 'vendor')   accountConditions.push(...buildConditionsFromAuth(account, false));
+      if ((role === 'vendor'   || role === 'both') && cdrSide !== 'customer') accountConditions.push(...buildConditionsFromAuth(account, true));
+      if (accountConditions.length === 0) return res.status(400).json({ error: 'No valid CDR mapping found for selected account' });
       where[Op.and].push({ [Op.or]: accountConditions });
     }
 
     const excludedColumns = new Set(['id', 'source_file', 'createdAt', 'updatedAt']);
-    const attributes = Object.keys(CDR.rawAttributes).filter((column) => !excludedColumns.has(column));
-    const fileStart = new Date(startTs).toISOString().replace(/[:.]/g, '-');
-    const fileEnd = new Date(endTs).toISOString().replace(/[:.]/g, '-');
-    const fileName = `cdrs_${fileStart}_to_${fileEnd}.csv`;
+    const attributes = Object.keys(CDR.rawAttributes).filter((col) => !excludedColumns.has(col));
+    const fileStart  = new Date(startTs).toISOString().replace(/[:.]/g, '-');
+    const fileEnd    = new Date(endTs).toISOString().replace(/[:.]/g, '-');
+    const fileName   = `cdrs_${fileStart}_to_${fileEnd}.csv`;
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Cache-Control', 'no-store');
 
     let isClosed = false;
-    req.on('close', () => {
-      isClosed = true;
-    });
-
+    req.on('close', () => { isClosed = true; });
     res.write(`${attributes.join(',')}\n`);
 
     const limit = 5000;
-    let offset = 0;
-
+    let offset  = 0;
     while (!isClosed) {
-      const rows = await CDR.findAll({
-        where,
-        attributes,
-        order: [['id', 'ASC']],
-        limit,
-        offset,
-        raw: true,
-      });
-
+      const rows = await CDR.findAll({ where, attributes, order: [['id', 'ASC']], limit, offset, raw: true });
       if (!rows.length) break;
-
       for (const row of rows) {
         if (isClosed) break;
-        const line = attributes.map((key) => toCsvValue(row[key])).join(',');
-        res.write(`${line}\n`);
+        res.write(`${attributes.map((key) => toCsvValue(row[key])).join(',')}\n`);
       }
-
       offset += rows.length;
     }
 
-    if (!isClosed && !res.writableEnded) {
-      res.end();
-    }
+    if (!isClosed && !res.writableEnded) res.end();
   } catch (err) {
-    if (!res.headersSent) {
-      return res.status(500).json({ error: err.message });
-    }
-    if (!res.writableEnded) {
-      res.end();
-    }
+    if (!res.headersSent) return res.status(500).json({ error: err.message });
+    if (!res.writableEnded) res.end();
   }
 });
 
-// Missing gateways: CDRs that do not match any known customer mapping
+// ─── Missing gateways ─────────────────────────────────────────────────────────
+//
+// vendorReport=false (default / customer view):
+//   Returns CDR groups whose callerip/customeraccount is not claimed by any
+//   active account with role customer/both. Groups by callerip.
+//
+// vendorReport=true (vendor view):
+//   Returns CDR groups whose calleeip/agentaccount is not claimed by any
+//   active account with role vendor/both. Groups by calleeip.
+
 router.get('/missing-gateways', async (req, res) => {
   try {
     const startDate = String(req.query.startDate || '').trim();
-    const endDate = String(req.query.endDate || '').trim();
-    const search = String(req.query.search || '').trim();
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 25));
-    const offset = (page - 1) * limit;
+    const endDate   = String(req.query.endDate   || '').trim();
+    const search    = String(req.query.search    || '').trim();
+    const page         = Math.max(1, Number(req.query.page)  || 1);
+    const limit        = Math.max(1, Math.min(200, Number(req.query.limit) || 25));
+    const offset       = (page - 1) * limit;
+    // vendorReport=true  → surface CDRs whose calleeip/agentaccount is unrecognised
+    //                       (checks vendor/both accounts, groups by calleeip)
+    // vendorReport=false → surface CDRs whose callerip/customeraccount is unrecognised
+    //                       (checks customer/both accounts, groups by callerip)
+    const vendorReport = req.query.vendorReport === 'true' || req.query.vendorReport === '1';
 
     if (!startDate || !endDate) {
       return res.status(400).json({ error: 'startDate and endDate are required' });
     }
 
     const startTs = Number(new Date(`${startDate}T00:00:00.000Z`).getTime());
-    const endTs = Number(new Date(`${endDate}T23:59:59.999Z`).getTime());
+    const endTs   = Number(new Date(`${endDate}T23:59:59.999Z`).getTime());
 
     if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) {
       return res.status(400).json({ error: 'Invalid startDate or endDate' });
     }
-
     if (startTs > endTs) {
       return res.status(400).json({ error: 'startDate cannot be greater than endDate' });
     }
 
-    const unknownCondition = unknownCustomerConditionSql('"CDR"');
+    // Apply only the condition for the side that vendorReport requests.
+    // Customer view: caller must not match any customer/both account.
+    // Vendor view:   callee must not match any vendor/both account.
+    const unmatchedCondition = buildUnmatchedConditionSql('"CDR"', vendorReport ? 'vendor' : 'customer');
+
     const where = {
       [Op.and]: [
         sequelize.literal(
           `CASE WHEN "CDR"."starttime"::text ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END BETWEEN ${Math.trunc(startTs)} AND ${Math.trunc(endTs)}`
         ),
-        sequelize.literal(unknownCondition),
+        sequelize.literal(unmatchedCondition),
       ],
     };
 
@@ -503,70 +480,87 @@ router.get('/missing-gateways', async (req, res) => {
       where[Op.and].push(
         sequelize.literal(`
           (
-            COALESCE("CDR"."callergatewayid"::text, '') ILIKE '%${q}%'
-            OR COALESCE("CDR"."callerip"::text, '') ILIKE '%${q}%'
+            COALESCE("CDR"."callerip"::text,       '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."calleeip"::text,    '') ILIKE '%${q}%'
             OR COALESCE("CDR"."customeraccount"::text, '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."agentaccount"::text,'') ILIKE '%${q}%'
             OR COALESCE("CDR"."customername"::text, '') ILIKE '%${q}%'
-            OR COALESCE("CDR"."callere164"::text, '') ILIKE '%${q}%'
-            OR COALESCE("CDR"."calleee164"::text, '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."agentname"::text,   '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."callergatewayid"::text, '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."callere164"::text,  '') ILIKE '%${q}%'
+            OR COALESCE("CDR"."calleee164"::text,  '') ILIKE '%${q}%'
           )
         `)
       );
     }
 
     const startTimeExpression = `CASE WHEN "CDR"."starttime"::text ~ '^[0-9]+$' THEN "CDR"."starttime"::bigint ELSE NULL END`;
-    const gatewayExpression = `COALESCE(NULLIF(TRIM("CDR"."callerip"::text), ''), NULLIF(TRIM("CDR"."callergatewayid"::text), ''), 'unknown')`;
-    const safeFeeExpression = `COALESCE(SUM(
-      CASE
-        WHEN regexp_replace(COALESCE("CDR"."feetime"::text, ''), '[^0-9eE+\\-.]', '', 'g') ~ '^[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$'
-        THEN regexp_replace(COALESCE("CDR"."feetime"::text, ''), '[^0-9eE+\\-.]', '', 'g')::double precision
-        ELSE 0
-      END
-    ), 0)`;
+
+    // Group by the unknown side's IP only.
+    // Customer view → group by callerip  (the unknown originator).
+    // Vendor view   → group by calleeip  (the unknown terminator).
+    const unknownIpExpr = vendorReport
+      ? `COALESCE(NULLIF(TRIM("CDR"."calleeip"::text), ''), 'unknown')`
+      : `COALESCE(NULLIF(TRIM("CDR"."callerip"::text), ''), NULLIF(TRIM("CDR"."callergatewayid"::text), ''), 'unknown')`;
+
+    const safeFeeExpression = `
+      COALESCE(SUM(
+        CASE
+          WHEN regexp_replace(COALESCE("CDR"."feetime"::text, ''), '[^0-9eE+\\-.]', '', 'g')
+               ~ '^[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?$'
+          THEN regexp_replace(COALESCE("CDR"."feetime"::text, ''), '[^0-9eE+\\-.]', '', 'g')::double precision
+          ELSE 0
+        END
+      ), 0)
+    `;
 
     const groupedRows = await CDR.findAll({
       where,
       attributes: [
-        [sequelize.literal(gatewayExpression), 'gateway'],
-        [sequelize.fn('MIN', sequelize.col('callerip')), 'callerip'],
-        [sequelize.fn('MIN', sequelize.col('customeraccount')), 'customeraccount'],
-        [sequelize.fn('MIN', sequelize.col('customername')), 'customername'],
-        [sequelize.fn('MIN', sequelize.col('callere164')), 'cli'],
-        [sequelize.fn('MIN', sequelize.col('calleee164')), 'called'],
-        [sequelize.literal('COUNT(*)'), 'occurrences'],
-        [sequelize.literal(safeFeeExpression), 'duration'],
-        [sequelize.literal(`MIN(${startTimeExpression})`), 'firstSeen'],
-        [sequelize.literal(`MAX(${startTimeExpression})`), 'lastSeen'],
+        [sequelize.literal(unknownIpExpr),                                         'gateway'],
+        [sequelize.fn('MIN', sequelize.col('callerip')),                            'callerip'],
+        [sequelize.fn('MIN', sequelize.col('calleeip')),                            'calleeip'],
+        [sequelize.fn('MIN', sequelize.col('customeraccount')),                     'customeraccount'],
+        [sequelize.fn('MIN', sequelize.col('customername')),                        'customername'],
+        [sequelize.fn('MIN', sequelize.col('agentaccount')),                        'agentaccount'],
+        [sequelize.fn('MIN', sequelize.col('agentname')),                           'agentname'],
+        [sequelize.fn('MIN', sequelize.col('callere164')),                          'cli'],
+        [sequelize.fn('MIN', sequelize.col('calleee164')),                          'called'],
+        [sequelize.literal('COUNT(*)'),                                             'occurrences'],
+        [sequelize.literal(safeFeeExpression),                                      'duration'],
+        [sequelize.literal(`MIN(${startTimeExpression})`),                          'firstSeen'],
+        [sequelize.literal(`MAX(${startTimeExpression})`),                          'lastSeen'],
       ],
-      group: [sequelize.literal(gatewayExpression)],
+      group: [sequelize.literal(unknownIpExpr)],
       raw: true,
     });
 
     const normalizedRows = groupedRows
       .map((row) => ({
-        id: row.gateway,
-        gateway: row.gateway || 'unknown',
-        callerip: row.callerip || row.gateway || '',
+        id:              row.gateway,
+        gateway:         row.gateway         || 'unknown',
+        callerip:        row.callerip        || '',
+        calleeip:        row.calleeip        || '',
         customeraccount: row.customeraccount || '',
-        customername: row.customername || '',
-        cli: row.cli || '',
-        called: row.called || '',
-        occurrences: Number(row.occurrences) || 0,
-        duration: Number(row.duration) || 0,
-        firstSeen: Number(row.firstSeen) || 0,
-        lastSeen: Number(row.lastSeen) || 0,
+        customername:    row.customername    || '',
+        agentaccount:    row.agentaccount    || '',
+        agentname:       row.agentname       || '',
+        occurrences:     Number(row.occurrences) || 0,
+        duration:        Number(row.duration)    || 0,
+        firstSeen:       Number(row.firstSeen)   || 0,
+        lastSeen:        Number(row.lastSeen)    || 0,
       }))
       .sort((a, b) => b.lastSeen - a.lastSeen);
 
     const totalCount = normalizedRows.length;
-    const data = normalizedRows.slice(offset, offset + limit);
+    const data       = normalizedRows.slice(offset, offset + limit);
 
     const summary = {
-      total: totalCount,
-      pageCount: data.length,
-      uniqueGateways: totalCount,
-      totalDuration: normalizedRows.reduce((sum, r) => sum + (Number(r.duration) || 0), 0),
-      totalOccurrences: normalizedRows.reduce((sum, r) => sum + (Number(r.occurrences) || 0), 0),
+      total:            totalCount,
+      pageCount:        data.length,
+      uniqueGateways:   totalCount,
+      totalDuration:    normalizedRows.reduce((s, r) => s + (Number(r.duration)    || 0), 0),
+      totalOccurrences: normalizedRows.reduce((s, r) => s + (Number(r.occurrences) || 0), 0),
     };
 
     res.json({
@@ -574,13 +568,14 @@ router.get('/missing-gateways', async (req, res) => {
       data,
       summary,
       pagination: {
-        total: totalCount,
+        total:      totalCount,
         page,
         limit,
         totalPages: Math.ceil(totalCount / limit),
       },
     });
   } catch (err) {
+    console.error('Missing gateways error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -588,15 +583,10 @@ router.get('/missing-gateways', async (req, res) => {
 // Get all CDRs
 router.get('/', async (req, res) => {
   try {
-    const limit = Math.max(1, Math.min(5000, Number(req.query.limit) || 1000));
-    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit  = Math.max(1, Math.min(5000, Number(req.query.limit) || 1000));
+    const page   = Math.max(1, Number(req.query.page) || 1);
     const offset = (page - 1) * limit;
-
-    const cdrs = await CDR.findAll({
-      order: [['createdAt', 'DESC']],
-      limit,
-      offset,
-    });
+    const cdrs   = await CDR.findAll({ order: [['createdAt', 'DESC']], limit, offset });
     res.json(cdrs);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -609,29 +599,21 @@ router.post('/bulk', async (req, res) => {
     console.log('Received bulk CDR upload request');
     console.log('Number of records:', req.body.length);
     console.log('First record sample:', req.body[0]);
-    
-    const cdrs = await CDR.bulkCreate(req.body, {
-      validate: true,
-      ignoreDuplicates: true
-    });
-    
+
+    const cdrs = await CDR.bulkCreate(req.body, { validate: true, ignoreDuplicates: true });
     console.log(`Successfully created ${cdrs.length} CDRs`);
 
     await createNotification({
-      title: 'CDR file processed',
-      message: `${cdrs.length} CDR records were uploaded successfully.`,
-      type: 'success',
+      title:    'CDR file processed',
+      message:  `${cdrs.length} CDR records were uploaded successfully.`,
+      type:     'success',
       category: 'cdr',
       metadata: { count: cdrs.length },
     });
 
-    res.status(201).json({ 
-      message: `${cdrs.length} CDRs uploaded successfully`,
-      count: cdrs.length 
-    });
+    res.status(201).json({ message: `${cdrs.length} CDRs uploaded successfully`, count: cdrs.length });
   } catch (err) {
     console.error('Error creating CDRs:', err.message);
-    console.error('Error details:', err);
     res.status(400).json({ error: err.message });
   }
 });
@@ -640,15 +622,13 @@ router.post('/bulk', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const cdr = await CDR.create(req.body);
-
     await createNotification({
-      title: 'CDR created',
-      message: `CDR ${cdr.id} was created.`,
-      type: 'info',
+      title:    'CDR created',
+      message:  `CDR ${cdr.id} was created.`,
+      type:     'info',
       category: 'cdr',
       metadata: { cdrId: cdr.id },
     });
-
     res.status(201).json(cdr);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -659,9 +639,7 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const cdr = await CDR.findByPk(req.params.id);
-    if (!cdr) {
-      return res.status(404).json({ error: 'CDR not found' });
-    }
+    if (!cdr) return res.status(404).json({ error: 'CDR not found' });
     await cdr.update(req.body);
     res.json(cdr);
   } catch (err) {
@@ -673,9 +651,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const cdr = await CDR.findByPk(req.params.id);
-    if (!cdr) {
-      return res.status(404).json({ error: 'CDR not found' });
-    }
+    if (!cdr) return res.status(404).json({ error: 'CDR not found' });
     await cdr.destroy();
     res.json({ message: 'CDR deleted successfully' });
   } catch (err) {

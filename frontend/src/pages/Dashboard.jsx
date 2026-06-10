@@ -205,7 +205,6 @@ const MetricItem = ({ label, value, icon: IconComp, color, valueColor }) => (
 
 const Dashboard = () => {
   const toast = useNotify();
-
   const [stats, setStats] = useState(null);
   const [financialData, setFinancialData] = useState({});
   const [chartData, setChartData] = useState({});
@@ -411,7 +410,7 @@ const Dashboard = () => {
               </HStack>
             }
           />
-
+          
           <SimpleGrid
             columns={{ base: 2, sm: 2, lg: 4 }}
             spacing={4}

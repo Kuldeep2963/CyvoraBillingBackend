@@ -726,7 +726,7 @@ exports.customerOnlyTrafficReport = async (req, res) => {
 
     const groupedData = {};
     filteredCdrs.forEach((r) => {
-      const vendDestination = getCountryFromNumber(r.calleee164, countryCodes, false);
+      const vendDestination = getCountryFromNumber(r.calleee164, countryCodes, true);
       const key = `${r._account.accountId}|${vendDestination}`;
 
       if (!groupedData[key]) {

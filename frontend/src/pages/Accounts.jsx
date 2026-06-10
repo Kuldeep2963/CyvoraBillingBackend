@@ -38,6 +38,7 @@ import {
   FiTrendingUp,
   FiArrowUp,
   FiUpload,
+  FiEye,
 } from "react-icons/fi";
 import DataTable from "../components/DataTable";
 import useNotify from "../utils/notify";
@@ -658,23 +659,6 @@ const Accounts = () => {
       ),
     },
     
-    // {
-    //   key: "active",
-    //   header: "Status",
-    //   render: (value, row) => {
-    //     const status = statusOptions.find((s) => s.value === row.accountStatus);
-    //     return (
-    //       <Badge
-    //         borderRadius={"full"}
-    //         px={2}
-    //         colorScheme={status?.color || (value ? "green" : "red")}
-    //         variant="subtle"
-    //       >
-    //         {status?.label || (value ? "Active" : "Inactive")}
-    //       </Badge>
-    //     );
-    //   },
-    // },
     {
       key: "billingType",
       header: "Billing",
@@ -712,21 +696,7 @@ const Accounts = () => {
         </Text>
       ),
     },
-    // {
-    //   key: "creditLimit",
-    //   header: "Credit Limit",
-    //   minWidth: "120px",
-    //   isNumeric: true,
-    //   render: (value) => (
-    //     <Text
-    //       fontWeight="medium"
-    //       textAlign="right"
-    //       color={parseFloat(value) < 0 ? "red.600" : "green.600"}
-    //     >
-    //       ${parseFloat(value).toFixed(2)}
-    //     </Text>
-    //   ),
-    // },
+
     {
       key: "lastbillingdate",
       header: "Last Billing",
@@ -1060,6 +1030,7 @@ const Accounts = () => {
             // render a topup button beside the three‑dot menu for any account
             // so balance topups work for both prepaid and postpaid customers
             rowActions={(row) =>
+              <>
               <Button
                 size="xs"
                 colorScheme="green"
@@ -1070,6 +1041,15 @@ const Accounts = () => {
               >
                 TopUp
               </Button>
+              <IconButton
+                size="xs"
+                colorScheme="gray"
+                variant="ghost"
+                icon={<FiEye />}
+                onClick={() => handleView(row)}
+                mr={0}
+              />
+              </>
             }
             striped={true}
             height="calc(100vh - 350px)"

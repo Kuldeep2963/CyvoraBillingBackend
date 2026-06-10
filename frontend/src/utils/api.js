@@ -276,12 +276,13 @@ export const downloadCDRCSV = async ({ startTime, endTime, accountId, cdrSide = 
   }
 };
 
-export const fetchMissingGateways = async ({ startDate, endDate, search = '', page = 1, limit = 25 } = {}) => {
+export const fetchMissingGateways = async ({ startDate, endDate, search = '',vendorReport = false, page = 1, limit = 25 } = {}) => {
   try {
     const params = new URLSearchParams();
     if (startDate) params.set('startDate', startDate);
     if (endDate) params.set('endDate', endDate);
     if (search) params.set('search', search);
+    if (vendorReport) params.set('vendorReport', 'true');
     params.set('page', String(page));
     params.set('limit', String(limit));
 
