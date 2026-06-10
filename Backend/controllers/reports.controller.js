@@ -256,6 +256,9 @@ const getTrunkWhereCondition = (trunk) => {
  * Fetches CDRs grouped by account. For a single accountId, queries that account only.
  * For 'all', fetches all active accounts matching the report type and queries each one.
  * Every returned row is tagged with _account: { id, accountId, accountName, accountRole, ownerName }.
+ *
+ * FIX: replaced allRows.push(...rows) with a for-loop concat to avoid
+ * "Maximum call stack size exceeded" when rows arrays are very large.
  */
 const fetchCDRsForAccounts = async ({
   startDate, endDate,
@@ -331,8 +334,11 @@ const fetchCDRsForAccounts = async ({
     owners.forEach((o) => { ownerMap[o.id] = `${o.first_name} ${o.last_name}`; });
   }
 
-  // Query CDRs per account in parallel batches of 10
-  const BATCH = 10;
+  // ── Query CDRs per account, sequential batches of 5 ──────────────────────
+  // Batch size is intentionally smaller than before (5 vs 10) so that
+  // Promise.all never has to hold tens of thousands of resolved rows in memory
+  // simultaneously, which was the other pressure point triggering stack errors.
+  const BATCH = 5;
   const allRows = [];
 
   for (let i = 0; i < accounts.length; i += BATCH) {
@@ -353,16 +359,21 @@ const fetchCDRsForAccounts = async ({
 
         try {
           const rows = await CDR.findAll({ attributes, where, group, raw: true });
-          return rows.map((r) => ({
-            ...r,
-            _account: {
-              id:          account.id,
-              accountId:   account.accountId,
-              accountName: account.accountName,
-              accountRole: account.accountRole,
-              ownerName:   account.accountOwner ? ownerMap[account.accountOwner] || '' : '',
-            },
-          }));
+
+          // Tag every row with its account — use a plain loop instead of .map()
+          // to avoid building a second large array before we can GC the first.
+          const tagged = [];
+          const meta = {
+            id:          account.id,
+            accountId:   account.accountId,
+            accountName: account.accountName,
+            accountRole: account.accountRole,
+            ownerName:   account.accountOwner ? ownerMap[account.accountOwner] || '' : '',
+          };
+          for (let j = 0; j < rows.length; j++) {
+            tagged.push({ ...rows[j], _account: meta });
+          }
+          return tagged;
         } catch (err) {
           console.error(`CDR query failed for account ${account.accountName}:`, err.message);
           return [];
@@ -370,7 +381,16 @@ const fetchCDRsForAccounts = async ({
       })
     );
 
-    batchResults.forEach((rows) => allRows.push(...rows));
+    // ── THE KEY FIX ──────────────────────────────────────────────────────────
+    // Array.prototype.push(...largeArray) passes every element as a separate
+    // argument, which blows the call stack when largeArray has tens of thousands
+    // of items.  Use a for-loop to append each batch result instead.
+    for (let b = 0; b < batchResults.length; b++) {
+      const rows = batchResults[b];
+      for (let r = 0; r < rows.length; r++) {
+        allRows.push(rows[r]);
+      }
+    }
   }
 
   console.log(`fetchCDRsForAccounts: ${accounts.length} accounts → ${allRows.length} CDR rows`);
@@ -426,7 +446,8 @@ exports.hourlyReport = async (req, res) => {
       hourlyMap.set(h, { hour: h, attempts: 0, completed: 0, failed: 0, duration: 0, revenue: 0, cost: 0 });
     }
 
-    for (const r of filteredRows) {
+    for (let i = 0; i < filteredRows.length; i++) {
+      const r = filteredRows[i];
       const h = Number.parseInt(String(r.hour ?? '').trim(), 10);
       if (Number.isNaN(h) || !hourlyMap.has(h)) continue;
       const agg = hourlyMap.get(h);
@@ -442,9 +463,11 @@ exports.hourlyReport = async (req, res) => {
       ? rows[0]._account?.ownerName || ''
       : '';
 
-    const data = Array.from(hourlyMap.values())
-      .sort((a, b) => a.hour - b.hour)
-      .map((r) => ({
+    const data = [];
+    const hourKeys = Array.from(hourlyMap.keys()).sort((a, b) => a - b);
+    for (let i = 0; i < hourKeys.length; i++) {
+      const r = hourlyMap.get(hourKeys[i]);
+      data.push({
         hour:         r.hour,
         accountOwner: resolvedOwnerName,
         attempts:     r.attempts,
@@ -455,11 +478,15 @@ exports.hourlyReport = async (req, res) => {
         revenue:      parseFloat(r.revenue.toFixed(4)),
         cost:         parseFloat(r.cost.toFixed(4)),
         margin:       parseFloat((r.revenue - r.cost).toFixed(4)),
-      }));
+      });
+    }
 
-    const totalAttempts  = data.reduce((s, r) => s + r.attempts,  0);
-    const totalCompleted = data.reduce((s, r) => s + r.completed, 0);
-    const totalRevenue   = data.reduce((s, r) => s + r.revenue,   0);
+    let totalAttempts = 0, totalCompleted = 0, totalRevenue = 0;
+    for (let i = 0; i < data.length; i++) {
+      totalAttempts  += data[i].attempts;
+      totalCompleted += data[i].completed;
+      totalRevenue   += data[i].revenue;
+    }
 
     res.json({
       success: true,
@@ -521,7 +548,8 @@ exports.marginReport = async (req, res) => {
     }
 
     const groupedData = {};
-    filteredCdrs.forEach((r) => {
+    for (let i = 0; i < filteredCdrs.length; i++) {
+      const r = filteredCdrs[i];
       const destination = getCountryFromNumber(r.calleee164, countryCodes, true);
       const key = `${r._account.accountId}|${destination}`;
 
@@ -534,16 +562,20 @@ exports.marginReport = async (req, res) => {
           attempts: 0, completed: 0, duration: 0, revenue: 0, cost: 0,
         };
       }
-      groupedData[key].attempts  += Number(r.attempts);
-      groupedData[key].completed += Number(r.completed);
-      groupedData[key].duration  += Number(r.duration);
-      groupedData[key].revenue   += Number(r.revenue);
-      groupedData[key].cost      += Number(r.cost);
-    });
+      const g = groupedData[key];
+      g.attempts  += Number(r.attempts);
+      g.completed += Number(r.completed);
+      g.duration  += Number(r.duration);
+      g.revenue   += Number(r.revenue);
+      g.cost      += Number(r.cost);
+    }
 
-    const data = Object.values(groupedData).map((r) => {
+    const grouped = Object.values(groupedData);
+    const data = [];
+    for (let i = 0; i < grouped.length; i++) {
+      const r = grouped[i];
       const margin = r.revenue - r.cost;
-      return {
+      data.push({
         accountCode:   r.accountCode,
         accountName:   r.accountName,
         accountOwner:  r.ownerName,
@@ -557,18 +589,26 @@ exports.marginReport = async (req, res) => {
         cost:          parseFloat(r.cost.toFixed(6)),
         margin:        parseFloat(margin.toFixed(6)),
         marginPercent: r.revenue > 0 ? parseFloat(((margin / r.revenue) * 100).toFixed(4)) : 0,
-      };
-    });
+      });
+    }
+
+    let totalRevenue = 0, totalCost = 0, totalMargin = 0, sumMarginPercent = 0;
+    for (let i = 0; i < data.length; i++) {
+      totalRevenue     += data[i].revenue;
+      totalCost        += data[i].cost;
+      totalMargin      += data[i].margin;
+      sumMarginPercent += data[i].marginPercent;
+    }
 
     res.json({
       success: true,
       data,
       summary: {
-        totalRevenue:     data.reduce((s, r) => s + r.revenue, 0),
-        totalCost:        data.reduce((s, r) => s + r.cost,    0),
-        totalMargin:      data.reduce((s, r) => s + r.margin,  0),
+        totalRevenue,
+        totalCost,
+        totalMargin,
         avgMarginPercent: data.length > 0
-          ? parseFloat((data.reduce((s, r) => s + r.marginPercent, 0) / data.length).toFixed(4))
+          ? parseFloat((sumMarginPercent / data.length).toFixed(4))
           : 0,
       },
     });
@@ -615,7 +655,8 @@ exports.customerTrafficReport = async (req, res) => {
     }
 
     const groupedData = {};
-    filteredCdrs.forEach((r) => {
+    for (let i = 0; i < filteredCdrs.length; i++) {
+      const r = filteredCdrs[i];
       const destination = getCountryFromNumber(r.calleee164, countryCodes, true);
       const key = `${r.customeraccount}|${r.agentaccount}|${destination}`;
 
@@ -630,21 +671,24 @@ exports.customerTrafficReport = async (req, res) => {
           attempts: 0, completed: 0, duration: 0, revenue: 0, cost: 0,
         };
       }
-      groupedData[key].attempts  += Number(r.attempts);
-      groupedData[key].completed += Number(r.completed);
-      groupedData[key].duration  += Number(r.duration);
-      groupedData[key].revenue   += Number(r.revenue);
-      groupedData[key].cost      += Number(r.cost);
-    });
+      const g = groupedData[key];
+      g.attempts  += Number(r.attempts);
+      g.completed += Number(r.completed);
+      g.duration  += Number(r.duration);
+      g.revenue   += Number(r.revenue);
+      g.cost      += Number(r.cost);
+    }
 
-    const data = Object.values(groupedData).map((r) => {
-      const rev    = r.revenue;
-      const cst    = r.cost;
+    const grouped = Object.values(groupedData);
+    const data = [];
+    for (let i = 0; i < grouped.length; i++) {
+      const r    = grouped[i];
+      const rev  = r.revenue;
+      const cst  = r.cost;
       const margin = rev - cst;
-      const dur    = r.duration;
-      const comp   = r.completed;
-
-      return {
+      const dur  = r.duration;
+      const comp = r.completed;
+      data.push({
         custAccountCode:     r.customeraccount,
         vendAccountCode:     r.agentaccount,
         accountOwner:        r.ownerName,
@@ -667,20 +711,28 @@ exports.customerTrafficReport = async (req, res) => {
         marginPerMin:        dur > 0 ? parseFloat((margin / (dur / 60)).toFixed(4)) : 0,
         marginPercent:       rev > 0 ? parseFloat(((margin / rev) * 100).toFixed(4)) : 0,
         failedCalls:         r.attempts - comp,
-      };
-    });
+      });
+    }
+
+    const customerSet = new Set();
+    let totalAttempts = 0, totalRevenue = 0, totalCost = 0, sumASR = 0;
+    for (let i = 0; i < data.length; i++) {
+      customerSet.add(data[i].customer);
+      totalAttempts += data[i].attempts;
+      totalRevenue  += data[i].revenue;
+      totalCost     += data[i].cost;
+      sumASR        += data[i].asr;
+    }
 
     res.json({
       success: true,
       data,
       summary: {
-        totalCustomers: [...new Set(data.map((r) => r.customer))].length,
-        totalAttempts:  data.reduce((s, r) => s + r.attempts, 0),
-        totalRevenue:   data.reduce((s, r) => s + r.revenue,  0),
-        totalCost:      data.reduce((s, r) => s + r.cost,     0),
-        avgASR: data.length > 0
-          ? parseFloat((data.reduce((s, r) => s + r.asr, 0) / data.length).toFixed(6))
-          : 0,
+        totalCustomers: customerSet.size,
+        totalAttempts,
+        totalRevenue,
+        totalCost,
+        avgASR: data.length > 0 ? parseFloat((sumASR / data.length).toFixed(6)) : 0,
       },
     });
   } catch (e) {
@@ -725,7 +777,8 @@ exports.customerOnlyTrafficReport = async (req, res) => {
     }
 
     const groupedData = {};
-    filteredCdrs.forEach((r) => {
+    for (let i = 0; i < filteredCdrs.length; i++) {
+      const r = filteredCdrs[i];
       const vendDestination = getCountryFromNumber(r.calleee164, countryCodes, true);
       const key = `${r._account.accountId}|${vendDestination}`;
 
@@ -738,21 +791,24 @@ exports.customerOnlyTrafficReport = async (req, res) => {
           attempts: 0, completed: 0, duration: 0, revenue: 0, cost: 0,
         };
       }
-      groupedData[key].attempts  += Number(r.attempts);
-      groupedData[key].completed += Number(r.completed);
-      groupedData[key].duration  += Number(r.duration);
-      groupedData[key].revenue   += Number(r.revenue);
-      groupedData[key].cost      += Number(r.cost);
-    });
+      const g = groupedData[key];
+      g.attempts  += Number(r.attempts);
+      g.completed += Number(r.completed);
+      g.duration  += Number(r.duration);
+      g.revenue   += Number(r.revenue);
+      g.cost      += Number(r.cost);
+    }
 
-    const data = Object.values(groupedData).map((r) => {
-      const rev    = r.revenue;
-      const cst    = r.cost;
+    const grouped = Object.values(groupedData);
+    const data = [];
+    for (let i = 0; i < grouped.length; i++) {
+      const r    = grouped[i];
+      const rev  = r.revenue;
+      const cst  = r.cost;
       const margin = rev - cst;
-      const dur    = r.duration;
-      const comp   = r.completed;
-
-      return {
+      const dur  = r.duration;
+      const comp = r.completed;
+      data.push({
         custAccountCode: r.customeraccount,
         accountOwner:    r.ownerName,
         customer:        r.customername,
@@ -765,19 +821,26 @@ exports.customerOnlyTrafficReport = async (req, res) => {
         cost:            parseFloat(cst.toFixed(6)),
         margin:          parseFloat(margin.toFixed(6)),
         marginPercent:   rev > 0 ? parseFloat(((margin / rev) * 100).toFixed(4)) : 0,
-      };
-    });
+      });
+    }
+
+    const customerSet = new Set();
+    let totalAttempts = 0, totalRevenue = 0, sumASR = 0;
+    for (let i = 0; i < data.length; i++) {
+      customerSet.add(data[i].customer);
+      totalAttempts += data[i].attempts;
+      totalRevenue  += data[i].revenue;
+      sumASR        += data[i].asr;
+    }
 
     res.json({
       success: true,
       data,
       summary: {
-        totalCustomers: [...new Set(data.map((r) => r.customer))].length,
-        totalAttempts:  data.reduce((s, r) => s + r.attempts, 0),
-        totalRevenue:   data.reduce((s, r) => s + r.revenue,  0),
-        avgASR: data.length > 0
-          ? parseFloat((data.reduce((s, r) => s + r.asr, 0) / data.length).toFixed(6))
-          : 0,
+        totalCustomers: customerSet.size,
+        totalAttempts,
+        totalRevenue,
+        avgASR: data.length > 0 ? parseFloat((sumASR / data.length).toFixed(6)) : 0,
       },
     });
   } catch (e) {
@@ -822,7 +885,8 @@ exports.vendorTrafficReport = async (req, res) => {
     }
 
     const groupedData = {};
-    filteredCdrs.forEach((r) => {
+    for (let i = 0; i < filteredCdrs.length; i++) {
+      const r = filteredCdrs[i];
       const vendCountry = getCountryFromNumber(r.calleee164, countryCodes, true);
       const key = `${r._account.accountId}|${vendCountry}`;
 
@@ -835,21 +899,24 @@ exports.vendorTrafficReport = async (req, res) => {
           attempts: 0, completed: 0, duration: 0, revenue: 0, cost: 0,
         };
       }
-      groupedData[key].attempts  += Number(r.attempts);
-      groupedData[key].completed += Number(r.completed);
-      groupedData[key].duration  += Number(r.duration);
-      groupedData[key].revenue   += Number(r.revenue);
-      groupedData[key].cost      += Number(r.cost);
-    });
+      const g = groupedData[key];
+      g.attempts  += Number(r.attempts);
+      g.completed += Number(r.completed);
+      g.duration  += Number(r.duration);
+      g.revenue   += Number(r.revenue);
+      g.cost      += Number(r.cost);
+    }
 
-    const data = Object.values(groupedData).map((r) => {
-      const rev    = r.revenue;
-      const cst    = r.cost;
+    const grouped = Object.values(groupedData);
+    const data = [];
+    for (let i = 0; i < grouped.length; i++) {
+      const r    = grouped[i];
+      const rev  = r.revenue;
+      const cst  = r.cost;
       const margin = rev - cst;
-      const dur    = r.duration;
-      const comp   = r.completed;
-
-      return {
+      const dur  = r.duration;
+      const comp = r.completed;
+      data.push({
         vendAccountCode: r.agentaccount,
         accountOwner:    r.ownerName,
         vendor:          r.agentname,
@@ -863,20 +930,28 @@ exports.vendorTrafficReport = async (req, res) => {
         costPerMin:      dur > 0 ? parseFloat((cst / (dur / 60)).toFixed(6)) : 0,
         margin:          parseFloat(margin.toFixed(6)),
         marginPercent:   rev > 0 ? parseFloat(((margin / rev) * 100).toFixed(4)) : 0,
-      };
-    });
+      });
+    }
+
+    const vendorSet = new Set();
+    let totalAttempts = 0, totalRevenue = 0, totalCost = 0, sumASR = 0;
+    for (let i = 0; i < data.length; i++) {
+      vendorSet.add(data[i].vendor);
+      totalAttempts += data[i].attempts;
+      totalRevenue  += data[i].revenue;
+      totalCost     += data[i].cost;
+      sumASR        += data[i].asr;
+    }
 
     res.json({
       success: true,
       data,
       summary: {
-        totalVendors:   [...new Set(data.map((r) => r.vendor))].length,
-        totalAttempts:  data.reduce((s, r) => s + r.attempts, 0),
-        totalRevenue:   data.reduce((s, r) => s + r.revenue,  0),
-        totalCost:      data.reduce((s, r) => s + r.cost,     0),
-        avgASR: data.length > 0
-          ? parseFloat((data.reduce((s, r) => s + r.asr, 0) / data.length).toFixed(6))
-          : 0,
+        totalVendors:   vendorSet.size,
+        totalAttempts,
+        totalRevenue,
+        totalCost,
+        avgASR: data.length > 0 ? parseFloat((sumASR / data.length).toFixed(6)) : 0,
       },
     });
   } catch (e) {
@@ -927,7 +1002,8 @@ exports.negativeMarginReport = async (req, res) => {
     }
 
     const groupedData = {};
-    filteredCdrs.forEach((r) => {
+    for (let i = 0; i < filteredCdrs.length; i++) {
+      const r = filteredCdrs[i];
       const destination = getCountryFromNumber(r.calleee164, countryCodes, true);
       const key = `${r._account.accountId}|${destination}`;
 
@@ -940,42 +1016,55 @@ exports.negativeMarginReport = async (req, res) => {
           attempts: 0, completed: 0, duration: 0, revenue: 0, cost: 0,
         };
       }
-      groupedData[key].attempts  += Number(r.attempts);
-      groupedData[key].completed += Number(r.completed);
-      groupedData[key].duration  += Number(r.duration);
-      groupedData[key].revenue   += Number(r.revenue);
-      groupedData[key].cost      += Number(r.cost);
-    });
+      const g = groupedData[key];
+      g.attempts  += Number(r.attempts);
+      g.completed += Number(r.completed);
+      g.duration  += Number(r.duration);
+      g.revenue   += Number(r.revenue);
+      g.cost      += Number(r.cost);
+    }
 
-    const data = Object.values(groupedData)
-      .map((r) => {
-        const margin = r.revenue - r.cost;
-        return {
-          accountCode:   r.accountCode,
-          accountName:   r.accountName,
-          accountOwner:  r.ownerName,
-          destination:   r.destination,
-          attempts:      r.attempts,
-          completed:     r.completed,
-          asr:           r.attempts  > 0 ? parseFloat(((r.completed / r.attempts) * 100).toFixed(2)) : 0,
-          acd:           r.completed > 0 ? parseFloat((r.duration / r.completed).toFixed(4)) : 0,
-          duration:      r.duration,
-          revenue:       parseFloat(r.revenue.toFixed(6)),
-          cost:          parseFloat(r.cost.toFixed(6)),
-          margin:        parseFloat(margin.toFixed(6)),
-          marginPercent: r.revenue > 0 ? parseFloat(((margin / r.revenue) * 100).toFixed(4)) : 0,
-        };
-      })
-      .filter((r) => r.margin < 0);
+    const grouped = Object.values(groupedData);
+    const data = [];
+    for (let i = 0; i < grouped.length; i++) {
+      const r = grouped[i];
+      const margin = r.revenue - r.cost;
+      if (margin >= 0) continue; // filter negative margin only
+      data.push({
+        accountCode:   r.accountCode,
+        accountName:   r.accountName,
+        accountOwner:  r.ownerName,
+        destination:   r.destination,
+        attempts:      r.attempts,
+        completed:     r.completed,
+        asr:           r.attempts  > 0 ? parseFloat(((r.completed / r.attempts) * 100).toFixed(2)) : 0,
+        acd:           r.completed > 0 ? parseFloat((r.duration / r.completed).toFixed(4)) : 0,
+        duration:      r.duration,
+        revenue:       parseFloat(r.revenue.toFixed(6)),
+        cost:          parseFloat(r.cost.toFixed(6)),
+        margin:        parseFloat(margin.toFixed(6)),
+        marginPercent: r.revenue > 0 ? parseFloat(((margin / r.revenue) * 100).toFixed(4)) : 0,
+      });
+    }
+
+    const accountSet     = new Set();
+    const destinationSet = new Set();
+    let totalLoss = 0, negativeMarginCalls = 0;
+    for (let i = 0; i < data.length; i++) {
+      totalLoss           += data[i].margin;
+      negativeMarginCalls += data[i].attempts;
+      accountSet.add(data[i].accountCode);
+      destinationSet.add(data[i].destination);
+    }
 
     res.json({
       success: true,
       data,
       summary: {
-        totalLoss:            data.reduce((s, r) => s + r.margin,   0),
-        negativeMarginCalls:  data.reduce((s, r) => s + r.attempts, 0),
-        affectedCustomers:    [...new Set(data.map((r) => r.accountCode))].length,
-        affectedDestinations: [...new Set(data.map((r) => r.destination))].length,
+        totalLoss,
+        negativeMarginCalls,
+        affectedCustomers:    accountSet.size,
+        affectedDestinations: destinationSet.size,
       },
     });
   } catch (e) {
@@ -1203,10 +1292,10 @@ exports.getAccountExposure = async (req, res) => {
     res.json({
       success: true,
       account: {
-        id:          accountJson.id,
-        accountId:   accountJson.accountId,
-        accountName: accountJson.accountName,
-        accountRole: accountJson.accountRole,
+        id:           accountJson.id,
+        accountId:    accountJson.accountId,
+        accountName:  accountJson.accountName,
+        accountRole:  accountJson.accountRole,
         customerCode: accountJson.customerCode,
         vendorCode:   accountJson.vendorCode,
       },
@@ -1218,7 +1307,7 @@ exports.getAccountExposure = async (req, res) => {
       },
       customerMetrics: customerAgg,
       vendorMetrics:   vendorAgg,
-      dateRange:  { startDate: startDate || null, endDate: endDate || null, startTs, endTs },
+      dateRange:   { startDate: startDate || null, endDate: endDate || null, startTs, endTs },
       generatedAt: Date.now(),
     });
   } catch (error) {
@@ -1337,7 +1426,7 @@ exports.getAllAccountExposure = async (req, res) => {
       success: true,
       data: results,
       pagination: { total, page: parsedPage, limit: parsedLimit, totalPages },
-      dateRange:  { startDate: startDate || null, endDate: endDate || null },
+      dateRange:   { startDate: startDate || null, endDate: endDate || null },
       generatedAt: Date.now(),
     });
   } catch (e) {
@@ -1397,15 +1486,15 @@ exports.exportReport = async (req, res) => {
       titleCell.alignment = { horizontal: 'center' };
 
       worksheet.mergeCells(`A2:${lastCol}2`);
-      const metaCell  = worksheet.getCell('A2');
-      metaCell.value  = `Account: ${safeMeta.account} (${safeMeta.accountCode}) | Period: ${safeMeta.periodLabel} | Trunk: ${safeMeta.trunk}`;
-      metaCell.font   = { italic: false, size: 10 };
+      const metaCell = worksheet.getCell('A2');
+      metaCell.value = `Account: ${safeMeta.account} (${safeMeta.accountCode}) | Period: ${safeMeta.periodLabel} | Trunk: ${safeMeta.trunk}`;
+      metaCell.font  = { italic: false, size: 10 };
       metaCell.alignment = { horizontal: 'center' };
 
       worksheet.mergeCells(`A3:${lastCol}3`);
-      const genCell  = worksheet.getCell('A3');
-      genCell.value  = `Generated: ${new Date(safeMeta.generatedAt).toLocaleString()}`;
-      genCell.font   = { size: 9 };
+      const genCell = worksheet.getCell('A3');
+      genCell.value = `Generated: ${new Date(safeMeta.generatedAt).toLocaleString()}`;
+      genCell.font  = { size: 9 };
       genCell.alignment = { horizontal: 'center' };
 
       const headerRowIndex = 5;
@@ -1423,8 +1512,9 @@ exports.exportReport = async (req, res) => {
       });
 
       let currentRow = headerRowIndex + 1;
-      for (const rowObj of data) {
-        const row = worksheet.getRow(currentRow);
+      for (let i = 0; i < data.length; i++) {
+        const rowObj = data[i];
+        const row    = worksheet.getRow(currentRow);
         columns.forEach((key, idx) => {
           const val = rowObj[key];
           row.getCell(idx + 1).value = val === null || val === undefined ? '' : val;
@@ -1434,9 +1524,11 @@ exports.exportReport = async (req, res) => {
 
       const totals = {};
       let rowCount = 0;
-      for (const rowObj of data) {
+      for (let i = 0; i < data.length; i++) {
         rowCount++;
-        for (const colName of columns) {
+        const rowObj = data[i];
+        for (let c = 0; c < columns.length; c++) {
+          const colName = columns[c];
           const v = rowObj[colName];
           const n = Number(v);
           if (!Number.isNaN(n) && typeof v !== 'object') {
@@ -1452,10 +1544,10 @@ exports.exportReport = async (req, res) => {
       summaryRow.getCell(1).fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7FAFC' } };
 
       for (let idx = 0; idx < columns.length; idx++) {
-        const colName  = columns[idx];
-        const colNorm  = normalize(colName);
-        let rawValue   = '';
-        let label      = '';
+        const colName = columns[idx];
+        const colNorm = normalize(colName);
+        let rawValue  = '';
+        let label     = '';
 
         if (['attempts', 'calls', 'totalcalls', 'total_calls'].some((k) => colNorm === k || colNorm.includes(k))) {
           label = 'Total Calls :-'; rawValue = totals[colName] ?? 0;
@@ -1512,9 +1604,11 @@ exports.exportReport = async (req, res) => {
 
       const totalsCsv = {};
       let csvRowCount = 0;
-      for (const rowObj of data) {
+      for (let i = 0; i < data.length; i++) {
         csvRowCount++;
-        for (const colName of columns) {
+        const rowObj = data[i];
+        for (let c = 0; c < columns.length; c++) {
+          const colName = columns[c];
           const v = rowObj[colName];
           const n = Number(v);
           if (!Number.isNaN(n) && typeof v !== 'object') {
@@ -1592,9 +1686,9 @@ exports.exportSOA = async (req, res) => {
     if (!account) return res.status(400).json({ error: 'Account is required' });
 
     const { accountName, customerCode, vendorCode } = account;
-    const normalizedRole     = String(account.accountRole || '').toLowerCase();
-    const includeCustomer    = normalizedRole ? ['customer', 'both'].includes(normalizedRole) : Boolean(customerCode);
-    const includeVendor      = normalizedRole ? ['vendor',   'both'].includes(normalizedRole) : Boolean(vendorCode);
+    const normalizedRole         = String(account.accountRole || '').toLowerCase();
+    const includeCustomer        = normalizedRole ? ['customer', 'both'].includes(normalizedRole) : Boolean(customerCode);
+    const includeVendor          = normalizedRole ? ['vendor',   'both'].includes(normalizedRole) : Boolean(vendorCode);
     const vendorPaymentDirection = normalizedRole === 'vendor' ? 'inbound' : 'outbound';
 
     if (!includeCustomer && !includeVendor) {
@@ -1807,9 +1901,9 @@ exports.sendSOAEmail = async (req, res) => {
     if (!account) return res.status(400).json({ error: 'Account is required' });
 
     const { accountName, customerCode, vendorCode } = account;
-    const normalizedRole     = String(account.accountRole || '').toLowerCase();
-    const includeCustomer    = normalizedRole ? ['customer', 'both'].includes(normalizedRole) : Boolean(customerCode);
-    const includeVendor      = normalizedRole ? ['vendor',   'both'].includes(normalizedRole) : Boolean(vendorCode);
+    const normalizedRole         = String(account.accountRole || '').toLowerCase();
+    const includeCustomer        = normalizedRole ? ['customer', 'both'].includes(normalizedRole) : Boolean(customerCode);
+    const includeVendor          = normalizedRole ? ['vendor',   'both'].includes(normalizedRole) : Boolean(vendorCode);
     const vendorPaymentDirection = normalizedRole === 'vendor' ? 'inbound' : 'outbound';
 
     if (!includeCustomer && !includeVendor) {
