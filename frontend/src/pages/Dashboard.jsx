@@ -271,7 +271,7 @@ const Dashboard = () => {
           title: "Error loading data",
           description: "Failed to fetch dashboard data.",
           status: "error",
-          duration: 5000,
+          duration: 3000,
           isClosable: true,
         });
       } finally {

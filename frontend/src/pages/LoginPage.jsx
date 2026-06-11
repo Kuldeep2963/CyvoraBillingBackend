@@ -148,7 +148,7 @@ const LoginPage = () => {
           error?.response?.data?.message ||
           "Invalid email or password. Please try again.",
         status: "error",
-        duration: 5000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {

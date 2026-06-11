@@ -785,7 +785,7 @@ const Reports = () => {
       const data = await fetchReportAccounts();
       if (data.success) setAccounts(data);
     } catch (error) {
-      toast({ title: "Error loading accounts", description: error.message, status: "error", duration: 5000, isClosable: true });
+      toast({ title: "Error loading accounts", description: error.message, status: "error", duration: 3000, isClosable: true });
     } finally {
       setAccountsLoading(false);
     }
@@ -824,7 +824,7 @@ const Reports = () => {
 
       setCountryOptions(options);
     } catch (error) {
-      toast({ title: "Error loading country list", description: error.message, status: "warning", duration: 4000, isClosable: true });
+      toast({ title: "Error loading country list", description: error.message, status: "warning", duration: 3000, isClosable: true });
     } finally {
       setCountryLoading(false);
     }
@@ -936,7 +936,7 @@ const Reports = () => {
 
     const daysDiff = Math.ceil((dateRange.endDate - dateRange.startDate) / (1000 * 60 * 60 * 24));
     if (daysDiff > 62) {
-      toast({ title: "Large date range", description: "For better performance, please select a date range under 2 months", status: "warning", duration: 5000, isClosable: true });
+      toast({ title: "Large date range", description: "For better performance, please select a date range under 2 months", status: "warning", duration: 3000, isClosable: true });
     }
 
     // ── Tab 6: delegate to MissingGateways via trigger ──────────────────────
@@ -1029,7 +1029,7 @@ const Reports = () => {
         title:       "Error generating report",
         description: error.message,
         status:      "error",
-        duration:    5000,
+        duration:    3000,
         isClosable:  true,
         position:    "top-right",
       });
@@ -1070,7 +1070,7 @@ const Reports = () => {
     await exportReport(data, format, fileName, meta);
     toast({ title: "Export Complete", description: `Exported as ${format.toUpperCase()}`, status: "success", duration: 3000, isClosable: true });
   } catch (error) {
-    toast({ title: "Export Failed", description: error.message, status: "error", duration: 5000, isClosable: true });
+    toast({ title: "Export Failed", description: error.message, status: "error", duration: 3000, isClosable: true });
   } finally {
     setExporting(false);
   }

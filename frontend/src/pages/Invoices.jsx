@@ -656,7 +656,7 @@ const Invoices = () => {
           title: "Download Failed",
           description: error.message ?? "Failed to download invoice PDF",
           status: "error",
-          duration: 5000,
+          duration: 3000,
           isClosable: true,
         });
       }
@@ -844,7 +844,7 @@ const Invoices = () => {
               />
             </Box>
           ),
-          duration: 5000,
+          duration: 3000,
           isClosable: true,
         });
         loadData();
@@ -863,7 +863,7 @@ const Invoices = () => {
               </Text>
             </Box>
           ),
-          duration: 4000,
+          duration: 3000,
           isClosable: true,
         });
       }
@@ -883,7 +883,7 @@ const Invoices = () => {
             </Text>
           </Box>
         ),
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -923,7 +923,7 @@ const Invoices = () => {
             </Text>
           </Box>
         ),
-        duration: 5000,
+        duration: 3000,
         isClosable: true,
       });
       loadData();
@@ -959,7 +959,7 @@ const Invoices = () => {
         description:
           "Selected invoices are cancelled/void or otherwise not eligible for send.",
         status: "info",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
       return;

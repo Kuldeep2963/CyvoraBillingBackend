@@ -361,13 +361,13 @@ const AddUserTab = ({ onSuccess, editingUser, onCancel }) => {
       toast({
         title: "User Created Successfully",
         description: editingUser ? `${form.firstName} ${form.lastName} has been updated.` : `${form.firstName} ${form.lastName} has been added.`,
-        status: "success", duration: 4000, isClosable: true,
+        status: "success", duration: 3000, isClosable: true,
       });
       handleReset();
       if (onSuccess) onSuccess(); // switch tab + refresh
       if (onCancel) onCancel();
     } catch (err) {
-      toast({ title: editingUser ? "Error Updating User" : "Error Creating User", description: err.message, status: "error", duration: 4000, isClosable: true });
+      toast({ title: editingUser ? "Error Updating User" : "Error Creating User", description: err.message, status: "error", duration: 3000, isClosable: true });
     } finally {
       setIsSubmitting(false);
     }

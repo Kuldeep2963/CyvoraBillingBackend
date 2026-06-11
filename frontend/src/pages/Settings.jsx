@@ -795,7 +795,7 @@ const DataRetentionTab = ({
         title: "Retention cleanup failed",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -1161,7 +1161,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
         title: "Failed to load country codes",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -1203,7 +1203,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
         title: "Country codes uploaded",
         description: `Uploaded ${result.uploadedCount} record(s).${result.replaceExisting ? ` Replaced ${result.deletedCount} existing record(s).` : ""}`,
         status: "success",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
       await loadNotifications(true);
@@ -1214,7 +1214,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
         title: "Upload failed",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -1276,7 +1276,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
         title: "Failed to save country code",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -1319,7 +1319,7 @@ const CountryCodesTab = ({ loadNotifications }) => {
         title: "Failed to delete country code",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -1963,7 +1963,7 @@ const EmailSettingsTab = ({ settings, updateSetting }) => {
                   await sendTestEmail({ profile: testProfile, to: testTo });
                   notify({ title: 'Test email sent', status: 'success', duration: 3000 });
                 } catch (error) {
-                  notify({ title: 'Failed to send test email', description: error.message, status: 'error', duration: 5000 });
+                  notify({ title: 'Failed to send test email', description: error.message, status: 'error', duration: 3000 });
                 } finally {
                   setSendingTest(false);
                 }
@@ -2096,7 +2096,7 @@ const BillingProfileCard = ({ profile, onSaved, profiles = [] }) => {
         title: "Failed to delete billing class",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
       });
     } finally {
       setIsDeleting(false);
@@ -2137,7 +2137,7 @@ const BillingProfileCard = ({ profile, onSaved, profiles = [] }) => {
         title: "Failed to delete billing class",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
       });
     } finally {
       setIsDeleting(false);
@@ -2381,7 +2381,7 @@ const BillingSettingsTab = () => {
         title: "Failed to load billing settings",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -2436,7 +2436,7 @@ const BillingSettingsTab = () => {
         title: "Failed to create billing class",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
       });
     } finally {
       setSavingProfile(false);
@@ -2560,7 +2560,7 @@ const Settings = () => {
         title: "Failed to load settings",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -2724,7 +2724,7 @@ const Settings = () => {
         title: "Save failed",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {

@@ -280,7 +280,7 @@ const Accounts = () => {
         title: "Error loading accounts",
         description: error.message,
         status: "error",
-        duration: 5000,
+        duration: 3000,
         isClosable: true,
       });
       setCustomers([]);
@@ -446,7 +446,7 @@ const Accounts = () => {
         title: "Validation Error",
         description: validationErrors.join(", "),
         status: "error",
-        duration: 5000,
+        duration: 3000,
         isClosable: true,
       });
       return;
@@ -476,7 +476,7 @@ const Accounts = () => {
         title: "Error saving account",
         description: error.message,
         status: "error",
-        duration: 5000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -504,7 +504,7 @@ const Accounts = () => {
         title: "Error deleting account",
         description: error.message,
         status: "error",
-        duration: 5000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -1041,14 +1041,18 @@ const Accounts = () => {
               >
                 TopUp
               </Button>
+              <Tooltip
+                fontColor="gray.400" borderRadius="8px"
+              bg={"blue.200"} label="View Account" placement="top"
+              >
               <IconButton
                 size="xs"
-                colorScheme="gray"
+                colorScheme="blue"
                 variant="ghost"
                 icon={<FiEye />}
                 onClick={() => handleView(row)}
                 mr={0}
-              />
+              /></Tooltip>
               </>
             }
             striped={true}

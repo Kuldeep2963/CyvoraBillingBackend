@@ -127,7 +127,7 @@ const AdminCDRDownload = () => {
         description:
           error?.message || "Could not load account list for filtering.",
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -171,7 +171,7 @@ const AdminCDRDownload = () => {
         title: "Missing date range",
         description: "Please choose both start and end date/time.",
         status: "warning",
-        duration: 3500,
+        duration: 3000,
         isClosable: true,
       });
       return;
@@ -185,7 +185,7 @@ const AdminCDRDownload = () => {
         title: "Invalid date range",
         description: "Please provide valid start and end date/time values.",
         status: "error",
-        duration: 3500,
+        duration: 3000,
         isClosable: true,
       });
       return;
@@ -197,7 +197,7 @@ const AdminCDRDownload = () => {
         title: "Invalid date range",
         description: "Start time must be before end time.",
         status: "error",
-        duration: 3500,
+        duration: 3000,
         isClosable: true,
       });
       return;
@@ -224,7 +224,7 @@ const AdminCDRDownload = () => {
         title: "Download failed",
         description: error?.message || "Failed to download CDR CSV.",
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {

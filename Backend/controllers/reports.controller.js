@@ -887,7 +887,7 @@ exports.vendorTrafficReport = async (req, res) => {
     const groupedData = {};
     for (let i = 0; i < filteredCdrs.length; i++) {
       const r = filteredCdrs[i];
-      const vendCountry = getCountryFromNumber(r.calleee164, countryCodes, true);
+      const vendCountry = getCountryFromNumber(r.calleee164, countryCodes, false);
       const key = `${r._account.accountId}|${vendCountry}`;
 
       if (!groupedData[key]) {
@@ -1471,7 +1471,72 @@ exports.exportReport = async (req, res) => {
       return letter;
     };
 
-    const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    // ── Explicit allowlist: maps exact output column key → { label, type }
+    // type 'sum' → add all values
+    // type 'asr' → recalculate from completed/attempts totals
+    // type 'acd' → recalculate from duration/completed totals
+    // type 'avg' → simple row-count average (rates, percentages)
+    const SUMMARY_COLS = {
+      attempts:        { label: 'Total Calls',     type: 'sum' },
+      completed:       { label: 'Completed Calls', type: 'sum' },
+      failed:          { label: 'Failed Calls',    type: 'sum' },
+      failedCalls:     { label: 'Failed Calls',    type: 'sum' },
+      duration:        { label: 'Total Duration',  type: 'sum' },
+      rawDuration:     { label: 'Total Duration',  type: 'sum' },
+      revenue:         { label: 'Total Revenue',   type: 'sum' },
+      revenuePerMin:   { label: 'Avg Rev/Min',     type: 'avg' },
+      cost:            { label: 'Total Cost',      type: 'sum' },
+      costPerMin:      { label: 'Avg Cost/Min',    type: 'avg' },
+      margin:          { label: 'Total Margin',    type: 'sum' },
+      marginPercent:   { label: 'Avg Margin %',    type: 'avg' },
+      asr:             { label: 'Avg ASR %',       type: 'asr' },
+      acd:             { label: 'Avg ACD',         type: 'acd' },
+    };
+
+    // Accumulate totals only for allowlisted columns present in this report
+    const totals = {};
+    let rowCount = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      rowCount++;
+      const rowObj = data[i];
+      for (const key of Object.keys(SUMMARY_COLS)) {
+        if (!(key in rowObj)) continue;
+        const n = Number(rowObj[key]);
+        if (!Number.isNaN(n)) {
+          totals[key] = (totals[key] || 0) + n;
+        }
+      }
+    }
+
+    const getSummaryValue = (key) => {
+      const def = SUMMARY_COLS[key];
+      if (!def) return null;
+
+      if (def.type === 'sum') {
+        if (!(key in totals)) return null;
+        return { label: def.label, value: totals[key] };
+      }
+      if (def.type === 'avg') {
+        if (!(key in totals) || rowCount === 0) return null;
+        return { label: def.label, value: totals[key] / rowCount };
+      }
+      if (def.type === 'asr') {
+        const att  = totals['attempts']  ?? 0;
+        const comp = totals['completed'] ?? 0;
+        if (att > 0) return { label: def.label, value: (comp / att) * 100 };
+        if ('asr' in totals && rowCount > 0) return { label: def.label, value: totals['asr'] / rowCount };
+        return null;
+      }
+      if (def.type === 'acd') {
+        const dur  = totals['duration'] ?? totals['rawDuration'] ?? 0;
+        const comp = totals['completed'] ?? 0;
+        if (comp > 0) return { label: def.label, value: dur / comp };
+        if ('acd' in totals && rowCount > 0) return { label: def.label, value: totals['acd'] / rowCount };
+        return null;
+      }
+      return null;
+    };
 
     if (format === 'excel') {
       const workbook  = new ExcelJS.Workbook();
@@ -1479,110 +1544,111 @@ exports.exportReport = async (req, res) => {
       const colCount  = Math.max(columns.length, 1);
       const lastCol   = columnToLetter(colCount);
 
+      // ── Row 1: bold title ──────────────────────────────────────────────────
       worksheet.mergeCells(`A1:${lastCol}1`);
       const titleCell = worksheet.getCell('A1');
       titleCell.value = safeMeta.title;
-      titleCell.font  = { bold: true, size: 14 };
-      titleCell.alignment = { horizontal: 'center' };
+      titleCell.font  = { bold: true, size: 15, color: { argb: 'FF1F3864' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F0FE' } };
+      worksheet.getRow(1).height = 28;
 
+      // ── Row 2: account + period meta (bold) ────────────────────────────────
       worksheet.mergeCells(`A2:${lastCol}2`);
       const metaCell = worksheet.getCell('A2');
-      metaCell.value = `Account: ${safeMeta.account} (${safeMeta.accountCode}) | Period: ${safeMeta.periodLabel} | Trunk: ${safeMeta.trunk}`;
-      metaCell.font  = { italic: false, size: 10 };
-      metaCell.alignment = { horizontal: 'center' };
+      metaCell.value = `Account: ${safeMeta.account}  |  Code: ${safeMeta.accountCode}  |  Period: ${safeMeta.periodLabel}  |  Trunk: ${safeMeta.trunk}`;
+      metaCell.font  = { bold: true, size: 11, color: { argb: 'FF1F3864' } };
+      metaCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      metaCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F0FE' } };
+      worksheet.getRow(2).height = 20;
 
+      // ── Row 3: generated timestamp ─────────────────────────────────────────
       worksheet.mergeCells(`A3:${lastCol}3`);
       const genCell = worksheet.getCell('A3');
-      genCell.value = `Generated: ${new Date(safeMeta.generatedAt).toLocaleString()}`;
-      genCell.font  = { size: 9 };
+      genCell.value = `Generated: ${new Date(safeMeta.generatedAt).toLocaleString()}  |  Total Records: ${safeMeta.totalRecords}`;
+      genCell.font  = { italic: true, size: 9, color: { argb: 'FF555555' } };
       genCell.alignment = { horizontal: 'center' };
+      genCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F0FE' } };
+      worksheet.getRow(3).height = 16;
 
+      // ── Row 5: column headers — dark navy background, white bold text ──────
       const headerRowIndex = 5;
       const headerRow      = worksheet.getRow(headerRowIndex);
-      headerRow.height     = 20;
+      headerRow.height     = 24;
+
       columns.forEach((key, idx) => {
         const colIdx = idx + 1;
         const cell   = headerRow.getCell(colIdx);
-        cell.value   = String(key).toUpperCase();
-        cell.font    = { bold: true };
+        cell.value   = String(key).toUpperCase().replace(/_/g, ' ');
+        cell.font    = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
         cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-        cell.fill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEEEEEE' } };
-        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
-        worksheet.getColumn(colIdx).width = Math.max(12, Math.min(40, String(key).length + 10));
+        cell.fill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3864' } };
+        cell.border = {
+          top:    { style: 'medium', color: { argb: 'FF1F3864' } },
+          left:   { style: 'thin',   color: { argb: 'FF2D4A7A' } },
+          bottom: { style: 'medium', color: { argb: 'FF1F3864' } },
+          right:  { style: 'thin',   color: { argb: 'FF2D4A7A' } },
+        };
+        worksheet.getColumn(colIdx).width = Math.max(14, Math.min(40, String(key).length + 10));
       });
 
+      // ── Data rows ──────────────────────────────────────────────────────────
       let currentRow = headerRowIndex + 1;
       for (let i = 0; i < data.length; i++) {
         const rowObj = data[i];
         const row    = worksheet.getRow(currentRow);
         columns.forEach((key, idx) => {
-          const val = rowObj[key];
-          row.getCell(idx + 1).value = val === null || val === undefined ? '' : val;
+          const val  = rowObj[key];
+          const cell = row.getCell(idx + 1);
+          cell.value = val === null || val === undefined ? '' : val;
+          // Zebra striping
+          if (i % 2 === 1) {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4FF' } };
+          }
+          cell.border = {
+            left:  { style: 'thin', color: { argb: 'FFD0D9F0' } },
+            right: { style: 'thin', color: { argb: 'FFD0D9F0' } },
+          };
         });
         currentRow++;
       }
 
-      const totals = {};
-      let rowCount = 0;
-      for (let i = 0; i < data.length; i++) {
-        rowCount++;
-        const rowObj = data[i];
-        for (let c = 0; c < columns.length; c++) {
-          const colName = columns[c];
-          const v = rowObj[colName];
-          const n = Number(v);
-          if (!Number.isNaN(n) && typeof v !== 'object') {
-            totals[colName] = (totals[colName] || 0) + n;
-          }
-        }
-      }
-
-      currentRow++;
+      // ── Summary row — dark navy background, white bold text ────────────────
+      currentRow++;  // blank spacer row
       const summaryRow = worksheet.getRow(currentRow);
+      summaryRow.height = 22;
+
+      // Label cell
       summaryRow.getCell(1).value = 'SUMMARY';
-      summaryRow.getCell(1).font  = { bold: true };
-      summaryRow.getCell(1).fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7FAFC' } };
+      summaryRow.getCell(1).font  = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+      summaryRow.getCell(1).fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3864' } };
+      summaryRow.getCell(1).border = {
+        top:    { style: 'medium', color: { argb: 'FF1F3864' } },
+        bottom: { style: 'medium', color: { argb: 'FF1F3864' } },
+        left:   { style: 'thin',   color: { argb: 'FF2D4A7A' } },
+        right:  { style: 'thin',   color: { argb: 'FF2D4A7A' } },
+      };
 
       for (let idx = 0; idx < columns.length; idx++) {
-        const colName = columns[idx];
-        const colNorm = normalize(colName);
-        let rawValue  = '';
-        let label     = '';
+        const key    = columns[idx];
+        const result = getSummaryValue(key);
+        const cell   = summaryRow.getCell(idx + 1);
 
-        if (['attempts', 'calls', 'totalcalls', 'total_calls'].some((k) => colNorm === k || colNorm.includes(k))) {
-          label = 'Total Calls :-'; rawValue = totals[colName] ?? 0;
-        } else if (['completed', 'comp', 'answeredcalls'].some((k) => colNorm === k || colNorm.includes(k))) {
-          label = 'Completed Calls :-'; rawValue = totals[colName] ?? 0;
-        } else if (colNorm.includes('revenue') || colNorm.includes('rev') || colNorm.includes('amount')) {
-          label = 'Total Revenue :-'; rawValue = totals[colName] ?? 0;
-        } else if (colNorm.includes('cost') && !colNorm.includes('costper')) {
-          label = 'Total Cost :-'; rawValue = totals[colName] ?? 0;
-        } else if (colNorm.includes('margin') && !colNorm.includes('marginpercent')) {
-          label = 'Total Margin :-'; rawValue = totals[colName] ?? 0;
-        } else if (colNorm === 'duration' || colNorm.includes('duration') || colNorm.includes('acd')) {
-          label = 'Total Duration :-'; rawValue = totals[colName] ?? 0;
-        } else if (colNorm === 'asr' || colNorm.includes('asr')) {
-          label = 'Avg ASR :-';
-          const attemptsKey  = Object.keys(totals).find((k) => normalize(k).includes('attempt'));
-          const completedKey = Object.keys(totals).find((k) => normalize(k).includes('completed') || normalize(k).includes('comp'));
-          const attemptsSum  = attemptsKey  ? totals[attemptsKey]  : undefined;
-          const completedSum = completedKey ? totals[completedKey] : undefined;
-          if (attemptsSum > 0 && completedSum >= 0) {
-            rawValue = parseFloat(((completedSum / attemptsSum) * 100).toFixed(6));
-          } else if (totals[colName] !== undefined) {
-            rawValue = parseFloat((totals[colName] / rowCount).toFixed(6));
-          }
-        } else if (totals[colName] !== undefined) {
-          label = 'Total :-'; rawValue = totals[colName];
-        }
+        // Always apply the dark background to every cell in the summary row
+        cell.fill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3864' } };
+        cell.border = {
+          top:    { style: 'medium', color: { argb: 'FF1F3864' } },
+          bottom: { style: 'medium', color: { argb: 'FF1F3864' } },
+          left:   { style: 'thin',   color: { argb: 'FF2D4A7A' } },
+          right:  { style: 'thin',   color: { argb: 'FF2D4A7A' } },
+        };
 
-        if (rawValue !== '' && rawValue !== undefined) {
-          const cell      = summaryRow.getCell(idx + 1);
-          const formatted = typeof rawValue === 'number' ? Number(rawValue).toFixed(4) : String(rawValue);
-          cell.value      = `${label} ${formatted}`.trim();
-          cell.font       = { bold: true };
-          cell.alignment  = { horizontal: 'right' };
-        }
+        if (!result) continue;
+
+        const formatted = Number(result.value).toFixed(4);
+        cell.value     = `${result.label}: ${formatted}`;
+        cell.font      = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
       }
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -1591,72 +1657,26 @@ exports.exportReport = async (req, res) => {
       res.end();
 
     } else {
+      // ── CSV ──────────────────────────────────────────────────────────────────
       const json2csvParser = new Parser({ fields: columns, quote: '"' });
+
       const topLines = [
-        safeMeta.title,
-        `Account: ${safeMeta.account} (${safeMeta.accountCode})`,
-        `Period: ${safeMeta.periodLabel}`,
-        `Trunk: ${safeMeta.trunk}`,
-        `Generated: ${new Date(safeMeta.generatedAt).toLocaleString()}`,
+        `"${safeMeta.title}"`,
+        `"Account: ${safeMeta.account} (${safeMeta.accountCode}) | Period: ${safeMeta.periodLabel} | Trunk: ${safeMeta.trunk}"`,
+        `"Generated: ${new Date(safeMeta.generatedAt).toLocaleString()} | Total Records: ${safeMeta.totalRecords}"`,
         '',
       ];
+
       const csvBody = json2csvParser.parse(data);
 
-      const totalsCsv = {};
-      let csvRowCount = 0;
-      for (let i = 0; i < data.length; i++) {
-        csvRowCount++;
-        const rowObj = data[i];
-        for (let c = 0; c < columns.length; c++) {
-          const colName = columns[c];
-          const v = rowObj[colName];
-          const n = Number(v);
-          if (!Number.isNaN(n) && typeof v !== 'object') {
-            totalsCsv[colName] = (totalsCsv[colName] || 0) + n;
-          }
-        }
-      }
-
+      // Summary line — only allowlisted columns
       const summaryRowArr = Array(columns.length).fill('');
       summaryRowArr[0] = 'SUMMARY';
 
       for (let i = 0; i < columns.length; i++) {
-        const colName = columns[i];
-        const colNorm = normalize(colName);
-        let rawValue  = '';
-        let label     = '';
-
-        if (['attempts', 'calls', 'totalcalls', 'total_calls'].some((k) => colNorm === k || colNorm.includes(k))) {
-          label = 'Total Calls :-'; rawValue = totalsCsv[colName] ?? '';
-        } else if (['completed', 'comp', 'answeredcalls'].some((k) => colNorm === k || colNorm.includes(k))) {
-          label = 'Completed Calls :-'; rawValue = totalsCsv[colName] ?? '';
-        } else if (colNorm.includes('revenue') || colNorm.includes('rev') || colNorm.includes('amount')) {
-          label = 'Total Revenue :-'; rawValue = totalsCsv[colName] ?? '';
-        } else if (colNorm.includes('cost') && !colNorm.includes('costper')) {
-          label = 'Total Cost :-'; rawValue = totalsCsv[colName] ?? '';
-        } else if (colNorm.includes('margin') && !colNorm.includes('marginpercent')) {
-          label = 'Total Margin :-'; rawValue = totalsCsv[colName] ?? '';
-        } else if (colNorm === 'duration' || colNorm.includes('duration') || colNorm.includes('acd')) {
-          label = 'Total Duration :-'; rawValue = totalsCsv[colName] ?? '';
-        } else if (colNorm === 'asr' || colNorm.includes('asr')) {
-          label = 'Avg ASR :-';
-          const attemptsKey  = Object.keys(totalsCsv).find((k) => normalize(k).includes('attempt'));
-          const completedKey = Object.keys(totalsCsv).find((k) => normalize(k).includes('completed') || normalize(k).includes('comp'));
-          const attemptsSum  = attemptsKey  ? totalsCsv[attemptsKey]  : undefined;
-          const completedSum = completedKey ? totalsCsv[completedKey] : undefined;
-          if (attemptsSum > 0 && completedSum >= 0) {
-            rawValue = parseFloat(((completedSum / attemptsSum) * 100).toFixed(6));
-          } else if (totalsCsv[colName] !== undefined) {
-            rawValue = parseFloat((totalsCsv[colName] / csvRowCount).toFixed(6));
-          }
-        } else if (totalsCsv[colName] !== undefined) {
-          label = 'Total :-'; rawValue = totalsCsv[colName];
-        }
-
-        if (rawValue !== '' && rawValue !== undefined) {
-          const formatted = typeof rawValue === 'number' ? Number(rawValue).toFixed(4) : String(rawValue);
-          summaryRowArr[i] = `${label} ${formatted}`.trim();
-        }
+        const result = getSummaryValue(columns[i]);
+        if (!result) continue;
+        summaryRowArr[i] = `${result.label}: ${Number(result.value).toFixed(4)}`;
       }
 
       const csvEscape = (v) => {

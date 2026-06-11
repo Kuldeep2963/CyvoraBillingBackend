@@ -401,7 +401,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Failed to load attachments",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -433,7 +433,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Failed to load invoice attachments",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -497,7 +497,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Failed to update invoice",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -518,7 +518,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Unable to open file",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     }
@@ -537,7 +537,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Unable to download file",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     }
@@ -564,7 +564,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Failed to delete attachment",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -602,7 +602,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Failed to upload files",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -651,7 +651,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Failed to upload files",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -668,7 +668,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
       toast({
         title: "Invoice deleted",
         status: "success",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
       setDeleteInvoiceTarget(null);
@@ -679,7 +679,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Failed to delete invoice",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -713,7 +713,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Failed to load invoices",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -816,7 +816,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
       toast({
         title: "Payment recorded",
         status: "success",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
       closeRecordPaymentModal();
@@ -826,7 +826,7 @@ const InvoicesTab = ({ onAddNew, onVendorDataChanged }) => {
         title: "Failed to record payment",
         description: err.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -1918,7 +1918,7 @@ const UploadTab = ({ onViewInvoices, onSuccess, vendorRefreshToken }) => {
         title: "Usage check failed",
         description: error.message,
         status: "error",
-        duration: 4000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {
@@ -1968,7 +1968,7 @@ const UploadTab = ({ onViewInvoices, onSuccess, vendorRefreshToken }) => {
         title: "Invoice Submitted Successfully",
         description: `Invoice ${form.invoiceNumber} has been saved.`,
         status: "success",
-        duration: 5000,
+        duration: 3000,
         isClosable: true,
       });
       if (onSuccess) onSuccess();
@@ -1977,7 +1977,7 @@ const UploadTab = ({ onViewInvoices, onSuccess, vendorRefreshToken }) => {
         title: "Submission Failed",
         description: error.message,
         status: "error",
-        duration: 5000,
+        duration: 3000,
         isClosable: true,
       });
     } finally {

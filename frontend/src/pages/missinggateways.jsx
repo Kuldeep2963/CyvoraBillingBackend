@@ -226,7 +226,7 @@ const MissingGateways = ({
         title:       "Failed to load missing gateways",
         description: error.message,
         status:      "error",
-        duration:    4000,
+        duration:    3000,
         isClosable:  true,
       });
     } finally {
