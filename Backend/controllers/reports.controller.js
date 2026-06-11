@@ -473,7 +473,7 @@ exports.hourlyReport = async (req, res) => {
         attempts:     r.attempts,
         completed:    r.completed,
         asr:          r.attempts  > 0 ? parseFloat(((r.completed / r.attempts) * 100).toFixed(4)) : 0,
-        acd:          r.completed > 0 ? parseFloat((r.duration / r.completed).toFixed(4)) : 0,
+        acd:          r.completed > 0 ? parseFloat(((r.duration/60) / r.completed).toFixed(3)) : 0,
         duration:     r.duration,
         revenue:      parseFloat(r.revenue.toFixed(4)),
         cost:         parseFloat(r.cost.toFixed(4)),
@@ -583,7 +583,7 @@ exports.marginReport = async (req, res) => {
         attempts:      r.attempts,
         completed:     r.completed,
         asr:           r.attempts  > 0 ? parseFloat(((r.completed / r.attempts) * 100).toFixed(4)) : 0,
-        acd:           r.completed > 0 ? parseFloat((r.duration / r.completed).toFixed(4)) : 0,
+        acd:           r.completed > 0 ? parseFloat(((r.duration/60) / r.completed).toFixed(3)) : 0,
         duration:      r.duration,
         revenue:       parseFloat(r.revenue.toFixed(6)),
         cost:          parseFloat(r.cost.toFixed(6)),
@@ -686,7 +686,7 @@ exports.customerTrafficReport = async (req, res) => {
       const rev  = r.revenue;
       const cst  = r.cost;
       const margin = rev - cst;
-      const dur  = r.duration;
+      const dur  = r.duration/60; // convert to minutes for per-minute calculations
       const comp = r.completed;
       data.push({
         custAccountCode:     r.customeraccount,
@@ -699,10 +699,10 @@ exports.customerTrafficReport = async (req, res) => {
         attempts:            r.attempts,
         completed:           comp,
         asr:                 r.attempts > 0 ? parseFloat(((comp / r.attempts) * 100).toFixed(4)) : 0,
-        acd:                 comp > 0 ? parseFloat((dur / comp).toFixed(4)) : 0,
+        acd:                 comp > 0 ? parseFloat((dur / comp).toFixed(3)) : 0,
         rawDuration:         dur,
-        custRoundedDuration: comp > 0 ? parseFloat((dur / comp).toFixed(4)) : 0,
-        vendRoundedDuration: comp > 0 ? parseFloat((dur / comp).toFixed(4)) : 0,
+        custRoundedDuration: comp > 0 ? parseFloat((dur / comp).toFixed(3)) : 0,
+        vendRoundedDuration: comp > 0 ? parseFloat((dur / comp).toFixed(3)) : 0,
         revenue:             parseFloat(rev.toFixed(6)),
         revenuePerMin:       dur > 0 ? parseFloat((rev / (dur / 60)).toFixed(4)) : 0,
         cost:                parseFloat(cst.toFixed(6)),
@@ -806,7 +806,7 @@ exports.customerOnlyTrafficReport = async (req, res) => {
       const rev  = r.revenue;
       const cst  = r.cost;
       const margin = rev - cst;
-      const dur  = r.duration;
+      const dur  = r.duration/60; // convert to minutes for easier interpretation in traffic report
       const comp = r.completed;
       data.push({
         custAccountCode: r.customeraccount,
@@ -816,7 +816,7 @@ exports.customerOnlyTrafficReport = async (req, res) => {
         attempts:        r.attempts,
         completed:       comp,
         asr:             r.attempts > 0 ? parseFloat(((comp / r.attempts) * 100).toFixed(4)) : 0,
-        acd:             comp > 0 ? parseFloat((dur / comp).toFixed(4)) : 0,
+        acd:             comp > 0 ? parseFloat((dur / comp).toFixed(3)) : 0,
         revenue:         parseFloat(rev.toFixed(6)),
         cost:            parseFloat(cst.toFixed(6)),
         margin:          parseFloat(margin.toFixed(6)),
@@ -914,7 +914,7 @@ exports.vendorTrafficReport = async (req, res) => {
       const rev  = r.revenue;
       const cst  = r.cost;
       const margin = rev - cst;
-      const dur  = r.duration;
+      const dur  = r.duration/60; // convert to minutes for easier interpretation in traffic report
       const comp = r.completed;
       data.push({
         vendAccountCode: r.agentaccount,
@@ -924,7 +924,7 @@ exports.vendorTrafficReport = async (req, res) => {
         attempts:        r.attempts,
         completed:       comp,
         asr:             r.attempts > 0 ? parseFloat(((comp / r.attempts) * 100).toFixed(4)) : 0,
-        acd:             comp > 0 ? parseFloat((dur / comp).toFixed(4)) : 0,
+        acd:             comp > 0 ? parseFloat((dur / comp).toFixed(3)) : 0,
         revenue:         parseFloat(rev.toFixed(6)),
         cost:            parseFloat(cst.toFixed(6)),
         costPerMin:      dur > 0 ? parseFloat((cst / (dur / 60)).toFixed(6)) : 0,
@@ -1038,7 +1038,7 @@ exports.negativeMarginReport = async (req, res) => {
         attempts:      r.attempts,
         completed:     r.completed,
         asr:           r.attempts  > 0 ? parseFloat(((r.completed / r.attempts) * 100).toFixed(2)) : 0,
-        acd:           r.completed > 0 ? parseFloat((r.duration / r.completed).toFixed(4)) : 0,
+        acd:           r.completed > 0 ? parseFloat((r.duration / r.completed).toFixed(3)) : 0,
         duration:      r.duration,
         revenue:       parseFloat(r.revenue.toFixed(6)),
         cost:          parseFloat(r.cost.toFixed(6)),

@@ -179,12 +179,16 @@ const formatPercentage = (value, decimals = 3) => {
   return `${parsed.toFixed(decimals)}%`;
 };
 
-const formatDuration = (seconds) => {
-  if (!seconds || seconds === 0) return "00:00:00";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
+// const formatDuration = (seconds) => {
+//   if (!seconds || seconds === 0) return "00:00:00";
+//   const h = Math.floor(seconds / 3600);
+//   const m = Math.floor((seconds % 3600) / 60);
+//   const s = Math.floor(seconds % 60);
+//   return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
+// };
+const formatDuration = (minutes) => {
+  if (!minutes || minutes === 0) return "0 min";
+  return `${minutes} min`;
 };
 
 const formatDateAsYmd = (date) =>
@@ -241,10 +245,11 @@ const buildHourlyColumns = () => [
     ),
   },
   {
-    key:       "acd/60",
-    header:    "ACD (sec)",
+    key:       "acd",
+    header:    "ACD",
     isNumeric: true,
     minWidth:  "110px",
+    render:    (value) => formatDuration(value),
   },
   {
     key:       "duration",
@@ -482,6 +487,7 @@ const buildCustomerVendorColumns = (isVendorReport) => [
     header:    "ACD",
     isNumeric: true,
     minWidth:  "80px",
+    render:    (value) => formatDuration(value),
   },
   {
     key:       "revenue",
@@ -586,6 +592,7 @@ const buildCustomerOnlyColumns = () => [
     header:    "ACD",
     isNumeric: true,
     minWidth:  "80px",
+    render:    (value) => formatDuration(value),
   },
   {
     key:       "revenue",
@@ -669,9 +676,10 @@ const buildVendorOnlyColumns = () => [
   },
   {
     key:       "acd",
-    header:    "ACD (Sec)",
+    header:    "ACD",
     isNumeric: true,
     minWidth:  "100px",
+    render:    (value) => formatDuration(value),
   },
   {
     key:       "cost",
@@ -1153,7 +1161,7 @@ const Reports = () => {
       totalCalls,
       totalMargin,
       avgASR:  n > 0 ? sumASR / n : 0,
-      avgACD:  n > 0 ? sumACD / n : 0,
+      avgACD:  (n > 0 ? sumACD / n : 0).toFixed(3),
       topCustomers: Object.entries(customerMap)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
