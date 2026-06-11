@@ -45,7 +45,7 @@ const PORT = process.env.PORT;
 
 // Middleware
 app.use(cors({
-  origin: process.env.BASE_API_URL,
+  origin: process.env.BASE_API_URL.split(','), // Allow multiple origins if needed
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true

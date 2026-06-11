@@ -241,7 +241,7 @@ const buildHourlyColumns = () => [
     ),
   },
   {
-    key:       "acd",
+    key:       "acd/60",
     header:    "ACD (sec)",
     isNumeric: true,
     minWidth:  "110px",
